@@ -1,0 +1,28 @@
+import Foundation
+
+nonisolated enum DefaultsKey {
+    static let hotkeyCode = "hotkeyCode"
+    static let hotkeyModifiers = "hotkeyModifiers"
+    static let copyUsernameKeyCode = "copyUsernameKeyCode"
+    static let copyUsernameModifiers = "copyUsernameModifiers"
+    static let copyPasswordKeyCode = "copyPasswordKeyCode"
+    static let copyPasswordModifiers = "copyPasswordModifiers"
+    static let copyTotpKeyCode = "copyTotpKeyCode"
+    static let copyTotpModifiers = "copyTotpModifiers"
+    static let showLargeTypeKeyCode = "showLargeTypeKeyCode"
+    static let showLargeTypeModifiers = "showLargeTypeModifiers"
+    static let clipboardClearTimeout = "clipboardClearTimeout"
+    static let concealFromClipboardManagers = "concealFromClipboardManagers"
+    static let searchClearTimeout = "searchClearTimeout"
+    static let syncInterval = "syncInterval"
+    static let lastSyncTime = "lastSyncTime"
+    static let cliPath = "cliPath"
+    static let sshProxyEnabled = "sshProxyEnabled"
+    static let sshUpstreamSocketPath = "sshUpstreamSocketPath"
+    static let sshVaultFilter = "sshVaultFilter"
+    static let sshShowCommandApps = "sshShowCommandApps"
+    static let runProxyEnabled = "runProxyEnabled"
+    static let runProxySocketPath = "~/.local/share/quick-access/run.sock"
+    static let lockoutEnabled = "lockoutEnabled"
+    static let lockoutTimeout = "lockoutTimeout"
+}

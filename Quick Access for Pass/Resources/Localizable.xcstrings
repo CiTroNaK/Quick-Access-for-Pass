@@ -1,0 +1,3231 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "" : {
+      "shouldTranslate" : false
+    },
+    "·" : {
+      "shouldTranslate" : false
+    },
+    "(0 = never)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(0 = nikdy)"
+          }
+        }
+      }
+    },
+    "%@ copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírováno: %@"
+          }
+        }
+      }
+    },
+    "%@ wanted to use %lld keys" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ chtěl použít %2$lld klíčů"
+          }
+        }
+      }
+    },
+    "%@ wanted to use key %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ chtěl použít klíč %2$@"
+          }
+        }
+      }
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%@: Connected" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: Připojeno"
+          }
+        }
+      }
+    },
+    "%@: error" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: chyba"
+          }
+        }
+      }
+    },
+    "%@: not installed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: nenainstalováno"
+          }
+        }
+      }
+    },
+    "%@: not logged in" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: nepřihlášeno"
+          }
+        }
+      }
+    },
+    "%@: OK%@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: OK%@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: OK%2$@"
+          }
+        }
+      }
+    },
+    "%lld" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld"
+          }
+        }
+      }
+    },
+    "%lld days" : {
+      "localizations" : {
+        "cs" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld dny"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld den"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld dnů"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld hours" : {
+      "localizations" : {
+        "cs" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld hodiny"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld hodina"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld hodin"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld items" : {
+      "localizations" : {
+        "cs" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld položky"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld položka"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld položek"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld minutes" : {
+      "localizations" : {
+        "cs" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld minuty"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld minuta"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld minut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld weeks" : {
+      "localizations" : {
+        "cs" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld týdny"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld týden"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld týdnů"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld week"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld weeks"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%llds" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%llds"
+          }
+        }
+      }
+    },
+    "=" : {
+      "shouldTranslate" : false
+    },
+    "About" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O aplikaci"
+          }
+        }
+      }
+    },
+    "Add Application…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat aplikaci…"
+          }
+        }
+      }
+    },
+    "Add Mapping" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat mapování"
+          }
+        }
+      }
+    },
+    "Add Profile" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat profil"
+          }
+        }
+      }
+    },
+    "Add to ~/.ssh/config:" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat do ~/.ssh/config:"
+          }
+        }
+      }
+    },
+    "Add to ~/.zshrc for easy access:" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat do ~/.zshrc pro snadný přístup:"
+          }
+        }
+      }
+    },
+    "Alias" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alias"
+          }
+        }
+      }
+    },
+    "Alias copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alias zkopírován"
+          }
+        }
+      }
+    },
+    "All locally cached items will be deleted and re-fetched from Proton Pass. Usage counts will be reset." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Všechny místně uložené položky budou smazány a znovu staženy z Proton Pass. Počítadla použití budou resetována."
+          }
+        }
+      }
+    },
+    "Allow" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povolit"
+          }
+        }
+      }
+    },
+    "Allowed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povolené"
+          }
+        }
+      }
+    },
+    "Applies to %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Platí pro %@"
+          }
+        }
+      }
+    },
+    "Applies to %@ on %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Platí pro %1$@ na %2$@"
+          }
+        }
+      }
+    },
+    "Applies to all SSH connections to %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Platí pro všechna SSH připojení k %@"
+          }
+        }
+      }
+    },
+    "Authenticate to disable lock" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ověřte se pro vypnutí zámku"
+          }
+        }
+      }
+    },
+    "Authentication cancelled." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ověření zrušeno."
+          }
+        }
+      }
+    },
+    "Authentication cancelled. Try again or deny." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ověření bylo zrušeno. Zkuste to znovu, nebo jej zamítněte."
+          }
+        }
+      }
+    },
+    "Authentication failed." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ověření selhalo."
+          }
+        }
+      }
+    },
+    "Authentication failed. Try again or deny." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autentizace selhala. Zkuste to znovu, nebo zamítněte."
+          }
+        }
+      }
+    },
+    "Authentication failed. Try again." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ověření selhalo. Zkuste to znovu."
+          }
+        }
+      }
+    },
+    "authorize %@ to run with %@ secrets" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "autorizovat %1$@ ke spuštění s tajemstvími %2$@"
+          }
+        }
+      }
+    },
+    "authorize %@ to use SSH key \"%@\"" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "autorizovat %1$@ k použití SSH klíče \"%2$@\""
+          }
+        }
+      }
+    },
+    "Authorize with" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autorizovat pomocí"
+          }
+        }
+      }
+    },
+    "Auto-clear clipboard" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automaticky vymazat schránku"
+          }
+        }
+      }
+    },
+    "auto-detect" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "automaticky"
+          }
+        }
+      }
+    },
+    "Back" : {
+      "comment" : "Footer hint label for returning from item detail back to the results list.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zpět"
+          }
+        }
+      }
+    },
+    "Birthdate" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datum narození"
+          }
+        }
+      }
+    },
+    "Blocked" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blokované"
+          }
+        }
+      }
+    },
+    "by Petr Hlavicka" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "autor: Petr Hlavicka"
+          }
+        }
+      }
+    },
+    "Cache secrets for" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uchovávat tajemství po dobu"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zrušit"
+          }
+        }
+      }
+    },
+    "Card number copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Číslo karty zkopírováno"
+          }
+        }
+      }
+    },
+    "Card Type" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typ karty"
+          }
+        }
+      }
+    },
+    "Cardholder Name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jméno držitele karty"
+          }
+        }
+      }
+    },
+    "Čeština" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Čeština"
+          }
+        }
+      }
+    },
+    "Check for new releases on GitHub" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkontrolovat nové verze na GitHubu"
+          }
+        }
+      }
+    },
+    "City" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Město"
+          }
+        }
+      }
+    },
+    "Clear search on close" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vymazat hledání při zavření"
+          }
+        }
+      }
+    },
+    "Close" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zavřít"
+          }
+        }
+      }
+    },
+    "Command Authorization" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autorizace příkazu"
+          }
+        }
+      }
+    },
+    "Command: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Příkaz: %@"
+          }
+        }
+      }
+    },
+    "Commands are always shown for terminals. Add other apps here." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Příkazy se vždy zobrazují v terminálech. Zde přidejte další aplikace."
+          }
+        }
+      }
+    },
+    "Company" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Společnost"
+          }
+        }
+      }
+    },
+    "Conceal from clipboard managers" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skrýt před správci schránky"
+          }
+        }
+      }
+    },
+    "Connected" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Připojeno"
+          }
+        }
+      }
+    },
+    "Connection closed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spojení uzavřeno"
+          }
+        }
+      }
+    },
+    "Content copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obsah zkopírován"
+          }
+        }
+      }
+    },
+    "Copied to clipboard" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírováno do schránky"
+          }
+        }
+      }
+    },
+    "Copy" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat"
+          }
+        }
+      }
+    },
+    "Copy Alias" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat alias"
+          }
+        }
+      }
+    },
+    "Copy Card Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat číslo karty"
+          }
+        }
+      }
+    },
+    "Copy command" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat"
+          }
+        }
+      }
+    },
+    "Copy Content" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat obsah"
+          }
+        }
+      }
+    },
+    "Copy Email" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat e-mail"
+          }
+        }
+      }
+    },
+    "Copy Error" : {
+      "comment" : "Footer button title that copies diagnostic details for the current action error.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chyba kopírování"
+          }
+        }
+      }
+    },
+    "Copy Note" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat poznámku"
+          }
+        }
+      }
+    },
+    "Copy Password" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat heslo"
+          }
+        }
+      }
+    },
+    "Copy proxy socket path" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat cestu k proxy socketu"
+          }
+        }
+      }
+    },
+    "Copy Public Key" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat veřejný klíč"
+          }
+        }
+      }
+    },
+    "Copy qa-run alias" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat alias qa-run"
+          }
+        }
+      }
+    },
+    "Copy SSH config snippet" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat úryvek SSH konfigurace"
+          }
+        }
+      }
+    },
+    "Copy TOTP" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat TOTP"
+          }
+        }
+      }
+    },
+    "Copy Username" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat uživatelské jméno"
+          }
+        }
+      }
+    },
+    "Country / Region" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Země / region"
+          }
+        }
+      }
+    },
+    "County" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Okres"
+          }
+        }
+      }
+    },
+    "Credit Card" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Platební karta"
+          }
+        }
+      }
+    },
+    "Custom" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní"
+          }
+        }
+      }
+    },
+    "CVV" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CVV"
+          }
+        }
+      }
+    },
+    "Delete profile" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odebrat profil"
+          }
+        }
+      }
+    },
+    "Deny" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamítnout"
+          }
+        }
+      }
+    },
+    "Device is locked. Unlock and try again." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zařízení je uzamčeno. Odemkněte jej a zkuste to znovu."
+          }
+        }
+      }
+    },
+    "Disabled" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vypnuto"
+          }
+        }
+      }
+    },
+    "Dismiss" : {
+      "comment" : "Footer button title that dismisses the current footer error state.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zavřít"
+          }
+        }
+      }
+    },
+    "Do not remember" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nezapamatovat"
+          }
+        }
+      }
+    },
+    "e.g., GitHub CLI" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "např. GitHub CLI"
+          }
+        }
+      }
+    },
+    "Edit profile" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upravit profil"
+          }
+        }
+      }
+    },
+    "Edit Profile" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upravit profil"
+          }
+        }
+      }
+    },
+    "Email" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail"
+          }
+        }
+      }
+    },
+    "Email copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail zkopírován"
+          }
+        }
+      }
+    },
+    "Enable run proxy" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povolit run proxy"
+          }
+        }
+      }
+    },
+    "Enable SSH proxy" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povolit SSH proxy"
+          }
+        }
+      }
+    },
+    "English" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "English"
+          }
+        }
+      }
+    },
+    "ENV_VAR" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ENV_VAR"
+          }
+        }
+      },
+      "shouldTranslate" : false
+    },
+    "Environment Mappings" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mapování proměnných prostředí"
+          }
+        }
+      }
+    },
+    "Error — %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chyba — %@"
+          }
+        }
+      }
+    },
+    "Expiration" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Platnost do"
+          }
+        }
+      }
+    },
+    "expires in %lldd" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vyprší za %lldd"
+          }
+        }
+      }
+    },
+    "expires in %lldh" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vyprší za %lldh"
+          }
+        }
+      }
+    },
+    "expires in %lldh %lldm" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vyprší za %1$lldh %2$lldm"
+          }
+        }
+      }
+    },
+    "expires in %lldm" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vyprší za %lldm"
+          }
+        }
+      }
+    },
+    "expires in %llds" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vyprší za %llds"
+          }
+        }
+      }
+    },
+    "Facebook" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Facebook"
+          }
+        }
+      }
+    },
+    "Failed to copy field" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se zkopírovat pole"
+          }
+        }
+      }
+    },
+    "Failed to parse pass-cli output: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se zpracovat výstup pass-cli: %@"
+          }
+        }
+      }
+    },
+    "Failed to reset database: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se resetovat databázi: %@"
+          }
+        }
+      }
+    },
+    "Failed to show Large Type" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velké zobrazení se nepodařilo otevřít"
+          }
+        }
+      }
+    },
+    "Failed to start run proxy: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se spustit run proxy: %@"
+          }
+        }
+      }
+    },
+    "Failed to start SSH agent: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se spustit SSH agenta: %@"
+          }
+        }
+      }
+    },
+    "Failed to start SSH proxy: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se spustit SSH proxy: %@"
+          }
+        }
+      }
+    },
+    "Fetching…" : {
+      "comment" : "Footer status while loading the selected item action.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Načítání…"
+          }
+        }
+      }
+    },
+    "Field no longer available — refresh" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pole už není k dispozici — obnovte"
+          }
+        }
+      }
+    },
+    "First Name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jméno"
+          }
+        }
+      }
+    },
+    "Floor" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patro"
+          }
+        }
+      }
+    },
+    "Forever" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navždy"
+          }
+        }
+      }
+    },
+    "Full Name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Celé jméno"
+          }
+        }
+      }
+    },
+    "Gender" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pohlaví"
+          }
+        }
+      }
+    },
+    "General" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obecné"
+          }
+        }
+      }
+    },
+    "hidden field" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "skryté pole"
+          }
+        }
+      }
+    },
+    "Host: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Host: %@"
+          }
+        }
+      }
+    },
+    "Identity" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identita"
+          }
+        }
+      }
+    },
+    "In %@" : {
+      "comment" : "Item detail subtitle showing which vault contains the selected item.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "V %1$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In %1$@"
+          }
+        }
+      }
+    },
+    "Instagram" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        }
+      }
+    },
+    "Install instruction at https://protonpass.github.io/pass-cli/ or set a custom path above." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokyny k instalaci na https://protonpass.github.io/pass-cli/ nebo nastavte cestu výše."
+          }
+        }
+      }
+    },
+    "Invalid message" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neplatná zpráva"
+          }
+        }
+      }
+    },
+    "Job Title" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pracovní pozice"
+          }
+        }
+      }
+    },
+    "just now" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "právě teď"
+          }
+        }
+      }
+    },
+    "Key: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klíč: %@"
+          }
+        }
+      }
+    },
+    "Keychain delete failed: %d" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odstranění z klíčenky selhalo: %d"
+          }
+        }
+      }
+    },
+    "Keychain error: %d" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chyba Klíčenky: %d"
+          }
+        }
+      }
+    },
+    "Keychain retrieve failed: %d" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Načtení z klíčenky selhalo: %d"
+          }
+        }
+      }
+    },
+    "Keychain store failed: %d" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uložení do klíčenky selhalo: %d"
+          }
+        }
+      }
+    },
+    "Keys allowed or blocked for non-interactive probes (BatchMode)." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klíče povolené nebo blokované pro neinteraktivní pokusy (BatchMode)."
+          }
+        }
+      }
+    },
+    "Language" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jazyk"
+          }
+        }
+      }
+    },
+    "Large Type" : {
+      "comment" : "Footer hint label for showing the selected value in Large Type.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velké zobrazení"
+          }
+        }
+      }
+    },
+    "Large Type, %lld characters" : {
+      "comment" : "VoiceOver label for the Large Type window — exposes character count but never the value itself.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velké zobrazení, %lld znaků"
+          }
+        }
+      }
+    },
+    "Last Name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Příjmení"
+          }
+        }
+      }
+    },
+    "Last synced" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poslední synchronizace"
+          }
+        }
+      }
+    },
+    "Later" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Později"
+          }
+        }
+      }
+    },
+    "Launch at Login" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spustit při přihlášení"
+          }
+        }
+      }
+    },
+    "License Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Číslo průkazu"
+          }
+        }
+      }
+    },
+    "Limit to vaults" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omezit na trezory"
+          }
+        }
+      }
+    },
+    "LinkedIn" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LinkedIn"
+          }
+        }
+      }
+    },
+    "Lock after" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamknout po"
+          }
+        }
+      }
+    },
+    "Lock after inactivity" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamknout po nečinnosti"
+          }
+        }
+      }
+    },
+    "Login" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlášení"
+          }
+        }
+      }
+    },
+    "Middle Name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prostřední jméno"
+          }
+        }
+      }
+    },
+    "More actions" : {
+      "comment" : "Footer button title that opens the full detail view when more item actions are available.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Další akce"
+          }
+        }
+      }
+    },
+    "Multi-line values can't be shown in Large Type" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Víceřádkové hodnoty nejde ve velkém zobrazení ukázat"
+          }
+        }
+      }
+    },
+    "Name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Název"
+          }
+        }
+      }
+    },
+    "Never" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nikdy"
+          }
+        }
+      }
+    },
+    "New Profile" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nový profil"
+          }
+        }
+      }
+    },
+    "No decisions yet. Decisions appear after SSH probes are intercepted." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zatím žádná rozhodnutí. Rozhodnutí se zobrazí po zachycení SSH pokusů."
+          }
+        }
+      }
+    },
+    "no keys available" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "žádné klíče nejsou k dispozici"
+          }
+        }
+      }
+    },
+    "No profiles configured." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Žádné profily nejsou nakonfigurovány."
+          }
+        }
+      }
+    },
+    "No remembered decisions." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Žádná zapamatovaná rozhodnutí."
+          }
+        }
+      }
+    },
+    "Not logged in" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepřihlášeno"
+          }
+        }
+      }
+    },
+    "Not logged in to Proton Pass. Please run: pass-cli login" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nejste přihlášeni do Proton Pass. Spusťte: pass-cli login"
+          }
+        }
+      }
+    },
+    "Not logged in. Run: pass-cli login" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nejste přihlášeni. Spusťte: pass-cli login"
+          }
+        }
+      }
+    },
+    "Note" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poznámka"
+          }
+        }
+      }
+    },
+    "Note copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poznámka zkopírována"
+          }
+        }
+      }
+    },
+    "Only keys from selected vaults will be available. Empty = all vaults." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "K dispozici budou pouze klíče z vybraných trezorů. Prázdné = všechny trezory."
+          }
+        }
+      }
+    },
+    "Open in Browser" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otevřít v prohlížeči"
+          }
+        }
+      }
+    },
+    "Open Quick Access" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otevřít Quick Access"
+          }
+        }
+      }
+    },
+    "Open Source Licenses" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Licence open source"
+          }
+        }
+      }
+    },
+    "Organization" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Organizace"
+          }
+        }
+      }
+    },
+    "Pass CLI" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI"
+          }
+        }
+      }
+    },
+    "Pass CLI connected" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI připojeno"
+          }
+        }
+      }
+    },
+    "Pass CLI connected as %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI připojeno jako %@"
+          }
+        }
+      }
+    },
+    "Pass CLI error — %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI chyba — %@"
+          }
+        }
+      }
+    },
+    "Pass CLI not found" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI nenalezeno"
+          }
+        }
+      }
+    },
+    "Pass CLI not logged in" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI nepřihlášeno"
+          }
+        }
+      }
+    },
+    "pass-cli command failed: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Příkaz pass-cli selhal: %@"
+          }
+        }
+      }
+    },
+    "pass-cli command timed out" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vypršel časový limit příkazu pass-cli"
+          }
+        }
+      }
+    },
+    "pass-cli error" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "chyba pass-cli"
+          }
+        }
+      }
+    },
+    "pass-cli is not installed. Instructionas at https://protonpass.github.io/pass-cli/" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pass-cli není nainstalováno. Pokyny naleznete na https://protonpass.github.io/pass-cli/"
+          }
+        }
+      }
+    },
+    "pass-cli not found" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pass-cli nenalezeno"
+          }
+        }
+      }
+    },
+    "pass-cli not found. Install: brew install protonpass/tap/pass-cli" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pass-cli nenalezeno. Nainstalujte: brew install protonpass/tap/pass-cli"
+          }
+        }
+      }
+    },
+    "pass-cli not logged in" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pass-cli nepřihlášeno"
+          }
+        }
+      }
+    },
+    "pass-cli path" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cesta k pass-cli"
+          }
+        }
+      }
+    },
+    "pass://vault/item/field" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pass://vault/item/field"
+          }
+        }
+      }
+    },
+    "Passport Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Číslo pasu"
+          }
+        }
+      }
+    },
+    "Password copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heslo zkopírováno"
+          }
+        }
+      }
+    },
+    "Personal Website" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osobní web"
+          }
+        }
+      }
+    },
+    "petr.codes" : {
+      "shouldTranslate" : false
+    },
+    "Phone Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Telefonní číslo"
+          }
+        }
+      }
+    },
+    "PIN" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PIN"
+          }
+        }
+      }
+    },
+    "Please log in: pass-cli login" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlaste se: pass-cli login"
+          }
+        }
+      }
+    },
+    "Press Return to copy" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stiskněte Return pro zkopírování"
+          }
+        }
+      }
+    },
+    "Press Return to open" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otevřete stisknutím klávesy Enter"
+          }
+        }
+      }
+    },
+    "Private Key" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soukromý klíč"
+          }
+        }
+      }
+    },
+    "probe failed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kontrola selhala"
+          }
+        }
+      }
+    },
+    "Profile: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil: %@"
+          }
+        }
+      }
+    },
+    "Proton Pass is a trademark of Proton AG." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proton Pass je ochranná známka Proton AG."
+          }
+        }
+      }
+    },
+    "Proxy socket" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Socket proxy"
+          }
+        }
+      }
+    },
+    "Public key copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Veřejný klíč zkopírován"
+          }
+        }
+      }
+    },
+    "Quick Access for Pass" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access for Pass"
+          }
+        }
+      }
+    },
+    "Quick Access for Pass — Error: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access for Pass — Chyba: %@"
+          }
+        }
+      }
+    },
+    "Quick Access for Pass — Warning: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access for Pass — Varování: %@"
+          }
+        }
+      }
+    },
+    "Quick Access for Pass Settings" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nastavení Quick Access for Pass"
+          }
+        }
+      }
+    },
+    "Quick Access for Pass: service error" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access for Pass: chyba"
+          }
+        }
+      }
+    },
+    "Quick Access for Pass: service warning" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access for Pass: varování"
+          }
+        }
+      }
+    },
+    "Quick Access is Locked" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access je uzamčen"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukončit"
+          }
+        }
+      }
+    },
+    "Recording shortcut. Press keys." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nahrávání zkratky. Stiskněte klávesy."
+          }
+        }
+      }
+    },
+    "Reddit" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        }
+      }
+    },
+    "Refresh" : {
+      "comment" : "Footer hint label for refreshing items.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obnovit"
+          }
+        }
+      }
+    },
+    "Refresh every" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obnovovat každých"
+          }
+        }
+      }
+    },
+    "Refresh Now" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obnovit nyní"
+          }
+        }
+      }
+    },
+    "Release track" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Release track"
+          }
+        }
+      }
+    },
+    "Remember for" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zapamatovat na"
+          }
+        }
+      }
+    },
+    "Remembered run decisions" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zapamatovaná rozhodnutí o spuštění"
+          }
+        }
+      }
+    },
+    "Remembered SSH decisions" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zapamatovaná SSH rozhodnutí"
+          }
+        }
+      }
+    },
+    "Remove" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odebrat"
+          }
+        }
+      }
+    },
+    "Remove (will ask again on next probe)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odebrat (zeptá se znovu při dalším pokusu)"
+          }
+        }
+      }
+    },
+    "Remove (will ask again on next request)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odebrat (při příští žádosti se zeptá znovu)"
+          }
+        }
+      }
+    },
+    "Remove application" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odebrat aplikaci"
+          }
+        }
+      }
+    },
+    "Remove mapping" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odebrat mapování"
+          }
+        }
+      }
+    },
+    "Reset & Sync" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetovat a synchronizovat"
+          }
+        }
+      }
+    },
+    "Reset Cache & Sync" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetovat mezipaměť a synchronizovat"
+          }
+        }
+      }
+    },
+    "Reset local cache?" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetovat místní mezipaměť?"
+          }
+        }
+      }
+    },
+    "Restart Now" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restartovat nyní"
+          }
+        }
+      }
+    },
+    "Restart Required" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyžadován restart"
+          }
+        }
+      }
+    },
+    "Run" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spuštění"
+          }
+        }
+      }
+    },
+    "Run Profiles" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profily spuštění"
+          }
+        }
+      }
+    },
+    "Run Proxy" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run Proxy"
+          }
+        }
+      }
+    },
+    "Run proxy disabled" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run proxy vypnuto"
+          }
+        }
+      }
+    },
+    "Run proxy running" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run proxy běží"
+          }
+        }
+      }
+    },
+    "Run proxy unreachable — %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run proxy nedostupné — %@"
+          }
+        }
+      }
+    },
+    "Run proxy: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run proxy: %@"
+          }
+        }
+      }
+    },
+    "Run request from %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Požadavek Run od %@"
+          }
+        }
+      }
+    },
+    "Running" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Běží"
+          }
+        }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uložit"
+          }
+        }
+      }
+    },
+    "Search Proton Pass..." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hledat v Proton Pass…"
+          }
+        }
+      }
+    },
+    "sec" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "s"
+          }
+        }
+      }
+    },
+    "Second Phone Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Druhé telefonní číslo"
+          }
+        }
+      }
+    },
+    "Secure random generation failed: %d" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generování bezpečných náhodných čísel selhalo: %d"
+          }
+        }
+      }
+    },
+    "Security" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zabezpečení"
+          }
+        }
+      }
+    },
+    "Select Application" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vybrat aplikaci"
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "comment" : "Footer hint label for opening Settings.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nastavení"
+          }
+        }
+      }
+    },
+    "Setup Failed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nastavení selhalo"
+          }
+        }
+      }
+    },
+    "Shortcuts" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkratky"
+          }
+        }
+      }
+    },
+    "Show command for apps" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zobrazovat příkaz pro aplikace"
+          }
+        }
+      }
+    },
+    "Show in Large Type" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ukázat ve velkém zobrazení"
+          }
+        }
+      }
+    },
+    "Show Quick Access" : {
+      "comment" : "Footer hint label for opening Quick Access.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zobrazit"
+          }
+        }
+      }
+    },
+    "Slug" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slug"
+          }
+        }
+      }
+    },
+    "Social Security Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rodné číslo"
+          }
+        }
+      }
+    },
+    "SSH" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH"
+          }
+        }
+      }
+    },
+    "SSH Agent" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH Agent"
+          }
+        }
+      }
+    },
+    "SSH agent daemon started but socket not found at %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Démon SSH agenta byl spuštěn, ale socket nebyl na %@ nalezen"
+          }
+        }
+      }
+    },
+    "SSH agent disabled" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent vypnuto"
+          }
+        }
+      }
+    },
+    "SSH agent requires login. Run: pass-cli login" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent vyžaduje přihlášení. Spusťte: pass-cli login"
+          }
+        }
+      }
+    },
+    "SSH agent running" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent běží"
+          }
+        }
+      }
+    },
+    "SSH agent running with %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent běží s %@"
+          }
+        }
+      }
+    },
+    "SSH agent unreachable — %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent nedostupný — %@"
+          }
+        }
+      }
+    },
+    "SSH agent: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent: %@"
+          }
+        }
+      }
+    },
+    "SSH Key" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH klíč"
+          }
+        }
+      }
+    },
+    "SSH Key Authorization" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autorizace SSH klíče"
+          }
+        }
+      }
+    },
+    "SSH probe blocked" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH pokus zablokován"
+          }
+        }
+      }
+    },
+    "SSH probe decisions" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozhodnutí o SSH probingu"
+          }
+        }
+      }
+    },
+    "SSH request from %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Požadavek SSH od %@"
+          }
+        }
+      }
+    },
+    "SSID" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSID"
+          }
+        }
+      }
+    },
+    "State / Province" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stát / provincie"
+          }
+        }
+      }
+    },
+    "Street Address" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ulice a číslo"
+          }
+        }
+      }
+    },
+    "Sync failed: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronizace selhala: %@"
+          }
+        }
+      }
+    },
+    "Synced %@" : {
+      "comment" : "Footer status showing relative time since the last successful sync.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronizováno %@"
+          }
+        }
+      }
+    },
+    "Syncing…" : {
+      "comment" : "Footer status while the app is syncing Proton Pass metadata.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronizuji…"
+          }
+        }
+      }
+    },
+    "System" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Systémový"
+          }
+        }
+      }
+    },
+    "The app needs to restart for the language change to take effect." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplikace se musí restartovat, aby se změna jazyka projevila."
+          }
+        }
+      }
+    },
+    "The slug \"%@\" is reserved for internal health checks. Choose a different slug." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slug \"%@\" je rezervován pro interní kontroly. Zvolte jiný slug."
+          }
+        }
+      }
+    },
+    "This app does not check for updates automatically." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tato aplikace nekontroluje aktualizace automaticky."
+          }
+        }
+      }
+    },
+    "This app is not affiliated with or endorsed by Proton AG." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tato aplikace není spojena s Proton AG ani jí není podporována."
+          }
+        }
+      }
+    },
+    "This row can't be shown in Large Type" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tento řádek nejde ve velkém zobrazení ukázat"
+          }
+        }
+      }
+    },
+    "TOTP code copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TOTP kód zkopírován"
+          }
+        }
+      }
+    },
+    "Touch ID is locked. Unlock your Mac with your password to re-enable Touch ID." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch ID je uzamčeno. Odemkněte Mac pomocí hesla, aby se Touch ID znovu aktivovalo."
+          }
+        }
+      }
+    },
+    "Touch ID is locked. Use your password instead." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch ID je uzamčeno. Použijte místo toho heslo."
+          }
+        }
+      }
+    },
+    "Touch ID not available: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch ID není k dispozici: %@"
+          }
+        }
+      }
+    },
+    "Try Again" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkusit znovu"
+          }
+        }
+      }
+    },
+    "Type shortcut…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zadejte zkratku…"
+          }
+        }
+      }
+    },
+    "Unknown profile: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neznámý profil: %@"
+          }
+        }
+      }
+    },
+    "Unlock Quick Access" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odemknout Quick Access"
+          }
+        }
+      }
+    },
+    "Unlock with Password" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odemknout heslem"
+          }
+        }
+      }
+    },
+    "Unlock with Touch ID" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odemknout pomocí Touch ID"
+          }
+        }
+      }
+    },
+    "Unreachable — %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nedostupné — %@"
+          }
+        }
+      }
+    },
+    "Until end of day" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do konce dne"
+          }
+        }
+      }
+    },
+    "upstream error" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "chyba upstream"
+          }
+        }
+      }
+    },
+    "Upstream socket" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upstream socket"
+          }
+        }
+      }
+    },
+    "Username" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uživatel"
+          }
+        }
+      }
+    },
+    "Username copied" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uživatelské jméno zkopírováno"
+          }
+        }
+      }
+    },
+    "Value is too long for Large Type" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hodnota je pro velké zobrazení příliš dlouhá"
+          }
+        }
+      }
+    },
+    "Version" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verze"
+          }
+        }
+      }
+    },
+    "Version %@ (%@)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verze %@ (%@)"
+          }
+        }
+      }
+    },
+    "waiting before retry" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "čekání před dalším pokusem"
+          }
+        }
+      }
+    },
+    "wants to use an SSH key" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "chce použít SSH klíč"
+          }
+        }
+      }
+    },
+    "wants to use secrets from %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "chce použít tajemství z %@"
+          }
+        }
+      }
+    },
+    "Website" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webová stránka"
+          }
+        }
+      }
+    },
+    "Wi-Fi" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fi"
+          }
+        }
+      }
+    },
+    "Work Email" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pracovní e-mail"
+          }
+        }
+      }
+    },
+    "Work Phone Number" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pracovní telefonní číslo"
+          }
+        }
+      }
+    },
+    "X Handle" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uživatelské jméno na X"
+          }
+        }
+      }
+    },
+    "Yahoo" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yahoo"
+          }
+        }
+      }
+    },
+    "yes@petr.codes" : {
+      "shouldTranslate" : false
+    },
+    "Zip / Postal Code" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PSČ"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

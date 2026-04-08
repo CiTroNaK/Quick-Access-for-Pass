@@ -1,0 +1,63 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open the search panel
+        2. Type "..."
+        3. Press Enter
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g., macOS 26.0
+    validations:
+      required: true
+  - type: input
+    id: pass-cli-version
+    attributes:
+      label: pass-cli version
+      placeholder: e.g., 1.24.2
+    validations:
+      required: false
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Search panel
+        - SSH agent proxy
+        - Run proxy
+        - Clipboard
+        - Settings
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, or anything else that might help.
+    validations:
+      required: false

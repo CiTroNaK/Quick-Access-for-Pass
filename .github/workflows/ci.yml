@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: SwiftLint
+        run: swiftlint lint --strict
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Cache DerivedData
+        uses: actions/cache@v5
+        with:
+          path: build/
+          key: derived_data-v2-${{ runner.os }}-xcode26.2-${{ hashFiles('Quick Access for Pass.xcodeproj/**') }}
+          restore-keys: |
+            derived_data-v2-${{ runner.os }}-xcode26.2-
+
+      - name: Build
+        run: |
+          xcodebuild build -scheme "Quick Access for Pass" -derivedDataPath build/ \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_ENTITLEMENTS= \
+            ENABLE_HARDENED_RUNTIME=NO
+
+      - name: Run tests
+        env:
+          TEST_RUNNER_CI: "true"
+        run: |
+          xcodebuild test -scheme "Quick Access for Pass" -derivedDataPath build/ \
+            -parallel-testing-enabled NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_ENTITLEMENTS= \
+            ENABLE_HARDENED_RUNTIME=NO

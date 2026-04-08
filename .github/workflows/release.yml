@@ -1,0 +1,274 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  SCHEME: "Quick Access for Pass"
+  APP_NAME: "Quick Access for Pass.app"
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "tag_version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building version $TAG (build $GITHUB_RUN_NUMBER)"
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm "$CERT_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+      - name: List signing identities
+        run: security find-identity -v -p codesigning
+
+      - name: Install provisioning profile
+        env:
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          echo "$APPLE_PROVISIONING_PROFILE" | base64 --decode > "$PROFILES_DIR/QuickAccessForPass.provisionprofile"
+
+      - name: Archive
+        env:
+          MARKETING_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          xcodebuild archive \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath build/QuickAccessForPass.xcarchive \
+            -destination "generic/platform=macOS" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+
+      - name: Export archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PROFILE_NAME: ${{ secrets.APPLE_PROFILE_NAME }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>destination</key>
+              <string>export</string>
+              <key>method</key>
+              <string>developer-id</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Developer ID Application</string>
+              <key>teamID</key>
+              <string>${APPLE_TEAM_ID}</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>codes.petr.quick-access-for-pass</key>
+                  <string>${APPLE_PROFILE_NAME}</string>
+              </dict>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath build/QuickAccessForPass.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Notarize app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          APP_PATH="build/export/$APP_NAME"
+          NOTARIZE_ZIP="$RUNNER_TEMP/notarize.zip"
+
+          ditto -c -k --keepParent "$APP_PATH" "$NOTARIZE_ZIP"
+
+          SUBMIT_OUTPUT=$(xcrun notarytool submit "$NOTARIZE_ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait \
+            --output-format json 2>&1) || true
+
+          echo "$SUBMIT_OUTPUT"
+
+          STATUS=$(echo "$SUBMIT_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::Notarization failed with status: $STATUS"
+            if [ -n "$SUBMISSION_ID" ]; then
+              echo "--- Notarization log ---"
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" || true
+            fi
+            exit 1
+          fi
+
+      - name: Staple app
+        run: xcrun stapler staple "build/export/$APP_NAME"
+
+      - name: Install create-dmg
+        run: brew install create-dmg || true
+
+      - name: Create DMG
+        env:
+          VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          DMG_NAME="Quick.Access.for.Pass-${VERSION}.dmg"
+
+          create-dmg \
+            --volname "Quick Access for Pass" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "$APP_NAME" 150 190 \
+            --app-drop-link 450 190 \
+            "$DMG_NAME" \
+            "build/export/$APP_NAME"
+
+      - name: Create ZIP
+        env:
+          VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          ZIP_NAME="Quick.Access.for.Pass-${VERSION}.zip"
+
+          ditto -c -k --keepParent "build/export/$APP_NAME" "$ZIP_NAME"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg
+          path: Quick.Access.for.Pass-*.dmg
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: zip
+          path: Quick.Access.for.Pass-*.zip
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "tag_version=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build release body
+        run: |
+          TAG="${{ github.ref_name }}"
+          cat > "$RUNNER_TEMP/release-body.md" << 'BODY'
+          <details>
+          <summary>Installation</summary>
+
+          ### Homebrew (recommended)
+          ```bash
+          brew tap CiTroNaK/tap
+          brew install --cask quick-access-for-pass
+          ```
+
+          ### macOS (Apple Silicon & Intel)
+          Download `Quick.Access.for.Pass-VERSION.dmg` from the assets below, open it, and drag to Applications. The app is a universal binary and runs natively on both architectures.
+
+          > Signed and notarized with Apple Developer ID.
+          </details>
+          BODY
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-body.md
+          files: |
+            artifacts/Quick.Access.for.Pass-*
+
+  update-homebrew:
+    name: Update Homebrew Cask
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download ZIP artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          name: zip
+
+      - name: Compute SHA256 and dispatch
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          SHA=$(sha256sum artifacts/Quick.Access.for.Pass-*.zip | awk '{print $1}')
+
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $HOMEBREW_TAP_TOKEN" \
+            "https://api.github.com/repos/CiTroNaK/homebrew-tap/dispatches" \
+            -d "{
+              \"event_type\": \"update-cask\",
+              \"client_payload\": {
+                \"version\": \"$VERSION\",
+                \"sha256\": \"$SHA\"
+              }
+            }"

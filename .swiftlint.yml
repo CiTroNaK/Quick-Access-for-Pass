@@ -1,0 +1,19 @@
+included:
+  - Quick Access for Pass
+
+disabled_rules:
+  - trailing_comma
+
+identifier_name:
+  min_length:
+    warning: 2
+
+line_length:
+  warning: 160
+  error: 200
+
+large_tuple:
+  warning: 3
+
+function_body_length:
+  warning: 60
