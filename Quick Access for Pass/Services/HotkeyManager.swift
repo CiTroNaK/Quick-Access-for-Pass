@@ -18,9 +18,9 @@ final class HotkeyManager {
     private var lastKeyCode: UInt16 = 0
     private var lastModifiers: UInt = 0
 
-    /// The current shortcut. Default: Cmd+Shift+P
-    var keyCode: UInt16 = 35  // 'P'
-    var modifiers: NSEvent.ModifierFlags = [.command, .shift]
+    /// The current shortcut. Default: Shift+Option+Space
+    var keyCode: UInt16 = 49  // Space
+    var modifiers: NSEvent.ModifierFlags = [.shift, .option]
 
     /// Registers the hotkey, skipping re-registration if the key and modifiers are unchanged.
     func register(handler: @escaping @Sendable () -> Void) {
