@@ -34,8 +34,9 @@ At a glance: global-hotkey search, Touch ID for sensitive actions, and two optio
 
 - Global hotkey (default `⇧⌥Space`) opens a floating search panel
 - Fast local search over synced item metadata (encrypted SQLite + FTS5)
-- Keyboard-first: username, password, TOTP, primary-field copy, URL open, drill-down
-- Large Type display for any value
+- Keyboard-first flow: `↑` / `↓` move through results, `→` opens item detail, `←` goes back, and `Return` runs the selected action
+- Default shortcuts: Copy Username `⌘C`, Copy Password `⇧⌘C`, Copy TOTP `⌥⌘C`, Open in Browser `⌘O`, Show in Large Type `⇧Return`
+- All of these shortcuts can be changed in **Settings → Shortcuts**
 - Usage-based ranking so your most-used items surface first
 - Clipboard auto-clear with concealed-type support for clipboard managers
 
@@ -91,6 +92,28 @@ Inject Proton Pass secrets into commands at runtime, with a Touch ID gate.
 - Menu-bar icon reflects degraded/error state; automatic probe-driven recovery
 - VoiceOver and Voice Control aware throughout
 - Explicit selection state, announcements, and focus handling
+
+</details>
+
+<details>
+<summary><strong>Settings</strong></summary>
+
+Most of the app's behavior is configurable in Settings — from the global hotkey and per-action shortcuts to clipboard behavior, sync, and the optional SSH / Run proxies.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/settings-general.png" alt="General settings with launch at login, global hotkey, and language options" width="340"><br><sub>General: launch at login, Quick Access hotkey, language</sub></td>
+    <td align="center"><img src="docs/settings-shortcuts.png" alt="Shortcuts settings with configurable keyboard shortcuts for item actions" width="340"><br><sub>Shortcuts: customize copy and Large Type shortcuts</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, and auto-lock options" width="340"><br><sub>Security: clipboard handling, search clearing, auto-lock</sub></td>
+    <td align="center"><img src="docs/settings-cli.png" alt="Pass CLI settings with refresh interval, sync status, and CLI path" width="340"><br><sub>Pass CLI: sync cadence, status, and CLI path</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/settings-ssh.png" alt="SSH settings with proxy enablement, socket paths, and filtering options" width="340"><br><sub>SSH: proxy enablement, socket paths, filtering, remembered decisions</sub></td>
+    <td align="center"><img src="docs/settings-run.png" alt="Run settings with run proxy enablement and profiles" width="340"><br><sub>Run: proxy enablement and secret-injection profiles</sub></td>
+  </tr>
+</table>
 
 </details>
 
