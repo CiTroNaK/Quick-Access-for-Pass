@@ -2,6 +2,10 @@
 
 **A macOS menu-bar app for fast, Touch-ID-protected access to your [Proton Pass](https://proton.me/pass) secrets.** Press a hotkey, search, copy — done.
 
+<p align="center">
+  <img src="docs/intro.gif" alt="Quick Access for Pass in action" width="640">
+</p>
+
 > 💛 **Like this project?** Sign up for Proton with my [referral link](https://pr.tn/ref/DRHZ4WW3) — you get 2 weeks of a paid plan, and I get a small reward if you subscribe.
 
 ## Why
@@ -35,6 +39,13 @@ At a glance: global-hotkey search, Touch ID for sensitive actions, and two optio
 - Usage-based ranking so your most-used items surface first
 - Clipboard auto-clear with concealed-type support for clipboard managers
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/detail.png" alt="Item detail view with per-field actions" width="340"><br><sub>Item detail with per-field copy actions</sub></td>
+    <td align="center"><img src="docs/large-type.png" alt="Large Type display of a value" width="340"><br><sub>Large Type display, handy when reading a password aloud</sub></td>
+  </tr>
+</table>
+
 </details>
 
 <details>
@@ -47,6 +58,13 @@ Touch-ID-gated signing between SSH clients and the Proton Pass SSH agent.
 - Remembered decisions + short in-memory session cache to avoid prompt fatigue during multi-step operations
 - Vault filtering and per-app command-display controls in Settings
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/ssh-auth-terminal.png" alt="SSH authorization from a terminal (git fetch)" width="340"><br><sub>Terminal (Ghostty) running <code>git fetch</code></sub></td>
+    <td align="center"><img src="docs/ssh-auth-app.png" alt="SSH authorization from a GUI app (Tower)" width="340"><br><sub>GUI app (Tower)</sub></td>
+  </tr>
+</table>
+
 </details>
 
 <details>
@@ -58,6 +76,11 @@ Inject Proton Pass secrets into commands at runtime, with a Touch ID gate.
 - Context-aware remembering (app identity + subcommand + profile)
 - In-memory secret caching per profile with configurable TTL
 - Peer verification rejects unverified local clients
+
+<p align="center">
+  <img src="docs/run-auth-gh.png" alt="Run Proxy authorization for a gh command" width="340"><br>
+  <sub>Authorizing <code>gh status</code> with GitHub CLI secrets injected from Proton Pass</sub>
+</p>
 
 </details>
 
