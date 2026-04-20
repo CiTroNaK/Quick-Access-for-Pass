@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 extension QuickAccessViewModel {
     func showSelectedRowInLargeType() {
+        onActivity()
         guard let item = detailItem else { return }
         let rows = rows(for: item)
         guard let row = rows[safe: selectedRowIndex], row.isSelectable else { return }

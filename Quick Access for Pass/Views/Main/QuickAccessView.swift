@@ -121,6 +121,7 @@ struct QuickAccessView: View {
             if viewModel.detailItem != nil {
                 viewModel.hideDetail()
             } else if !viewModel.searchQuery.isEmpty {
+                appDelegate.recordActivity()
                 viewModel.searchQuery = ""
             } else {
                 onDismiss()
@@ -168,11 +169,13 @@ struct QuickAccessView: View {
         }
         .onKeyPress(keys: ["r"]) { keyPress in
             guard keyPress.modifiers.contains(.command) else { return .ignored }
+            appDelegate.recordActivity()
             NotificationCenter.default.post(name: .refreshRequested, object: nil)
             return .handled
         }
         .onKeyPress(keys: [","]) { keyPress in
             guard keyPress.modifiers.contains(.command) else { return .ignored }
+            appDelegate.recordActivity()
             onDismiss()
             NSApp.activate()
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
@@ -191,11 +194,19 @@ struct QuickAccessView: View {
     }
 
     private var searchField: some View {
-        HStack {
+        let searchBinding = Binding(
+            get: { viewModel.searchQuery },
+            set: { newValue in
+                appDelegate.recordActivity()
+                viewModel.searchQuery = newValue
+            }
+        )
+
+        return HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            TextField("Search Proton Pass...", text: $viewModel.searchQuery)
+            TextField("Search Proton Pass...", text: searchBinding)
                 .textFieldStyle(.plain)
                 .font(.title3)
                 .focused($isSearchFocused)

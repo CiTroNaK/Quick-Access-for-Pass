@@ -6,13 +6,14 @@ import Foundation
 @MainActor
 struct UnlockWaiterTests {
 
-    @Test func resetAuthTimestampResumesWaiter() async {
+    @Test func resetAuthTimestampResumesWaiterAndRefreshesActivity() async throws {
         let delegate = AppDelegate()
-        let defaults = UserDefaults(suiteName: "UnlockWaiterTests.resumesWaiter")!
-        defaults.removePersistentDomain(forName: "UnlockWaiterTests.resumesWaiter")
+        let defaults = UserDefaults(suiteName: "UnlockWaiterTests.resumesWaiterAndRefreshesActivity")!
+        defaults.removePersistentDomain(forName: "UnlockWaiterTests.resumesWaiterAndRefreshesActivity")
         defaults.set(true, forKey: DefaultsKey.lockoutEnabled)
         delegate.testDefaults = defaults
-        delegate.lastAuthenticatedAt = nil
+        delegate.lastAuthenticatedAt = Date(timeIntervalSince1970: 100)
+        delegate.lastActivityAt = Date(timeIntervalSince1970: 200)
 
         async let waited = delegate.showPanelAndWaitForUnlock()
 
@@ -25,6 +26,11 @@ struct UnlockWaiterTests {
         delegate.resetAuthTimestamp()
 
         #expect(await waited == true)
+        let refreshedAuth = try #require(delegate.lastAuthenticatedAt)
+        let refreshedActivity = try #require(delegate.lastActivityAt)
+        #expect(refreshedAuth > Date(timeIntervalSince1970: 100))
+        #expect(refreshedActivity > Date(timeIntervalSince1970: 200))
+        #expect(abs(refreshedAuth.timeIntervalSince(refreshedActivity)) < 0.1)
     }
 
     @Test func timeoutResumesWaiterWithFalse() async {

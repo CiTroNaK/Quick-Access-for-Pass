@@ -26,6 +26,8 @@ final class QuickAccessViewModel {
     let cliService: PassCLIService
     let clipboardManager: ClipboardManager
     let onDismiss: () -> Void
+    let onActivity: () -> Void
+    let defaults: UserDefaults
     let fetchItem: CLIItemFetcher
     let presentLargeType: LargeTypePresenter
     private var searchTask: Task<Void, Never>?
@@ -40,6 +42,8 @@ final class QuickAccessViewModel {
         cliService: PassCLIService,
         clipboardManager: ClipboardManager,
         onDismiss: @escaping () -> Void,
+        onActivity: @escaping () -> Void = {},
+        defaults: UserDefaults = .standard,
         fetchItem: CLIItemFetcher? = nil,
         presentLargeType: LargeTypePresenter? = nil
     ) {
@@ -47,6 +51,8 @@ final class QuickAccessViewModel {
         self.cliService = cliService
         self.clipboardManager = clipboardManager
         self.onDismiss = onDismiss
+        self.onActivity = onActivity
+        self.defaults = defaults
         self.cliPath = cliService.cliPath
         self.presentLargeType = presentLargeType ?? { _ in }
         if let fetchItem {
@@ -94,7 +100,7 @@ final class QuickAccessViewModel {
 
     func scheduleSearchClear() {
         clearSearchTask?.cancel()
-        let timeout = UserDefaults.standard.double(forKey: DefaultsKey.searchClearTimeout)
+        let timeout = defaults.double(forKey: DefaultsKey.searchClearTimeout)
         guard timeout > 0 else { return }
         clearSearchTask = Task {
             try? await Task.sleep(for: .seconds(timeout))
@@ -109,15 +115,25 @@ final class QuickAccessViewModel {
         clearSearchTask = nil
     }
 
+    #if DEBUG
+    /// Awaits the in-flight search-clear task, if any. Test-only — available
+    /// only in Debug builds to avoid exposing it as production API.
+    func awaitPendingSearchClear() async {
+        await clearSearchTask?.value
+    }
+    #endif
+
     // MARK: - Navigation
 
     func showDetail() {
+        onActivity()
         guard let item = items[safe: selectedIndex] else { return }
         detailItem = item
         selectedRowIndex = 0
     }
 
     func hideDetail() {
+        onActivity()
         inFlightCopy?.cancel()
         inFlightCopy = nil
         inFlightLargeType?.cancel()
@@ -130,6 +146,7 @@ final class QuickAccessViewModel {
     }
 
     func moveRowSelection(by offset: Int) {
+        onActivity()
         guard let item = detailItem else { return }
         let rows = rows(for: item)
         guard !rows.isEmpty else { return }
@@ -150,6 +167,7 @@ final class QuickAccessViewModel {
     // MARK: - Selection
 
     func moveSelection(by offset: Int) {
+        onActivity()
         guard !items.isEmpty else { return }
         selectedIndex = max(0, min(items.count - 1, selectedIndex + offset))
     }
@@ -185,12 +203,12 @@ final class QuickAccessViewModel {
         let item = detailItem ?? items[safe: selectedIndex]
         guard let item else { return false }
 
-        let defaults = UserDefaults.standard
         let largeTypeCode = UInt16(defaults.integer(forKey: DefaultsKey.showLargeTypeKeyCode))
         let largeTypeMods = NSEvent.ModifierFlags(
             rawValue: UInt(defaults.integer(forKey: DefaultsKey.showLargeTypeModifiers))
         ).intersection([.command, .shift, .option, .control])
         if detailItem != nil, keyCode == largeTypeCode, modifiers == largeTypeMods {
+            onActivity()
             showSelectedRowInLargeType()
             return true
         }
@@ -208,6 +226,7 @@ final class QuickAccessViewModel {
             ).intersection([.command, .shift, .option, .control])
             let action = shortcut.action
             if keyCode == storedCode && modifiers == storedMods {
+                onActivity()
                 if detailItem != nil {
                     let rows = rows(for: item)
                     if let index = rows.firstIndex(where: {
@@ -227,6 +246,7 @@ final class QuickAccessViewModel {
     // MARK: - Actions
 
     func handleEnter() {
+        onActivity()
         if let item = detailItem {
             let rows = rows(for: item)
             guard let row = rows[safe: selectedRowIndex], row.isSelectable else { return }

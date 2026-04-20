@@ -4,6 +4,9 @@ import Foundation
 @MainActor
 extension QuickAccessViewModel {
     func handleAction(_ action: ItemAction, for item: PassItem) {
+        // May be called directly by the UI or re-entered from handleEnter/handleKeyDown;
+        // onActivity must be idempotent because the compound path fires it twice.
+        onActivity()
         switch action {
         case .copyUsername:
             handleCopyUsername(for: item)

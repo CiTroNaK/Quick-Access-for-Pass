@@ -21,7 +21,7 @@ struct LockStateTests {
     }
 
     @Test
-    func lockedOnLaunchWhenEnabledNoAuth() {
+    func lockedWhenNoActivityRecordedYet() {
         let defaults = makeDefaults(#function)
         defaults.set(true, forKey: DefaultsKey.lockoutEnabled)
         defaults.set(LockoutTimeout.oneHour.seconds, forKey: DefaultsKey.lockoutTimeout)
@@ -31,13 +31,13 @@ struct LockStateTests {
     }
 
     @Test
-    func unlockedAfterRecentAuth() {
+    func unlockedAfterRecentActivity() {
         let defaults = makeDefaults(#function)
         defaults.set(true, forKey: DefaultsKey.lockoutEnabled)
         defaults.set(LockoutTimeout.oneHour.seconds, forKey: DefaultsKey.lockoutTimeout)
         let delegate = AppDelegate()
         delegate.testDefaults = defaults
-        delegate.resetAuthTimestamp()
+        delegate.recordActivity()
         #expect(!delegate.isLocked)
     }
 
@@ -48,7 +48,7 @@ struct LockStateTests {
         defaults.set(LockoutTimeout.fifteenMinutes.seconds, forKey: DefaultsKey.lockoutTimeout)
         let delegate = AppDelegate()
         delegate.testDefaults = defaults
-        delegate.lastAuthenticatedAt = Date().addingTimeInterval(-1000)
+        delegate.lastActivityAt = Date().addingTimeInterval(-1000)
         #expect(delegate.isLocked)
     }
 
@@ -59,16 +59,42 @@ struct LockStateTests {
         defaults.set(LockoutTimeout.fifteenMinutes.seconds, forKey: DefaultsKey.lockoutTimeout)
         let delegate = AppDelegate()
         delegate.testDefaults = defaults
-        delegate.lastAuthenticatedAt = Date().addingTimeInterval(-899)
+        delegate.lastActivityAt = Date().addingTimeInterval(-890)
         #expect(!delegate.isLocked)
     }
 
     @Test
-    func resetAuthTimestampUpdatesDate() {
+    func successfulAuthenticationRefreshesAuthAndActivityTimestamps() throws {
         let delegate = AppDelegate()
-        #expect(delegate.lastAuthenticatedAt == nil)
+        let oldAuth = Date(timeIntervalSince1970: 100)
+        let oldActivity = Date(timeIntervalSince1970: 200)
+
+        delegate.lastAuthenticatedAt = oldAuth
+        delegate.lastActivityAt = oldActivity
+
         delegate.resetAuthTimestamp()
-        #expect(delegate.lastAuthenticatedAt != nil)
+
+        let refreshedAuth = try #require(delegate.lastAuthenticatedAt)
+        let refreshedActivity = try #require(delegate.lastActivityAt)
+        #expect(refreshedAuth > oldAuth)
+        #expect(refreshedActivity > oldActivity)
+        #expect(abs(refreshedAuth.timeIntervalSince(refreshedActivity)) < 0.1)
+    }
+
+    @Test
+    func recordActivityRefreshesOnlyActivityTimestamp() throws {
+        let delegate = AppDelegate()
+        let existingAuth = Date(timeIntervalSince1970: 100)
+        let oldActivity = Date(timeIntervalSince1970: 200)
+
+        delegate.lastAuthenticatedAt = existingAuth
+        delegate.lastActivityAt = oldActivity
+
+        delegate.recordActivity()
+
+        let refreshedActivity = try #require(delegate.lastActivityAt)
+        #expect(delegate.lastAuthenticatedAt == existingAuth)
+        #expect(refreshedActivity > oldActivity)
     }
 
     @Test

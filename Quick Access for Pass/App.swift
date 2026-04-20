@@ -60,37 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var healthCoordinator: HealthCheckCoordinator?
 
     /// Lock state: set by `forceLock()`, cleared by `resetAuthTimestamp()`.
-    private(set) var isForceLocked = false
+    var isForceLocked = false
     var lastAuthenticatedAt: Date?
+    var lastActivityAt: Date?
     var panelPresentationNonce = UUID()
     private(set) var pendingLockContext: PendingLockContext?
     @ObservationIgnored var pendingUnlockWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
     /// Overridable defaults for testing. Production code uses `.standard`.
     var testDefaults: UserDefaults?
-    private var lockDefaults: UserDefaults { testDefaults ?? .standard }
-
-    var isLocked: Bool {
-        _ = panelPresentationNonce
-        if isForceLocked { return true }
-        guard lockDefaults.bool(forKey: DefaultsKey.lockoutEnabled) else { return false }
-        guard let lastAuth = lastAuthenticatedAt else { return true }
-        let timeout = lockDefaults.object(forKey: DefaultsKey.lockoutTimeout) as? Double
-            ?? LockoutTimeout.default.seconds
-        return Date().timeIntervalSince(lastAuth) > timeout
-    }
-
-    var keychainServiceForLock: (any BiometricAuthorizing)? { keychainService }
-
-    func resetAuthTimestamp() {
-        lastAuthenticatedAt = Date()
-        isForceLocked = false
-        resumeUnlockWaiters()
-    }
-
-    func forceLock() {
-        isForceLocked = true
-    }
 
     // Token identifying the current pending-context writer. Cleared to nil
     // when the context is cleared. Writes only on MainActor.
@@ -271,6 +249,7 @@ private extension AppDelegate {
             cliService: cliService,
             clipboardManager: clipboardManager,
             onDismiss: { [weak self] in self?.panelController?.hide() },
+            onActivity: { [weak self] in self?.recordActivity() },
             presentLargeType: { [weak self] display in
                 guard let self else { return }
                 self.largeTypeWindowController?.show(

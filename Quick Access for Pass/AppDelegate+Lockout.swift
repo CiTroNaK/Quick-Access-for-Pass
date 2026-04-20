@@ -1,6 +1,36 @@
 import AppKit
 
 extension AppDelegate {
+    private var lockDefaults: UserDefaults { testDefaults ?? .standard }
+
+    var isLocked: Bool {
+        _ = panelPresentationNonce
+        if isForceLocked { return true }
+        guard lockDefaults.bool(forKey: DefaultsKey.lockoutEnabled) else { return false }
+        guard let lastActivity = lastActivityAt else { return true }
+        let timeout = lockDefaults.object(forKey: DefaultsKey.lockoutTimeout) as? Double
+            ?? LockoutTimeout.default.seconds
+        return Date().timeIntervalSince(lastActivity) > timeout
+    }
+
+    var keychainServiceForLock: (any BiometricAuthorizing)? { keychainService }
+
+    func recordActivity() {
+        lastActivityAt = Date()
+    }
+
+    func resetAuthTimestamp() {
+        let now = Date()
+        lastAuthenticatedAt = now
+        lastActivityAt = now
+        isForceLocked = false
+        resumeUnlockWaiters()
+    }
+
+    func forceLock() {
+        isForceLocked = true
+    }
+
     func registerDefaultSettings() {
         // Carbon keyCode 8 = "C", modifier raw values:
         // ⌘ = 1048576, ⇧⌘ = 1179648, ⌥⌘ = 1572864
