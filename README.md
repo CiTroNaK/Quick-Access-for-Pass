@@ -14,14 +14,14 @@ I built this for myself and my wife after moving from 1Password to Proton Pass �
 
 ## Quick start
 
-1. **Install** via Homebrew:
+1. **Install and log in to [`pass-cli`](https://protonpass.github.io/pass-cli/)** — the app reads your vaults through it.
+2. **Install** this app via [Homebrew](https://brew.sh/):
    ```bash
-   brew tap CiTroNaK/tap
-   brew install --cask quick-access-for-pass
+   brew install CiTroNaK/tap/quick-access-for-pass
    ```
-   (or download from [Releases](../../releases))
-2. **Install and log in to [`pass-cli`](https://protonpass.github.io/pass-cli/)** — the app reads your vaults through it.
-3. **Press `⇧⌥Space`**, search for an item, hit Return to copy.
+   (or download from [Releases](../../releases) and install manually to `/Applications`)
+3. Open the app.
+4. **Press `⇧⌥Space`**, search for an item, hit Return to copy.
 
 That's it. Everything else below is optional.
 
@@ -168,7 +168,7 @@ Built around a few non-negotiable constraints:
 - **Database encryption** via a Keychain-managed passphrase
 - **Owner-only sockets** for local proxy communication; Run Proxy verifies peers
 - **Reduced clipboard leakage** via `org.nspasteboard.ConcealedType`
-- **Auto-lock** after 15+ minutes of inactivity; unlock with Touch ID or password
+- **Auto-lock** after 5+ minutes of inactivity; unlock with Touch ID or password
 
 For vulnerability reporting, see [SECURITY.md](SECURITY.md). For the full security posture, read the source — it's the whole point.
 
