@@ -209,7 +209,7 @@ struct RunAuthDecisionTests {
 @MainActor
 @Suite("Subcommand Extraction Tests")
 struct SubcommandExtractionTests {
-    @Test("extracts up to 3 tokens")
+    @Test("extracts up to 3 identifier tokens")
     func threeTokens() {
         let result = RunAuthWindowController.extractSubcommand(from: ["gh", "pr", "create", "--title", "Fix bug"])
         #expect(result == "gh pr create")
@@ -221,13 +221,19 @@ struct SubcommandExtractionTests {
         #expect(result == "gh")
     }
 
-    @Test("caps at 3 tokens even without flags")
-    func capsAtThree() {
+    @Test("stops at non-identifier token (URL/path/id)")
+    func stopsAtNonIdentifier() {
         let result = RunAuthWindowController.extractSubcommand(from: ["gh", "api", "/repos/owner/repo", "extra"])
-        #expect(result == "gh api /repos/owner/repo")
+        #expect(result == "gh api")
     }
 
-    @Test("single token command")
+    @Test("stops at numeric id")
+    func stopsAtNumericId() {
+        let result = RunAuthWindowController.extractSubcommand(from: ["gh", "issue", "123"])
+        #expect(result == "gh issue")
+    }
+
+    @Test("single bare identifier")
     func singleToken() {
         let result = RunAuthWindowController.extractSubcommand(from: ["gh"])
         #expect(result == "gh")
@@ -249,6 +255,12 @@ struct SubcommandExtractionTests {
     func twoTokens() {
         let result = RunAuthWindowController.extractSubcommand(from: ["gh", "pr", "--state=open"])
         #expect(result == "gh pr")
+    }
+
+    @Test("path-prefixed binary yields empty")
+    func pathPrefixedBinary() {
+        let result = RunAuthWindowController.extractSubcommand(from: ["/usr/bin/gh", "status"])
+        #expect(result == "")
     }
 }
 
@@ -338,5 +350,84 @@ struct RunProxyClientHandlerTests {
             throw error
         }
         await proxy.stop()
+    }
+}
+
+// MARK: - Identifier Token Predicate
+
+@MainActor
+@Suite("Identifier Token Predicate Tests")
+struct IdentifierTokenPredicateTests {
+    @Test("accepts plain identifiers", arguments: [
+        "gh", "pr", "list", "s3", "kube-system", "aws_profile", "python3",
+    ])
+    func accepts(_ token: String) {
+        #expect(RunAuthWindowController.isIdentifierToken(token))
+    }
+
+    @Test(
+        "rejects flags, paths, URLs, numeric and data-like tokens",
+        arguments: [
+            "-v", "--verbose", "--state=open",
+            "/usr/bin/gh", "./script.sh", "repos/:owner/:repo",
+            "s3://bucket/file", "https://example.com",
+            "24529102039", "123abc", "script.py",
+            "user@host", "KEY=value", "",
+            "αβγ",       // non-ASCII letters (Greek)
+            "élan",      // ASCII letter followed by non-ASCII letter
+        ]
+    )
+    func rejects(_ token: String) {
+        #expect(RunAuthWindowController.isIdentifierToken(token) == false)
+    }
+}
+
+// MARK: - extractIdentifierTokens
+
+@MainActor
+@Suite("extractIdentifierTokens Tests")
+struct ExtractIdentifierTokensTests {
+    @Test("caps at 3 tokens")
+    func capsAtThree() {
+        let tokens = RunAuthWindowController.extractIdentifierTokens(
+            from: ["a", "b", "c", "d", "e"]
+        )
+        #expect(tokens == ["a", "b", "c"])
+    }
+
+    @Test("stops at first non-identifier")
+    func stopsAtNonIdentifier() {
+        let tokens = RunAuthWindowController.extractIdentifierTokens(
+            from: ["gh", "api", "repos/:owner/:repo", "--jq"]
+        )
+        #expect(tokens == ["gh", "api"])
+    }
+
+    @Test("stops at flag")
+    func stopsAtFlag() {
+        let tokens = RunAuthWindowController.extractIdentifierTokens(
+            from: ["gh", "--verbose", "pr"]
+        )
+        #expect(tokens == ["gh"])
+    }
+
+    @Test("returns empty when first token is not an identifier")
+    func firstTokenIsPath() {
+        let tokens = RunAuthWindowController.extractIdentifierTokens(
+            from: ["/usr/bin/gh", "status"]
+        )
+        #expect(tokens == [])
+    }
+
+    @Test("returns empty for empty input")
+    func emptyInput() {
+        let tokens = RunAuthWindowController.extractIdentifierTokens(from: [])
+        #expect(tokens == [])
+    }
+
+    @Test("keeps a single bare identifier")
+    func bareIdentifier() {
+        let tokens = RunAuthWindowController.extractIdentifierTokens(from: ["gh"])
+        #expect(tokens == ["gh"])
     }
 }

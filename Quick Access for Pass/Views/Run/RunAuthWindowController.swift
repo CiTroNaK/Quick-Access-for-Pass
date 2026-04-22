@@ -9,36 +9,33 @@ final class RunAuthWindowController {
     private var requestQueue: [PendingRunAuthRequest] = []
     private var currentRequest: PendingRunAuthRequest?
     private var isShowingDialog = false
-    private let databaseManager: DatabaseManager
+    let databaseManager: DatabaseManager
     private let keychainService: any BiometricAuthorizing
     private let callbacks: AuthDialogHelper.Callbacks
+    var sessionCache: [String: Date] = [:]
+    let sessionCacheDuration: TimeInterval = 10
+
+    private nonisolated enum DialogOutcome: Sendable {
+        case dialog(allowed: Bool, persistedScope: String?)
+        case cached(scope: String)
+    }
 
     private struct PendingRunAuthRequest {
         let appName: String
         let appBundleURL: URL?
         let profileName: String
         let profileSlug: String
-        let subcommand: String
+        let scopeOptions: [String]
         let fullCommand: String
         let appIdentifier: String
         let appTeamID: String?
-        let continuation: CheckedContinuation<Bool, Never>
+        let continuation: CheckedContinuation<DialogOutcome, Never>
     }
 
     init(databaseManager: DatabaseManager, keychainService: any BiometricAuthorizing, callbacks: AuthDialogHelper.Callbacks) {
         self.databaseManager = databaseManager
         self.keychainService = keychainService
         self.callbacks = callbacks
-    }
-
-    static func extractSubcommand(from command: [String]) -> String {
-        var tokens: [String] = []
-        for token in command {
-            if token.hasPrefix("-") { break }
-            tokens.append(token)
-            if tokens.count == 3 { break }
-        }
-        return tokens.joined(separator: " ")
     }
 
     func authorize(
@@ -51,48 +48,58 @@ final class RunAuthWindowController {
             return RunProxyResponse(decision: .deny, env: nil)
         }
 
-        let subcommand = Self.extractSubcommand(from: request.command)
-        if isPersistentlyAuthorized(
+        let scopeOptions = Self.scopeOptions(from: request.command)
+
+        if let matchedScope = anyCachedMatch(
             appIdentifier: identity.appIdentifier,
-            subcommand: subcommand,
-            profileSlug: request.profile
+            profileSlug: request.profile,
+            scopeOptions: scopeOptions
         ) {
             logDecision(
                 appIdentifier: identity.appIdentifier,
                 profile: request.profile,
-                command: subcommand,
+                command: matchedScope,
                 allowed: true,
                 source: "cached"
             )
             return RunProxyResponse(decision: .allow, env: env)
         }
 
-        let allowed = await enqueueAuthorization(
+        let outcome = await enqueueAuthorization(
             identity: identity,
             request: request,
             profileName: profileName,
-            subcommand: subcommand
+            scopeOptions: scopeOptions
         )
 
-        logDecision(
-            appIdentifier: identity.appIdentifier,
-            profile: request.profile,
-            command: subcommand,
-            allowed: allowed,
-            source: "dialog"
-        )
-        return allowed
-            ? RunProxyResponse(decision: .allow, env: env)
-            : RunProxyResponse(decision: .deny, env: nil)
+        switch outcome {
+        case .cached:
+            return RunProxyResponse(decision: .allow, env: env)
+        case .dialog(let allowed, let persistedScope):
+            logDecision(
+                appIdentifier: identity.appIdentifier,
+                profile: request.profile,
+                command: persistedScope ?? scopeOptions.first ?? "",
+                allowed: allowed,
+                source: "dialog"
+            )
+            return allowed
+                ? RunProxyResponse(decision: .allow, env: env)
+                : RunProxyResponse(decision: .deny, env: nil)
+        }
     }
 
     func cancelAll() {
         if let current = currentRequest {
-            current.continuation.resume(returning: false)
+            current.continuation.resume(
+                returning: .dialog(allowed: false, persistedScope: nil)
+            )
             currentRequest = nil
         }
         for pending in requestQueue {
-            pending.continuation.resume(returning: false)
+            pending.continuation.resume(
+                returning: .dialog(allowed: false, persistedScope: nil)
+            )
         }
         requestQueue.removeAll()
         panel?.orderOut(nil)
@@ -101,7 +108,11 @@ final class RunAuthWindowController {
         isShowingDialog = false
     }
 
-    private func persist(decisionFor pending: PendingRunAuthRequest, resolved: ResolvedRemember) {
+    private func persist(
+        decisionFor pending: PendingRunAuthRequest,
+        resolved: ResolvedRemember,
+        scope: String
+    ) {
         let expiresAt: Date?
         switch resolved {
         case .doNotRemember: return
@@ -110,7 +121,7 @@ final class RunAuthWindowController {
         }
         try? databaseManager.saveRunDecision(
             appIdentifier: pending.appIdentifier,
-            subcommand: pending.subcommand,
+            subcommand: scope,
             profileSlug: pending.profileSlug,
             expiresAt: expiresAt,
             appTeamID: pending.appTeamID
@@ -118,29 +129,68 @@ final class RunAuthWindowController {
     }
 
     private func showNextRequest() {
-        guard let pending = requestQueue.first else {
-            isShowingDialog = false
-            currentRequest = nil
+        pruneSessionCache()
+        while let pending = requestQueue.first {
+            requestQueue.removeFirst()
+            if let matchedScope = anyCachedMatch(
+                appIdentifier: pending.appIdentifier,
+                profileSlug: pending.profileSlug,
+                scopeOptions: pending.scopeOptions
+            ) {
+                logDecision(
+                    appIdentifier: pending.appIdentifier,
+                    profile: pending.profileSlug,
+                    command: matchedScope,
+                    allowed: true,
+                    source: "cached"
+                )
+                pending.continuation.resume(returning: .cached(scope: matchedScope))
+                continue
+            }
+            currentRequest = pending
+            isShowingDialog = true
+            presentDialog(for: pending)
             return
         }
-        requestQueue.removeFirst()
-        currentRequest = pending
-        isShowingDialog = true
+        isShowingDialog = false
+        currentRequest = nil
+    }
 
+    private func presentDialog(for pending: PendingRunAuthRequest) {
         let request = RunAuthRequest(
             appName: pending.appName,
             appBundleURL: pending.appBundleURL,
             profileName: pending.profileName,
             command: pending.fullCommand,
+            scopeOptions: pending.scopeOptions,
             keychainService: self.keychainService,
             callbacks: self.callbacks
-        ) { [weak self] allowed, duration in
+        ) { [weak self] allowed, duration, chosenScope in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                if allowed {
-                    self.persist(decisionFor: pending, resolved: duration.resolved())
+                guard let self else {
+                    pending.continuation.resume(
+                        returning: .dialog(allowed: allowed, persistedScope: nil)
+                    )
+                    return
                 }
-                pending.continuation.resume(returning: allowed)
+                var persistedScope: String?
+                if allowed, let scope = chosenScope {
+                    self.storeSessionCache(
+                        appIdentifier: pending.appIdentifier,
+                        profileSlug: pending.profileSlug,
+                        scope: scope
+                    )
+                    let resolved = duration.resolved()
+                    if case .doNotRemember = resolved {
+                        // Session cache covers the rapid-fire burst; skip DB persist.
+                    } else {
+                        self.persist(decisionFor: pending, resolved: resolved, scope: scope)
+                        persistedScope = scope
+                    }
+                }
+                pending.continuation.resume(
+                    returning: .dialog(allowed: allowed, persistedScope: persistedScope)
+                )
                 self.dismissAndShowNext()
             }
         }
@@ -182,73 +232,19 @@ final class RunAuthWindowController {
         showNextRequest()
     }
 
-    private struct ResolvedIdentity {
-        let appName: String
-        let appBundleURL: URL?
-        let appIdentifier: String
-        let appTeamID: String?
-    }
-
-    private func resolveIdentity(
-        for connection: VerifiedConnection,
-        profile: String
-    ) -> ResolvedIdentity? {
-        switch connection.identity {
-        case .trustedHelper:
-            let parentInfo = ProcessIdentifier.identifyParent(of: connection)
-            return ResolvedIdentity(
-                appName: parentInfo.name,
-                appBundleURL: parentInfo.bundleURL,
-                appIdentifier: parentInfo.bundleIdentifier ?? "unknown",
-                appTeamID: nil
-            )
-
-        case .signedApp(let bundleID, let teamID):
-            let runningApp = NSRunningApplication(processIdentifier: connection.pid)
-            return ResolvedIdentity(
-                appName: runningApp?.localizedName ?? bundleID,
-                appBundleURL: runningApp?.bundleURL,
-                appIdentifier: connection.identity.appIdentifier ?? bundleID,
-                appTeamID: teamID
-            )
-
-        case .unverified:
-            logDecision(
-                appIdentifier: "unverified.\(connection.pid)",
-                profile: profile,
-                command: "",
-                allowed: false,
-                source: "rejected"
-            )
-            return nil
-        }
-    }
-
-    private func isPersistentlyAuthorized(
-        appIdentifier: String,
-        subcommand: String,
-        profileSlug: String
-    ) -> Bool {
-        (try? databaseManager.findValidRunDecision(
-            appIdentifier: appIdentifier,
-            subcommand: subcommand,
-            profileSlug: profileSlug
-        )) != nil
-    }
-
     private func enqueueAuthorization(
         identity: ResolvedIdentity,
         request: RunProxyRequest,
         profileName: String,
-        subcommand: String
-    ) async -> Bool {
-        await withCheckedContinuation { continuation in
+        scopeOptions: [String]
+    ) async -> DialogOutcome {
+        await withCheckedContinuation { (continuation: CheckedContinuation<DialogOutcome, Never>) in
             let pending = PendingRunAuthRequest(
                 appName: identity.appName,
                 appBundleURL: identity.appBundleURL,
                 profileName: profileName,
                 profileSlug: request.profile,
-                subcommand: subcommand,
+                scopeOptions: scopeOptions,
                 fullCommand: request.command.joined(separator: " "),
                 appIdentifier: identity.appIdentifier,
                 appTeamID: identity.appTeamID,
@@ -261,7 +257,7 @@ final class RunAuthWindowController {
         }
     }
 
-    private func logDecision(
+    func logDecision(
         appIdentifier: String,
         profile: String,
         command: String,

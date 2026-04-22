@@ -8,14 +8,16 @@ nonisolated struct RunAuthRequest: Sendable {
     let appBundleURL: URL?
     let profileName: String
     let command: String
+    let scopeOptions: [String]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
-    let onResult: @Sendable (Bool, RememberDuration) -> Void
+    let onResult: @Sendable (Bool, RememberDuration, String?) -> Void
 }
 
 struct RunAuthDialogView: View {
     let request: RunAuthRequest
     @State private var rememberDuration: RememberDuration = .doNotRemember
+    @State private var selectedScope: String
     @State private var authState: AuthState = .idle
     @State private var timeRemaining: Int = 30
     @State private var resultSent = false
@@ -27,6 +29,11 @@ struct RunAuthDialogView: View {
     }()
     @State private var retryCount = 0
     @AccessibilityFocusState private var isTryAgainFocused: Bool
+
+    init(request: RunAuthRequest) {
+        self.request = request
+        _selectedScope = State(initialValue: request.scopeOptions.first ?? "")
+    }
 
     private enum AuthState {
         case idle
@@ -94,10 +101,35 @@ struct RunAuthDialogView: View {
                         }
                     }
                     .frame(width: 180)
+                    .disabled(request.scopeOptions.isEmpty)
+                    .accessibilityLabel(String(localized: "Remember for"))
                 }
-                Text("Applies to \(subcommandDescription)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+
+                if request.scopeOptions.isEmpty {
+                    Text("This command can't be safely remembered.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if request.scopeOptions.count == 1 {
+                    Text("Applies to \(request.scopeOptions[0])")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    HStack {
+                        Text("Applies to")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                        Picker("", selection: $selectedScope) {
+                            ForEach(request.scopeOptions, id: \.self) { scope in
+                                Text(scope)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .tag(scope)
+                            }
+                        }
+                        .frame(width: 180)
+                        .accessibilityLabel(String(localized: "Scope"))
+                    }
+                }
             }
 
             Divider()
@@ -163,21 +195,11 @@ struct RunAuthDialogView: View {
         }
     }
 
-    private var subcommandDescription: String {
-        let tokens = request.command.split(separator: " ").map(String.init)
-        var sub: [String] = []
-        for token in tokens {
-            if token.hasPrefix("-") { break }
-            sub.append(token)
-            if sub.count == 3 { break }
-        }
-        return sub.isEmpty ? request.command : sub.joined(separator: " ")
-    }
-
     private func sendResult(allowed: Bool) {
         guard !resultSent else { return }
         resultSent = true
-        request.onResult(allowed, rememberDuration)
+        let scope: String? = allowed && !selectedScope.isEmpty ? selectedScope : nil
+        request.onResult(allowed, rememberDuration, scope)
     }
 
     private func authenticate() async {
