@@ -25,6 +25,37 @@ extension AppDelegate {
         lastActivityAt = now
         isForceLocked = false
         resumeUnlockWaiters()
+        hidePanelAfterLockWaitIfNeeded()
+    }
+
+    /// Bumps `autoUnlockToken` after a short settle delay when the
+    /// panel has become visible and the app is locked. The delay lets
+    /// `makeKeyAndOrderFront(nil)` + `NSApp.activate()` finish settling
+    /// before the LAContext auth sheet attaches, so the sheet lands on a
+    /// real key window and receives focus. The post-delay re-checks
+    /// defend against a hide-then-show racing the dispatch.
+    func scheduleAutoUnlockIfNeeded() {
+        guard isLocked else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self,
+                  self.isLocked,
+                  self.panelController?.isVisible == true
+            else { return }
+            self.autoUnlockToken = UUID()
+        }
+    }
+
+    /// If the panel was opened by `showPanelAndWaitForUnlock` (not by
+    /// user action), dismiss it on the next run loop. Deferring past
+    /// the current stack lets `LockedView.unlock()`'s `defer` clear
+    /// `isUnlockInFlight` first, so `PanelController.shouldBlockHide`
+    /// no longer blocks the hide.
+    private func hidePanelAfterLockWaitIfNeeded() {
+        guard panelShownForLockWait else { return }
+        panelShownForLockWait = false
+        DispatchQueue.main.async { [weak self] in
+            self?.panelController?.hide()
+        }
     }
 
     func forceLock() {
@@ -96,6 +127,9 @@ extension AppDelegate {
     func showPanelAndWaitForUnlock(timeoutSeconds: TimeInterval = 30) async -> Bool {
         let token = UUID()
         panelPresentationNonce = token
+        if panelController?.isVisible != true {
+            panelShownForLockWait = true
+        }
         panelController?.show()
 
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
@@ -104,6 +138,7 @@ extension AppDelegate {
                 try? await Task.sleep(for: .seconds(timeoutSeconds))
                 if let waiter = pendingUnlockWaiters.removeValue(forKey: token) {
                     waiter.resume(returning: false)
+                    self.hidePanelAfterLockWaitIfNeeded()
                 }
             }
         }

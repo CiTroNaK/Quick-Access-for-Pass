@@ -84,7 +84,9 @@ struct QuickAccessView: View {
                 LockedView(
                     onUnlockSuccess: { appDelegate.resetAuthTimestamp() },
                     keychainService: keychainService,
-                    pendingContext: appDelegate.pendingLockContext
+                    pendingContext: appDelegate.pendingLockContext,
+                    autoUnlockToken: appDelegate.autoUnlockToken,
+                    onUnlockPhaseChange: { appDelegate.isUnlockInFlight = $0 }
                 )
                 .frame(height: 330)
             }

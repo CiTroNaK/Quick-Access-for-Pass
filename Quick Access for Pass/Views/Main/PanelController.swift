@@ -118,6 +118,10 @@ final class PanelController {
     /// Called immediately before the panel hides, so auxiliary windows
     /// owned by this panel session (e.g. Large Type) can dismiss themselves.
     var onHideAuxiliary: (() -> Void)?
+    /// Optional predicate consulted at the top of `hide()`. Return `true`
+    /// to block the hide. Used to keep the panel anchored while an
+    /// LAContext auth sheet is on screen.
+    var shouldBlockHide: (() -> Bool)?
     /// Return `true` to consume the event, `false` to pass it through.
     var onKeyDown: ((UInt16, NSEvent.ModifierFlags) -> Bool)?
 
@@ -185,6 +189,7 @@ final class PanelController {
     }
 
     func hide() {
+        if shouldBlockHide?() == true { return }
         isShowingTransition = false
         onHideAuxiliary?()
         ownedAuxiliaryWindows.removeAll()

@@ -5,6 +5,8 @@ struct LockedView: View {
     let onUnlockSuccess: () -> Void
     let keychainService: any BiometricAuthorizing
     let pendingContext: PendingLockContext?
+    let autoUnlockToken: UUID?
+    let onUnlockPhaseChange: (Bool) -> Void
 
     @State private var errorMessage: String?
     @State private var isBiometryLockedOut = false
@@ -66,9 +68,15 @@ struct LockedView: View {
                 ).post()
             }
         }
+        .task(id: autoUnlockToken) {
+            guard autoUnlockToken != nil, !isBiometryLockedOut else { return }
+            await unlock()
+        }
     }
 
     private func unlock() async {
+        onUnlockPhaseChange(true)
+        defer { onUnlockPhaseChange(false) }
         let context = LAContext()
         // Allow the keychain call to reuse this authentication within
         // a short window. Must be set BEFORE evaluatePolicy. Matches

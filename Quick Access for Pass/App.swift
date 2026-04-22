@@ -64,6 +64,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastAuthenticatedAt: Date?
     var lastActivityAt: Date?
     var panelPresentationNonce = UUID()
+    /// Bumped by `scheduleAutoUnlockIfNeeded()` on each fresh locked
+    /// presentation. Observed by `LockedView.task(id:)` to drive auto-unlock.
+    var autoUnlockToken: UUID?
+    /// True while `LockedView.unlock()` is running. Read by
+    /// `PanelController.shouldBlockHide` to keep the panel anchored
+    /// while an LAContext sheet is on screen.
+    var isUnlockInFlight = false
+    /// True when `showPanelAndWaitForUnlock` opened the panel itself
+    /// (not already visible). Consumed by `hidePanelAfterLockWaitIfNeeded`
+    /// so a system-initiated presentation closes the panel after unlock,
+    /// rather than transitioning to the search UI.
+    @ObservationIgnored var panelShownForLockWait = false
     private(set) var pendingLockContext: PendingLockContext?
     @ObservationIgnored var pendingUnlockWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
@@ -267,8 +279,18 @@ private extension AppDelegate {
             appDelegate: self
         )
         panelController?.setContent(quickAccessView)
-        panelController?.onShow = { [weak self] in self?.viewModel?.cancelSearchClear() }
-        panelController?.onHide = { [weak self] in self?.viewModel?.scheduleSearchClear() }
+        panelController?.onShow = { [weak self] in
+            self?.viewModel?.cancelSearchClear()
+            self?.scheduleAutoUnlockIfNeeded()
+        }
+        panelController?.onHide = { [weak self] in
+            self?.viewModel?.scheduleSearchClear()
+            self?.autoUnlockToken = nil
+            self?.panelShownForLockWait = false
+        }
+        panelController?.shouldBlockHide = { [weak self] in
+            self?.isUnlockInFlight ?? false
+        }
         panelController?.onKeyDown = { [weak self] keyCode, mods in
             self?.viewModel?.handleKeyDown(keyCode: keyCode, modifiers: mods) ?? false
         }
