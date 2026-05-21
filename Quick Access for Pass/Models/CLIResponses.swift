@@ -80,9 +80,21 @@ nonisolated struct CLIItemContent: Codable, Sendable {
     }
 }
 
-nonisolated struct CLIExtraField: Codable, Sendable {
+nonisolated struct CLIExtraField: Sendable {
     let name: String
     let content: CLIExtraFieldContent
+
+    enum CodingKeys: String, CodingKey {
+        case name, content
+    }
+}
+
+extension CLIExtraField: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        content = try container.decode(CLIExtraFieldContent.self, forKey: .content)
+    }
 }
 
 nonisolated enum CLIExtraFieldContent: Codable, Sendable {
@@ -101,7 +113,9 @@ nonisolated enum CLIExtraFieldContent: Codable, Sendable {
             default: self = .text(value)
             }
         } else {
-            self = .text("")
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing extra-field content type")
+            )
         }
     }
 
@@ -240,7 +254,7 @@ nonisolated struct CLIPasskey: Codable, Sendable {
     }
 }
 
-nonisolated struct CLICreditCardContent: Codable, Sendable {
+nonisolated struct CLICreditCardContent: Sendable {
     let cardholderName: String
     let cardType: String
     let number: String
@@ -254,6 +268,18 @@ nonisolated struct CLICreditCardContent: Codable, Sendable {
         case cardType = "card_type"
         case verificationNumber = "verification_number"
         case expirationDate = "expiration_date"
+    }
+}
+
+extension CLICreditCardContent: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cardholderName = try container.decodeIfPresent(String.self, forKey: .cardholderName) ?? ""
+        cardType = try container.decodeIfPresent(String.self, forKey: .cardType) ?? ""
+        number = try container.decodeIfPresent(String.self, forKey: .number) ?? ""
+        verificationNumber = try container.decodeIfPresent(String.self, forKey: .verificationNumber) ?? ""
+        expirationDate = try container.decodeIfPresent(String.self, forKey: .expirationDate) ?? ""
+        pin = try container.decodeIfPresent(String.self, forKey: .pin) ?? ""
     }
 }
 
@@ -354,7 +380,7 @@ extension CLIIdentityContent: Codable {
     }
 }
 
-nonisolated struct CLISshKeyContent: Codable, Sendable {
+nonisolated struct CLISshKeyContent: Sendable {
     let privateKey: String
     let publicKey: String
 
@@ -364,23 +390,59 @@ nonisolated struct CLISshKeyContent: Codable, Sendable {
     }
 }
 
-nonisolated struct CLIWifiContent: Codable, Sendable {
+extension CLISshKeyContent: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        privateKey = try container.decodeIfPresent(String.self, forKey: .privateKey) ?? ""
+        publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey) ?? ""
+    }
+}
+
+nonisolated struct CLIWifiContent: Sendable {
     let ssid: String
     let password: String
     let security: String
 }
 
-nonisolated struct CLICustomContent: Codable, Sendable {
-    let sections: [CLICustomSection]
+extension CLIWifiContent: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ssid = try container.decodeIfPresent(String.self, forKey: .ssid) ?? ""
+        password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+        security = try container.decodeIfPresent(String.self, forKey: .security) ?? ""
+    }
 }
 
-nonisolated struct CLICustomSection: Codable, Sendable {
+nonisolated struct CLICustomContent: Sendable {
+    let sections: [CLICustomSection]
+
+    enum CodingKeys: String, CodingKey {
+        case sections
+    }
+}
+
+extension CLICustomContent: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sections = try container.decodeIfPresent([CLICustomSection].self, forKey: .sections) ?? []
+    }
+}
+
+nonisolated struct CLICustomSection: Sendable {
     let sectionName: String
     let sectionFields: [CLIExtraField]
 
     enum CodingKeys: String, CodingKey {
         case sectionName = "section_name"
         case sectionFields = "section_fields"
+    }
+}
+
+extension CLICustomSection: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sectionName = try container.decodeIfPresent(String.self, forKey: .sectionName) ?? ""
+        sectionFields = try container.decodeIfPresent([CLIExtraField].self, forKey: .sectionFields) ?? []
     }
 }
 

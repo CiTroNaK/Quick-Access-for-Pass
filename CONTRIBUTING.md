@@ -56,7 +56,7 @@ Tests run automatically on every PR via GitHub Actions (`macos-26`). CI must pas
 
 - **Swift 6 strict concurrency** — use `actor` for shared mutable state, `@MainActor` for UI and orchestration, and `Sendable` models for cross-actor data.
 - **Thin composition root** — keep `AppDelegate` focused on wiring; orchestration belongs in `SyncCoordinator`, `SSHProxyCoordinator`, `RunProxyCoordinator`, and `HealthCheckCoordinator`.
-- **No secrets on disk** — the database stores metadata only. Secrets are fetched on demand from `pass-cli` and held in memory.
+- **No secrets on disk** — the database stores metadata only. Sync may temporarily load full item content from `pass-cli` to derive metadata; selected actions fetch current values on demand.
 - **Run proxy clients must be verified** — maintain `PeerVerifier` protections; unverified local peers must stay rejected.
 - **Tests use Swift Testing** — use `@Suite`, `@Test`, `#expect`, and `#require`, not XCTest.
 - **Single external dependency** — [GRDB.swift](https://github.com/groue/GRDB.swift) via Swift Package Manager.

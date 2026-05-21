@@ -34,7 +34,7 @@ This policy covers the Quick Access for Pass application, including:
 Quick Access for Pass is designed around a few core invariants:
 
 - **No secrets in the database** — only metadata is persisted locally
-- **Secrets are fetched on demand** from `pass-cli` and kept in memory only as long as needed
+- **Secrets are never persisted locally**; sync may temporarily load full item content from `pass-cli` to derive metadata, and selected actions fetch current values on demand
 - **Database encryption is mandatory** — the local cache is encrypted using GRDB/SQLCipher with a Keychain-backed passphrase
 - **Local proxies are permission constrained** — sockets are created with strict owner-only permissions
 - **Run proxy peers are verified** — unverified local clients are rejected; trusted helper handling is explicit

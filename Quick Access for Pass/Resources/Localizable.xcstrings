@@ -482,6 +482,16 @@
         }
       }
     },
+    "Applies to" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Platí pro"
+          }
+        }
+      }
+    },
     "Applies to %@" : {
       "localizations" : {
         "cs" : {
@@ -2601,6 +2611,16 @@
         }
       }
     },
+    "Scope" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozsah"
+          }
+        }
+      }
+    },
     "Search Proton Pass..." : {
       "localizations" : {
         "cs" : {
@@ -2991,6 +3011,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tato aplikace není spojena s Proton AG ani jí není podporována."
+          }
+        }
+      }
+    },
+    "This command can't be safely remembered." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tento příkaz nelze bezpečně zapamatovat."
           }
         }
       }

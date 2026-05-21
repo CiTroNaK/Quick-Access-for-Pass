@@ -32,9 +32,26 @@ nonisolated enum CLIError: Error, LocalizedError {
     }
 }
 
+nonisolated private struct PassCLIVersion: Comparable, Sendable {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    static func < (lhs: PassCLIVersion, rhs: PassCLIVersion) -> Bool {
+        if lhs.major != rhs.major { return lhs.major < rhs.major }
+        if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
+        return lhs.patch < rhs.patch
+    }
+}
+
 actor PassCLIService {
+    private static let minimumShowSecretsVersion = PassCLIVersion(major: 2, minor: 0, patch: 3)
+
     private nonisolated let pathStore: OSAllocatedUnfairLock<String>
     private let timeoutSeconds: Double = 300
+    private let runner: any CLIRunning
+    private var supportsShowSecretsCache: (path: String, supported: Bool)?
+    private var supportsShowSecretsTask: (path: String, task: Task<Bool, Never>)?
 
     nonisolated var cliPath: String {
         pathStore.withLock { $0 }
@@ -44,9 +61,10 @@ actor PassCLIService {
         pathStore.withLock { $0 = path }
     }
 
-    init(cliPath: String? = nil) {
+    init(cliPath: String? = nil, runner: any CLIRunning = LiveCLIRunner()) {
         let resolved = cliPath ?? Self.findCLIPath() ?? "pass-cli"
         self.pathStore = OSAllocatedUnfairLock(initialState: resolved)
+        self.runner = runner
     }
 
     // MARK: - CLI Path Discovery
@@ -84,7 +102,11 @@ actor PassCLIService {
     }
 
     func listItems(shareId: String) async throws -> [CLIItem] {
-        let data = try await run(arguments: ["item", "list", "--share-id=\(shareId)", "--output", "json"])
+        var arguments = ["item", "list", "--share-id=\(shareId)", "--output", "json"]
+        if await supportsShowSecrets() {
+            arguments.append("--show-secrets")
+        }
+        let data = try await run(arguments: arguments)
         return try Self.parseItemList(from: data)
     }
 
@@ -119,10 +141,57 @@ actor PassCLIService {
         return (vaults, allItems)
     }
 
+    // MARK: - CLI Capabilities
+
+    private func supportsShowSecrets() async -> Bool {
+        let executablePath = cliPath
+        if let cache = supportsShowSecretsCache, cache.path == executablePath {
+            return cache.supported
+        }
+        if let inFlight = supportsShowSecretsTask, inFlight.path == executablePath {
+            return await inFlight.task.value
+        }
+
+        let runner = self.runner
+        let timeoutSeconds = self.timeoutSeconds
+        let task = Task<Bool, Never> {
+            do {
+                let data = try await runner.run(
+                    executablePath: executablePath,
+                    arguments: ["--version"],
+                    timeout: timeoutSeconds
+                )
+                let output = String(decoding: data, as: UTF8.self)
+                return Self.parseVersion(from: output).map { $0 >= Self.minimumShowSecretsVersion } ?? false
+            } catch {
+                return false
+            }
+        }
+        supportsShowSecretsTask = (path: executablePath, task: task)
+
+        let supported = await task.value
+        if cliPath == executablePath {
+            supportsShowSecretsCache = (path: executablePath, supported: supported)
+        }
+        if supportsShowSecretsTask?.path == executablePath {
+            supportsShowSecretsTask = nil
+        }
+        return supported
+    }
+
+    private static func parseVersion(from output: String) -> PassCLIVersion? {
+        guard let range = output.range(of: #"\d+\.\d+\.\d+"#, options: .regularExpression) else {
+            return nil
+        }
+        let components = output[range].split(separator: ".").compactMap { Int($0) }
+        guard components.count == 3 else { return nil }
+        return PassCLIVersion(major: components[0], minor: components[1], patch: components[2])
+    }
+
     // MARK: - Process Execution
 
     private func run(arguments: [String]) async throws -> Data {
-        try await CLIRunner.run(executablePath: cliPath, arguments: arguments, timeout: timeoutSeconds)
+        try await runner.run(executablePath: cliPath, arguments: arguments, timeout: timeoutSeconds)
     }
 
     // MARK: - Parsing (static for testing)
@@ -131,7 +200,7 @@ actor PassCLIService {
         do {
             return try JSONDecoder().decode(CLIVaultListResponse.self, from: data).vaults
         } catch {
-            throw CLIError.parseError(error.localizedDescription)
+            throw CLIError.parseError(parseErrorDescription(error, context: "vault list"))
         }
     }
 
@@ -139,7 +208,7 @@ actor PassCLIService {
         do {
             return try JSONDecoder().decode(CLIItemListResponse.self, from: data).items
         } catch {
-            throw CLIError.parseError(error.localizedDescription)
+            throw CLIError.parseError(parseErrorDescription(error, context: "item list"))
         }
     }
 
@@ -147,7 +216,29 @@ actor PassCLIService {
         do {
             return try JSONDecoder().decode(CLITotpResponse.self, from: data).totp
         } catch {
-            throw CLIError.parseError(error.localizedDescription)
+            throw CLIError.parseError(parseErrorDescription(error, context: "item totp"))
         }
     }
+
+    private static func parseErrorDescription(_ error: Error, context: String) -> String {
+        switch error {
+        case DecodingError.keyNotFound(let key, let decodingContext):
+            let path = codingPathDescription(decodingContext.codingPath + [key])
+            return "\(context): missing '\(key.stringValue)' at \(path)"
+        case DecodingError.valueNotFound(let type, let decodingContext):
+            return "\(context): missing \(type) value at \(codingPathDescription(decodingContext.codingPath))"
+        case DecodingError.typeMismatch(let type, let decodingContext):
+            return "\(context): expected \(type) at \(codingPathDescription(decodingContext.codingPath))"
+        case DecodingError.dataCorrupted(let decodingContext):
+            return "\(context): corrupted data at \(codingPathDescription(decodingContext.codingPath)): \(decodingContext.debugDescription)"
+        default:
+            return "\(context): \(error.localizedDescription)"
+        }
+    }
+
+    private static func codingPathDescription(_ path: [CodingKey]) -> String {
+        guard !path.isEmpty else { return "<root>" }
+        return path.map(\.stringValue).joined(separator: ".")
+    }
 }
+

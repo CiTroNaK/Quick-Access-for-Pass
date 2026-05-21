@@ -164,7 +164,7 @@ Most of the app's behavior is configurable in Settings — from the global hotke
 Built around a few non-negotiable constraints:
 
 - **No secrets in the local database** — only item metadata is cached
-- **Secrets fetched on demand** from `pass-cli`, kept only in memory
+- **Secrets are never cached on disk**; sync may temporarily load full item content from `pass-cli` to derive searchable metadata, and selected actions fetch current values on demand
 - **Database encryption** via a Keychain-managed passphrase
 - **Owner-only sockets** for local proxy communication; Run Proxy verifies peers
 - **Reduced clipboard leakage** via `org.nspasteboard.ConcealedType`

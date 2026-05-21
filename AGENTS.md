@@ -124,7 +124,7 @@ Views follow VoiceOver and Voice Control patterns throughout:
 These are core constraints, not implementation details:
 
 - **No secrets in the database** — only metadata is persisted locally
-- **Secrets are fetched on demand** from `pass-cli` and kept only in memory
+- **Secrets are never persisted locally**; sync may temporarily load full item content from `pass-cli` to derive metadata, and selected actions fetch current values on demand
 - **Database encryption** uses GRDB/SQLCipher with a 256-bit passphrase from Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`)
 - **Socket permissions are strict** (`0600`), and socket directories are owner-only
 - **Run proxy peer verification is mandatory** — reject unverified local clients
