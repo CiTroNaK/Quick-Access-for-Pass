@@ -161,7 +161,9 @@ actor PassCLIService {
                     arguments: ["--version"],
                     timeout: timeoutSeconds
                 )
-                let output = String(decoding: data, as: UTF8.self)
+                guard let output = String(bytes: data, encoding: .utf8) else {
+                    return false
+                }
                 return Self.parseVersion(from: output).map { $0 >= Self.minimumShowSecretsVersion } ?? false
             } catch {
                 return false
@@ -241,4 +243,3 @@ actor PassCLIService {
         return path.map(\.stringValue).joined(separator: ".")
     }
 }
-

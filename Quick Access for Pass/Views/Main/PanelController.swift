@@ -188,8 +188,8 @@ final class PanelController {
         }
     }
 
-    func hide() {
-        if shouldBlockHide?() == true { return }
+    func hide(ignoringBlock: Bool = false) {
+        if !ignoringBlock, shouldBlockHide?() == true { return }
         isShowingTransition = false
         onHideAuxiliary?()
         ownedAuxiliaryWindows.removeAll()

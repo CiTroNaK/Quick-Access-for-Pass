@@ -159,4 +159,34 @@ struct ClipboardManagerTests {
         let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
         #expect(pb.data(forType: concealedType) == nil)
     }
+
+    // MARK: - System-lock clearing
+
+    @Test("clearIfOwned clears unchanged Quick Access clipboard content")
+    @MainActor func clearIfOwnedClearsUnchangedContent() {
+        let pb = Self.makePasteboard("test-clear-owned")
+        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb)
+        manager.copy("lock-secret")
+
+        let didClear = manager.clearIfOwned()
+
+        #expect(didClear)
+        let value = pb.string(forType: .string)
+        #expect(value == nil || value == "")
+    }
+
+    @Test("clearIfOwned preserves externally changed clipboard content")
+    @MainActor func clearIfOwnedPreservesExternalChange() {
+        let pb = Self.makePasteboard("test-clear-owned-external")
+        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb)
+        manager.copy("lock-secret")
+
+        pb.clearContents()
+        pb.setString("user-value", forType: .string)
+
+        let didClear = manager.clearIfOwned()
+
+        #expect(didClear == false)
+        #expect(pb.string(forType: .string) == "user-value")
+    }
 }

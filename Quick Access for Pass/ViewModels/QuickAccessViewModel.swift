@@ -115,6 +115,29 @@ final class QuickAccessViewModel {
         clearSearchTask = nil
     }
 
+    func clearForLock() {
+        clearSearchTask?.cancel()
+        clearSearchTask = nil
+        inFlightCopy?.cancel()
+        inFlightCopy = nil
+        inFlightLargeType?.cancel()
+        inFlightLargeType = nil
+
+        searchQuery = ""
+        searchTask?.cancel()
+        searchTask = nil
+
+        items = []
+        selectedIndex = 0
+        selectedRowIndex = 0
+        detailItem = nil
+        errorMessage = nil
+        isLoading = false
+        isActionLoading = false
+        copyGeneration += 1
+        largeTypeGeneration += 1
+    }
+
     #if DEBUG
     /// Awaits the in-flight search-clear task, if any. Test-only — available
     /// only in Debug builds to avoid exposing it as production API.

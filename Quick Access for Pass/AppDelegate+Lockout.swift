@@ -62,10 +62,21 @@ extension AppDelegate {
         isForceLocked = true
     }
 
+    func handleSystemLockEvent() {
+        guard lockDefaults.bool(forKey: DefaultsKey.lockOnSystemLock) else { return }
+        forceLock()
+        resetPendingLockContext()
+        panelController?.hide(ignoringBlock: true)
+        viewModel?.clearForLock()
+        viewModel?.clipboardManager.clearIfOwned()
+        autoUnlockToken = nil
+        panelShownForLockWait = false
+    }
+
     func registerDefaultSettings() {
         // Carbon keyCode 8 = "C", modifier raw values:
         // ⌘ = 1048576, ⇧⌘ = 1179648, ⌥⌘ = 1572864
-        UserDefaults.standard.register(defaults: [
+        lockDefaults.register(defaults: [
             DefaultsKey.concealFromClipboardManagers: true,
             DefaultsKey.searchClearTimeout: 60.0,
             DefaultsKey.copyUsernameKeyCode: 8,
@@ -78,6 +89,7 @@ extension AppDelegate {
             DefaultsKey.showLargeTypeModifiers: Int(NSEvent.ModifierFlags.shift.rawValue),
             DefaultsKey.lockoutEnabled: false,
             DefaultsKey.lockoutTimeout: LockoutTimeout.default.seconds,
+            DefaultsKey.lockOnSystemLock: false,
         ])
     }
 

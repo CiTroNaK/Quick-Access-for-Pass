@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage(DefaultsKey.runProxyEnabled) var runProxyEnabled: Bool = false
     @AppStorage(DefaultsKey.lockoutEnabled) var lockoutEnabled: Bool = false
     @AppStorage(DefaultsKey.lockoutTimeout) var lockoutTimeout: Double = LockoutTimeout.default.seconds
+    @AppStorage(DefaultsKey.lockOnSystemLock) var lockOnSystemLock: Bool = false
     @AppStorage(DefaultsKey.hotkeyCode) var hotkeyCode: Int = defaultHotkeyCode
     @AppStorage(DefaultsKey.hotkeyModifiers) var hotkeyModifiers: Int = defaultHotkeyModifiers
     @AppStorage(DefaultsKey.copyUsernameKeyCode) var copyUsernameKeyCode: Int = 8
@@ -53,7 +54,8 @@ struct SettingsView: View {
                     concealFromClipboardManagers: $concealFromClipboardManagers,
                     lockoutEnabled: $lockoutEnabled,
                     lockoutTimeout: $lockoutTimeout,
-                    onDisableLockout: {
+                    lockOnSystemLock: $lockOnSystemLock,
+                    onDisableLocking: {
                         let context = LAContext()
                         do {
                             try await context.evaluatePolicy(

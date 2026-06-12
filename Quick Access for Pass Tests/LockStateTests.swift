@@ -115,4 +115,15 @@ struct LockStateTests {
         let delegate = AppDelegate()
         #expect(delegate.pendingLockContext == nil)
     }
+
+    @Test
+    func lockOnSystemLockDefaultRegistersDisabled() {
+        let defaults = makeDefaults(#function)
+        let delegate = AppDelegate()
+        delegate.testDefaults = defaults
+
+        delegate.registerDefaultSettings()
+
+        #expect(defaults.object(forKey: DefaultsKey.lockOnSystemLock) as? Bool == false)
+    }
 }

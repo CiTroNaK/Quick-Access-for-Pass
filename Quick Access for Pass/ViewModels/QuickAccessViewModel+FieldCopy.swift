@@ -56,16 +56,16 @@ extension QuickAccessViewModel {
         return value
     }
 
-    private func isCurrentCopyGeneration(_ generation: Int) -> Bool {
+    func isCurrentCopyGeneration(_ generation: Int) -> Bool {
         copyGeneration == generation
     }
 
-    private func publishCopyError(_ message: String, generation: Int) {
+    func publishCopyError(_ message: String, generation: Int) {
         guard isCurrentCopyGeneration(generation) else { return }
         errorMessage = message
     }
 
-    private func finishCopyTaskIfCurrent(_ generation: Int) {
+    func finishCopyTaskIfCurrent(_ generation: Int) {
         guard isCurrentCopyGeneration(generation) else { return }
         isActionLoading = false
         inFlightCopy = nil

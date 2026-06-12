@@ -30,4 +30,26 @@ struct PanelControllerTests {
 
         #expect(auxiliaryCloseCount == 1)
     }
+
+    @Test func hideRespectsBlockPredicateByDefault() {
+        let controller = PanelController()
+        var hideCount = 0
+        controller.shouldBlockHide = { true }
+        controller.onHide = { hideCount += 1 }
+
+        controller.hide()
+
+        #expect(hideCount == 0)
+    }
+
+    @Test func hideIgnoringBlockBypassesBlockPredicate() {
+        let controller = PanelController()
+        var hideCount = 0
+        controller.shouldBlockHide = { true }
+        controller.onHide = { hideCount += 1 }
+
+        controller.hide(ignoringBlock: true)
+
+        #expect(hideCount == 1)
+    }
 }

@@ -18,18 +18,17 @@ extension QuickAccessViewModel {
             break
         }
 
+        inFlightLargeType?.cancel()
+        inFlightLargeType = nil
+        largeTypeGeneration += 1
+        inFlightCopy?.cancel()
         isActionLoading = true
-        Task {
-            defer { isActionLoading = false }
-            do {
-                try await handleSecretAction(action, for: item)
-                try? searchService.recordUsage(itemId: item.id)
-                onDismiss()
-            } catch let error as CLIError where error.isAuthError {
-                errorMessage = "Please log in: pass-cli login"
-            } catch {
-                errorMessage = "Failed: \(error.localizedDescription)"
-            }
+        copyGeneration += 1
+        let generation = copyGeneration
+        inFlightCopy = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finishCopyTaskIfCurrent(generation) }
+            await self.runSecretActionTask(action, for: item, generation: generation)
         }
     }
 
@@ -89,21 +88,41 @@ extension QuickAccessViewModel {
         onDismiss()
     }
 
-    private func handleSecretAction(_ action: ItemAction, for item: PassItem) async throws {
+    private func runSecretActionTask(_ action: ItemAction, for item: PassItem, generation: Int) async {
+        do {
+            try await handleSecretAction(action, for: item, generation: generation)
+            guard isCurrentCopyGeneration(generation) else { return }
+            try? searchService.recordUsage(itemId: item.id)
+            guard isCurrentCopyGeneration(generation) else { return }
+            onDismiss()
+        } catch is CancellationError {
+            return
+        } catch let error as CLIError where error.isAuthError {
+            publishCopyError(String(localized: "Please log in: pass-cli login"), generation: generation)
+        } catch {
+            publishCopyError(String(localized: "Failed: \(error.localizedDescription)"), generation: generation)
+        }
+    }
+
+    private func handleSecretAction(_ action: ItemAction, for item: PassItem, generation: Int) async throws {
         switch action {
         case .copyPassword:
             lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
             let detail = try await cliService.viewItem(itemId: item.id, shareId: item.vaultId)
+            try Task.checkCancellation()
+            guard isCurrentCopyGeneration(generation) else { return }
             if case .login(let login) = detail.content.content {
                 clipboardManager.copy(login.password, label: String(localized: "Password copied"))
             }
         case .copyTotp:
             lastCommand = "\(cliService.cliPath) item totp --output json pass://\(item.vaultId)/\(item.id)"
             let code = try await cliService.getTotp(itemId: item.id, shareId: item.vaultId)
+            try Task.checkCancellation()
+            guard isCurrentCopyGeneration(generation) else { return }
             clipboardManager.copy(code, label: String(localized: "TOTP code copied"))
         case .copyPrimary:
             lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
-            try await copyPrimarySecret(for: item)
+            try await copyPrimarySecret(for: item, generation: generation)
         case .copyUsername, .openURL:
             return
         }
@@ -116,8 +135,10 @@ extension QuickAccessViewModel {
         return ShortcutFormatting.label(keyCode: code, modifiers: mods)
     }
 
-    private func copyPrimarySecret(for item: PassItem) async throws {
+    private func copyPrimarySecret(for item: PassItem, generation: Int) async throws {
         let detail = try await cliService.viewItem(itemId: item.id, shareId: item.vaultId)
+        try Task.checkCancellation()
+        guard isCurrentCopyGeneration(generation) else { return }
         let content = detail.content.content
 
         switch content {
