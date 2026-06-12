@@ -1376,6 +1376,16 @@
         }
       }
     },
+    "Failed: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selhalo: %@"
+          }
+        }
+      }
+    },
     "Fetching…" : {
       "comment" : "Footer status while loading the selected item action.",
       "localizations" : {
@@ -1732,6 +1742,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zamknout po nečinnosti"
+          }
+        }
+      }
+    },
+    "Lock when Mac locks" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamknout když se Mac zamkne"
           }
         }
       }
