@@ -13,20 +13,6 @@ struct QuickAccessPassApp: App {
     }
 }
 
-private struct SettingsRoot: View {
-    let appDelegate: AppDelegate
-
-    var body: some View {
-        SettingsView()
-            .environment(appDelegate.healthStore)
-            .environment(appDelegate.passCLIStatusStore)
-            .environment(\.databaseManager, appDelegate.databaseManager)
-            .task { @MainActor in
-                await appDelegate.healthCoordinator?.refreshAll()
-            }
-    }
-}
-
 @MainActor
 @Observable
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -53,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let healthStore = ProxyHealthStore()
     let passCLIStatusStore = PassCLIStatusStore()
     @ObservationIgnored private var wakeObserver: WakeObserver?
+    @ObservationIgnored private var systemLockObserver: SystemLockObserver?
 
     @ObservationIgnored private var syncCoordinator: SyncCoordinator?
     @ObservationIgnored private var sshCoordinator: SSHProxyCoordinator?
@@ -123,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setupHotkey()
             setupCoordinators()
             setupWakeObserver()
+            setupSystemLockObserver()
             runLaunchTimeSanityCheck()
         } catch {
             showSetupError(error)
@@ -164,6 +152,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wakeObserver?.start()
     }
 
+    private func setupSystemLockObserver() {
+        systemLockObserver = SystemLockObserver { [weak self] in
+            self?.handleSystemLockEvent()
+        }
+        systemLockObserver?.start()
+    }
+
     private func runLaunchTimeSanityCheck() {
         Task { [weak self] in
             await self?.healthCoordinator?.start()
@@ -173,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         healthCoordinator?.cancel()
         wakeObserver?.stop()
+        systemLockObserver?.stop()
         clipboardManager?.clearOnTermination()
         sshCoordinator?.shutdown()
         runCoordinator?.shutdown()

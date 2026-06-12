@@ -6,7 +6,8 @@ struct SecuritySettingsTab: View {
     @Binding var concealFromClipboardManagers: Bool
     @Binding var lockoutEnabled: Bool
     @Binding var lockoutTimeout: Double
-    var onDisableLockout: () async -> Bool
+    @Binding var lockOnSystemLock: Bool
+    var onDisableLocking: () async -> Bool
 
     var body: some View {
         SettingsLayout.settingsPane {
@@ -41,13 +42,27 @@ struct SecuritySettingsTab: View {
                 Toggle("", isOn: $lockoutEnabled)
                     .toggleStyle(.switch)
                     .onChange(of: lockoutEnabled) { oldValue, newValue in
-                        if oldValue && !newValue {
-                            Task {
-                                let allowed = await onDisableLockout()
-                                if !allowed {
-                                    lockoutEnabled = true
-                                }
-                            }
+                        Task {
+                            await Self.restoreLockToggleIfDisableDenied(
+                                oldValue: oldValue,
+                                newValue: newValue,
+                                setValue: { lockoutEnabled = $0 },
+                                authorize: onDisableLocking
+                            )
+                        }
+                    }
+            }
+            SettingsLayout.settingsRow(label: "Lock when Mac locks") {
+                Toggle("", isOn: $lockOnSystemLock)
+                    .toggleStyle(.switch)
+                    .onChange(of: lockOnSystemLock) { oldValue, newValue in
+                        Task {
+                            await Self.restoreLockToggleIfDisableDenied(
+                                oldValue: oldValue,
+                                newValue: newValue,
+                                setValue: { lockOnSystemLock = $0 },
+                                authorize: onDisableLocking
+                            )
                         }
                     }
             }
@@ -61,6 +76,21 @@ struct SecuritySettingsTab: View {
                     .frame(width: 140)
                 }
             }
+        }
+    }
+
+    @MainActor
+    static func restoreLockToggleIfDisableDenied(
+        oldValue: Bool,
+        newValue: Bool,
+        setValue: (Bool) -> Void,
+        authorize: () async -> Bool
+    ) async {
+        guard oldValue && !newValue else { return }
+
+        let allowed = await authorize()
+        if !allowed {
+            setValue(true)
         }
     }
 }

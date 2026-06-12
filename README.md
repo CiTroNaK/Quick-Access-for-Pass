@@ -168,7 +168,7 @@ Built around a few non-negotiable constraints:
 - **Database encryption** via a Keychain-managed passphrase
 - **Owner-only sockets** for local proxy communication; Run Proxy verifies peers
 - **Reduced clipboard leakage** via `org.nspasteboard.ConcealedType`
-- **Auto-lock** after 5+ minutes of inactivity; unlock with Touch ID or password
+- **Auto-lock** after 5+ minutes of inactivity, plus optional locking when macOS locks or sleeps; unlock with Touch ID or password
 
 For vulnerability reporting, see [SECURITY.md](SECURITY.md). For the full security posture, read the source — it's the whole point.
 

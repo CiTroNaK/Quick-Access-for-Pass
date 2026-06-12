@@ -90,6 +90,33 @@ struct QuickAccessViewModelSearchTests {
         vm.performSearch(query: "lab")
         #expect(vm.detailItem == nil)
     }
+
+    @Test("clearForLock removes search, detail, error, and action state")
+    @MainActor func clearForLockRemovesSensitiveState() throws {
+        let (vm, _) = try makeViewModelWithItems()
+        vm.searchQuery = "git"
+        vm.errorMessage = "Failed"
+        vm.selectedIndex = 1
+        vm.showDetail()
+        vm.selectedRowIndex = 1
+        vm.isLoading = true
+        vm.isActionLoading = true
+        let oldCopyGeneration = vm.copyGeneration
+        let oldLargeTypeGeneration = vm.largeTypeGeneration
+
+        vm.clearForLock()
+
+        #expect(vm.searchQuery == "")
+        #expect(vm.items.isEmpty)
+        #expect(vm.selectedIndex == 0)
+        #expect(vm.detailItem == nil)
+        #expect(vm.selectedRowIndex == 0)
+        #expect(vm.errorMessage == nil)
+        #expect(vm.isLoading == false)
+        #expect(vm.isActionLoading == false)
+        #expect(vm.copyGeneration == oldCopyGeneration + 1)
+        #expect(vm.largeTypeGeneration == oldLargeTypeGeneration + 1)
+    }
 }
 
 @Suite("QuickAccessViewModel — Navigation")
@@ -218,6 +245,39 @@ struct QuickAccessViewModelActionTests {
         #expect(tracker.called)
     }
 
+    @Test("clearForLock prevents in-flight copyPassword from copying after CLI returns")
+    @MainActor func clearForLockCancelsInFlightSecretAction() async throws {
+        let runner = DelayedSecretActionRunner()
+        let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
+        let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
+        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        var dismissed = false
+        let vm = QuickAccessViewModel(
+            searchService: SearchService(databaseManager: db),
+            cliService: cliService,
+            clipboardManager: clipboard,
+            onDismiss: { dismissed = true }
+        )
+        let item = PassItem(
+            id: "login1", vaultId: "s1",
+            title: "Login", itemType: .login, subtitle: "user@example.com",
+            url: nil, hasTOTP: false, state: "Active",
+            createTime: Date(), modifyTime: Date(),
+            useCount: 0, lastUsedAt: nil
+        )
+
+        vm.handleAction(.copyPassword, for: item)
+        await runner.waitForItemViewRequest()
+        vm.clearForLock()
+        await runner.releaseItemView()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(clipboard.lastCopiedValue == nil)
+        #expect(dismissed == false)
+        #expect(vm.errorMessage == nil)
+        #expect(vm.isActionLoading == false)
+    }
+
     @Test("openURL with no URL does not dismiss")
     @MainActor func openURLWithoutURLDoesNotDismiss() throws {
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
@@ -242,6 +302,62 @@ struct QuickAccessViewModelActionTests {
         #expect(vm.isActionLoading == false)
         #expect(vm.errorMessage == nil)
     }
+}
+
+private actor DelayedSecretActionRunner: CLIRunning {
+    private var itemViewStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func run(
+        executablePath: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) async throws -> Data {
+        if arguments.starts(with: ["item", "view"]) {
+            await waitUntilReleased()
+            return Data(Self.itemViewJSON.utf8)
+        }
+        return Data("{}".utf8)
+    }
+
+    func waitForItemViewRequest() async {
+        if itemViewStarted { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseItemView() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    private func waitUntilReleased() async {
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+            itemViewStarted = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    private static let itemViewJSON = """
+    {"item":{
+        "id":"login1","share_id":"s1","vault_id":"v1",
+        "content":{"title":"Login","note":"","item_uuid":"u-login",
+            "content":{"Login":{
+                "email":"user@example.com",
+                "username":"user",
+                "password":"<<FAKE_ACTION_VALUE>>",
+                "urls":["https://example.com"],
+                "totp_uri":"otpauth://totp/example"
+            }},"extra_fields":[]},
+        "state":"Active","flags":[],
+        "create_time":"2025-01-01T00:00:00","modify_time":"2025-01-01T00:00:00"
+    }}
+    """
 }
 
 @Suite("QuickAccessViewModel — Detail Rows")

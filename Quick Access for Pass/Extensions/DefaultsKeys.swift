@@ -25,4 +25,5 @@ nonisolated enum DefaultsKey {
     static let runProxySocketPath = "~/.local/share/quick-access/run.sock"
     static let lockoutEnabled = "lockoutEnabled"
     static let lockoutTimeout = "lockoutTimeout"
+    static let lockOnSystemLock = "lockOnSystemLock"
 }

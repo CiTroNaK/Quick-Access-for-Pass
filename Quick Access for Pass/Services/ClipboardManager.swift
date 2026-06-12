@@ -57,6 +57,19 @@ final class ClipboardManager {
         pasteboard.clearContents()
     }
 
+    @discardableResult
+    func clearIfOwned() -> Bool {
+        guard pasteboard.changeCount == lastChangeCount else { return false }
+        clearTask?.cancel()
+        clearTask = nil
+        pasteboard.clearContents()
+        lastChangeCount = pasteboard.changeCount
+        #if DEBUG
+        lastCopiedValue = nil
+        #endif
+        return true
+    }
+
     private func scheduleClear() {
         clearTask?.cancel()
 
