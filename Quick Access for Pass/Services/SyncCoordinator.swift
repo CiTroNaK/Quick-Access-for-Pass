@@ -49,7 +49,7 @@ final class SyncCoordinator {
             } catch let error as CLIError where error.isNotInstalled {
                 viewModel.errorMessage = String(localized: "pass-cli not found. Install: brew install protonpass/tap/pass-cli")
             } catch let error as CLIError where error.isAuthError {
-                viewModel.errorMessage = String(localized: "Not logged in. Run: pass-cli login")
+                viewModel.errorMessage = cliService.cliSelection.loginRequiredMessage
             } catch {
                 viewModel.errorMessage = String(localized: "Sync failed: \(error.localizedDescription)")
             }
