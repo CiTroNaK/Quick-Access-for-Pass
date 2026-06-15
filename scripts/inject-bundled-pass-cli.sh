@@ -6,9 +6,43 @@ if [[ $# -ne 2 ]]; then
 	exit 64
 fi
 
+select_signing_identity() {
+	if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+		printf '%s\n' "$SIGN_IDENTITY"
+		return 0
+	fi
+
+	local identities
+	identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+
+	local developer_id
+	developer_id="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
+	if [[ -n "$developer_id" ]]; then
+		printf '%s\n' "$developer_id"
+		return 0
+	fi
+
+	local apple_development
+	apple_development="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -n 1)"
+	if [[ -n "$apple_development" ]]; then
+		printf '%s\n' "$apple_development"
+		return 0
+	fi
+
+	cat >&2 <<'ERROR'
+No suitable code signing identity found.
+
+Install a Developer ID Application or Apple Development certificate, or run:
+  SIGN_IDENTITY="Your Signing Identity" make install
+
+Release CI signs with SIGN_IDENTITY="Developer ID Application".
+ERROR
+	return 1
+}
+
 APP_PATH="$1"
 PREPARED_DIR="$2"
-SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application}"
+SIGN_IDENTITY="$(select_signing_identity)"
 HELPERS_DIR="$APP_PATH/Contents/Helpers"
 APP_ENTITLEMENTS_PATH="$(mktemp)"
 trap 'rm -f "$APP_ENTITLEMENTS_PATH"' EXIT

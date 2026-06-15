@@ -27,6 +27,9 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
+      - name: Verify bundled Proton Pass CLI
+        run: scripts/prepare-bundled-pass-cli.sh "$RUNNER_TEMP/bundled-pass-cli"
+
       - name: Cache DerivedData
         uses: actions/cache@v5
         with:
