@@ -10,6 +10,7 @@ struct HealthCheckCoordinatorTests {
     private struct Harness {
         let coordinator: HealthCheckCoordinator
         let cliStore: PassCLIStatusStore
+        let cliService: PassCLIService
         let runDispatcher: FakeRunProxyDispatcher
         let sshDispatcher: FakeSSHProxyDispatcher
         let cliChecker: FakePassCLIHealthChecker
@@ -39,6 +40,7 @@ struct HealthCheckCoordinatorTests {
         return Harness(
             coordinator: coordinator,
             cliStore: cliStore,
+            cliService: cliService,
             runDispatcher: runDispatcher,
             sshDispatcher: sshDispatcher,
             cliChecker: cliChecker,
@@ -62,6 +64,18 @@ struct HealthCheckCoordinatorTests {
         #expect(h.cliStore.health == .ok)
         #expect(h.runDispatcher.cliTransitions == [.ok])
         #expect(h.sshDispatcher.cliTransitions == [.ok])
+    }
+
+    @Test("cliTick writes selected CLI source into status store")
+    func cliTickWritesSelectedCLISource() async {
+        let h = makeHarness()
+        h.cliService.updateCLIPath("/custom/pass-cli")
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .ok, identity: nil, version: "2.1.4")
+
+        await h.coordinator.tickCLI()
+
+        #expect(h.cliStore.selection == .custom(path: "/custom/pass-cli"))
+        #expect(h.cliStore.version == "2.1.4")
     }
 
     @Test("cliTick skips dispatch if result is unchanged")

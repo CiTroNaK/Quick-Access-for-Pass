@@ -4,10 +4,12 @@ import Foundation
 
 @Suite("PassCLIService Tests")
 struct PassCLIServiceTests {
-    @Test("findCLIPath finds pass-cli in common locations")
-    func findCLI() {
+    @Test("custom init path is stored as custom selection")
+    func customInitPathIsStoredAsCustomSelection() {
         let service = PassCLIService(cliPath: "/nonexistent/pass-cli")
+
         #expect(service.cliPath == "/nonexistent/pass-cli")
+        #expect(service.cliSelection == .custom(path: "/nonexistent/pass-cli"))
     }
 
     @Test("parseVaultListOutput parses valid JSON")
@@ -76,13 +78,37 @@ struct PassCLIServiceTests {
         #expect(notLoggedIn.errorDescription?.contains("login") == true)
     }
 
-    @Test("updateCLIPath replaces the current path without reconstructing the service")
-    func updateCLIPathRoundTrip() {
-        let service = PassCLIService(cliPath: "/initial/pass-cli")
-        #expect(service.cliPath == "/initial/pass-cli")
+    @Test("updating with blank custom path re-runs auto resolution")
+    func updateCustomPathToBlankRerunsAutoResolution() {
+        let resolver = PassCLIResolver(
+            fileSystem: StubExecutableFileSystem(executablePaths: ["/opt/homebrew/bin/pass-cli"]),
+            which: StubWhichResolver(path: nil),
+            bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
+            architecture: .arm64
+        )
+        let service = PassCLIService(cliPath: "/custom/pass-cli", resolver: resolver)
 
-        service.updateCLIPath("/replacement/pass-cli")
-        #expect(service.cliPath == "/replacement/pass-cli")
+        let didChange = service.updateCLISelection(customPath: "")
+
+        #expect(didChange)
+        #expect(service.cliSelection == .system(path: "/opt/homebrew/bin/pass-cli"))
+        #expect(service.cliPath == "/opt/homebrew/bin/pass-cli")
+    }
+
+    @Test("updating with same resolved selection returns false")
+    func updateSameResolvedSelectionReturnsFalse() {
+        let resolver = PassCLIResolver(
+            fileSystem: StubExecutableFileSystem(executablePaths: ["/opt/homebrew/bin/pass-cli"]),
+            which: StubWhichResolver(path: nil),
+            bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
+            architecture: .arm64
+        )
+        let service = PassCLIService(cliPath: nil, resolver: resolver)
+
+        let didChange = service.updateCLISelection(customPath: nil)
+
+        #expect(didChange == false)
+        #expect(service.cliSelection == .system(path: "/opt/homebrew/bin/pass-cli"))
     }
 
     @Test("listItems includes show-secrets for CLI 2.0.3 and newer")
@@ -235,12 +261,28 @@ struct PassCLIServiceTests {
         let cliItems = try PassCLIService.parseItemList(from: Data(json.utf8))
         let passItems = cliItems.map { PassItem(from: $0, vaultId: $0.vaultId) }
         let encodedMetadata = try passItems
-            .map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) }
+            .map { try #require(String(data: try JSONEncoder().encode($0), encoding: .utf8)) }
             .joined(separator: "\n")
 
         for secretValue in secretValues {
             #expect(encodedMetadata.contains(secretValue) == false)
         }
+    }
+}
+
+private struct StubExecutableFileSystem: ExecutableFileChecking {
+    let executablePaths: Set<String>
+
+    nonisolated func isExecutableFile(atPath path: String) -> Bool {
+        executablePaths.contains(path)
+    }
+}
+
+private struct StubWhichResolver: WhichResolving {
+    let path: String?
+
+    nonisolated func find(_ executableName: String) -> String? {
+        path
     }
 }
 
