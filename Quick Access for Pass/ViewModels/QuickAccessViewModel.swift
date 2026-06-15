@@ -70,6 +70,13 @@ final class QuickAccessViewModel {
         (try? searchService.vaultName(for: vaultId)) ?? ""
     }
 
+    func shareId(for item: PassItem) -> String {
+        guard let shareId = try? searchService.vaultShareId(for: item.vaultId), !shareId.isEmpty else {
+            return item.vaultId
+        }
+        return shareId
+    }
+
     // MARK: - Search
 
     private func scheduleSearch() {

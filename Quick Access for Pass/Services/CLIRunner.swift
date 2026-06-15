@@ -9,8 +9,20 @@ protocol CLIRunning: Sendable {
     ) async throws -> Data
 }
 
+/// Abstracts CLI execution for commands that need controlled child-process
+/// environment values. Used by PAT login so the token never becomes an
+/// argument, UserDefault, or database value.
+protocol CLIEnvironmentRunning: Sendable {
+    func run(
+        executablePath: String,
+        arguments: [String],
+        environmentOverrides: [String: String],
+        timeout: TimeInterval
+    ) async throws -> Data
+}
+
 /// Production-grade CLIRunning that delegates to the existing CLIRunner.run static.
-nonisolated struct LiveCLIRunner: CLIRunning {
+nonisolated struct LiveCLIRunner: CLIRunning, CLIEnvironmentRunning {
     nonisolated func run(
         executablePath: String,
         arguments: [String],
@@ -19,6 +31,20 @@ nonisolated struct LiveCLIRunner: CLIRunning {
         try await CLIRunner.run(
             executablePath: executablePath,
             arguments: arguments,
+            timeout: timeout
+        )
+    }
+
+    nonisolated func run(
+        executablePath: String,
+        arguments: [String],
+        environmentOverrides: [String: String],
+        timeout: TimeInterval
+    ) async throws -> Data {
+        try await CLIRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environmentOverrides: environmentOverrides,
             timeout: timeout
         )
     }
@@ -33,6 +59,7 @@ nonisolated enum CLIRunner {
     static func run(
         executablePath: String,
         arguments: [String],
+        environmentOverrides: [String: String] = [:],
         timeout: TimeInterval = 300
     ) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
@@ -46,9 +73,7 @@ nonisolated enum CLIRunner {
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
 
-                var env = ProcessInfo.processInfo.environment
-                env["PATH"] = (env["PATH"] ?? "") + ":/opt/homebrew/bin:/usr/local/bin"
-                process.environment = env
+                process.environment = environment(overrides: environmentOverrides)
 
                 do {
                     try process.run()
@@ -108,6 +133,15 @@ nonisolated enum CLIRunner {
                 }
             }
         }
+    }
+
+    private static func environment(overrides: [String: String]) -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = (env["PATH"] ?? "") + ":/opt/homebrew/bin:/usr/local/bin"
+        for (key, value) in overrides {
+            env[key] = value
+        }
+        return env
     }
 
     /// Exact-phrase check for pass-cli's logged-out stderr. Prior substring

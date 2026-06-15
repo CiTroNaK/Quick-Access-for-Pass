@@ -6,7 +6,7 @@ extension QuickAccessViewModel {
     /// the concealed clipboard, and drops the decoded item. Called from
     /// `handleEnter()` when a `.field` row is selected.
     func copyField(_ key: FieldKey, from item: PassItem) {
-        lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
+        lastCommand = "\(cliService.cliPath) item view --output json pass://\(shareId(for: item))/\(item.id)"
         inFlightLargeType?.cancel()
         inFlightLargeType = nil
         largeTypeGeneration += 1
@@ -42,7 +42,7 @@ extension QuickAccessViewModel {
     }
 
     private func currentFieldValue(for key: FieldKey, from item: PassItem, generation: Int) async throws -> String? {
-        let cliItem = try await fetchItem(item.id, item.vaultId)
+        let cliItem = try await fetchItem(item.id, shareId(for: item))
         try Task.checkCancellation()
         guard isCurrentCopyGeneration(generation) else { return nil }
 

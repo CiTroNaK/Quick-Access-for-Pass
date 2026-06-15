@@ -18,20 +18,7 @@ extension AppDelegate {
         syncCoordinator?.start()
 
         if let cliService {
-            let loginCoordinator = PassCLILoginCoordinator(
-                cliService: cliService,
-                healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
-                syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() },
-                resultHandler: { [weak self] result in self?.passCLILoginNotifier?.handleLoginResult(result) }
-            )
-            passCLILoginCoordinator = loginCoordinator
-
-            let loginNotifier = PassCLILoginNotifier(
-                notificationRouter: notificationRouter,
-                startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() }
-            )
-            loginNotifier.requestAuthorizationIfNeeded()
-            passCLILoginNotifier = loginNotifier
+            setupPassCLIAuthenticationCoordinators(cliService: cliService)
         }
 
         let authCallbacks = AuthDialogHelper.Callbacks(
@@ -54,9 +41,76 @@ extension AppDelegate {
                 sshChecker: LiveSSHProbeChecker(),
                 runCoordinator: runCoordinator,
                 sshCoordinator: sshCoordinator,
-                passCLITransitionHandler: passCLILoginNotifier
+                passCLITransitionHandler: passCLIPATAutoLoginCoordinator ?? passCLILoginNotifier
             )
         }
+    }
+
+    private func setupPassCLIAuthenticationCoordinators(cliService: PassCLIService) {
+        let loginCoordinator = PassCLILoginCoordinator(
+            cliService: cliService,
+            healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
+            syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() },
+            resultHandler: { [weak self] result in self?.passCLILoginNotifier?.handleLoginResult(result) }
+        )
+        passCLILoginCoordinator = loginCoordinator
+
+        let loginNotifier = PassCLILoginNotifier(
+            notificationRouter: notificationRouter,
+            startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() }
+        )
+        loginNotifier.requestAuthorizationIfNeeded()
+        passCLILoginNotifier = loginNotifier
+
+        setupPassCLIPATCoordinators(
+            cliService: cliService,
+            loginCoordinator: loginCoordinator,
+            loginNotifier: loginNotifier
+        )
+    }
+
+    private func setupPassCLIPATCoordinators(
+        cliService: PassCLIService,
+        loginCoordinator: PassCLILoginCoordinator,
+        loginNotifier: PassCLILoginNotifier
+    ) {
+        let patCredentialStore = KeychainPassCLIPATCredentialStore()
+        passCLIPATCredentialStore = patCredentialStore
+
+        let patLoginService = PassCLIPATLoginService(
+            credentialStore: patCredentialStore,
+            cliService: cliService,
+            healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
+            syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() }
+        )
+        passCLIPATLoginService = patLoginService
+
+        passCLIPATSettingsModel = PassCLIPATSettingsModel(
+            credentialStore: patCredentialStore,
+            loginWithSavedToken: { [weak patLoginService] in
+                await patLoginService?.loginWithSavedToken()
+                    ?? .failed(String(localized: "Personal access token login is unavailable."))
+            },
+            isCurrentSessionPersonalAccessToken: { [weak self] in
+                self?.passCLIStatusStore.identity?.isPersonalAccessTokenSession == true
+            },
+            logoutFromPassCLI: { try await cliService.logout() }
+        )
+
+        passCLIPATAutoLoginCoordinator = PassCLIPATAutoLoginCoordinator(
+            credentialStore: patCredentialStore,
+            loginWithSavedToken: { [weak patLoginService] in
+                await patLoginService?.loginWithSavedToken()
+                    ?? .failed(String(localized: "Personal access token login is unavailable."))
+            },
+            fallbackHandler: loginNotifier,
+            patFailureHandler: { [weak loginNotifier] message in
+                loginNotifier?.handlePATLoginFailure(message)
+            },
+            browserLoginIsRunning: { [weak loginCoordinator] in
+                loginCoordinator?.state != .idle
+            }
+        )
     }
 
     func setupWakeObserver() {

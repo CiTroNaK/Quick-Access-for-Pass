@@ -42,10 +42,11 @@ extension QuickAccessViewModel {
     }
 
     private func resolvedLargeTypeValue(for row: DetailRow, item: PassItem, generation: Int) async throws -> String {
+        let currentShareId = shareId(for: item)
         switch row {
         case .field(let key, _, _):
-            lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
-            let cliItem = try await fetchItem(item.id, item.vaultId)
+            lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
+            let cliItem = try await fetchItem(item.id, currentShareId)
             try Task.checkCancellation()
             guard isCurrentLargeTypeGeneration(generation) else { throw CancellationError() }
             guard let value = FieldExtractor.value(for: key, in: cliItem) else {
@@ -60,12 +61,13 @@ extension QuickAccessViewModel {
     }
 
     private func resolvedLargeTypeValue(for action: ItemAction, item: PassItem, generation: Int) async throws -> String {
+        let currentShareId = shareId(for: item)
         switch action {
         case .copyUsername:
             return item.subtitle
         case .copyPassword:
-            lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
-            let detail = try await fetchItem(item.id, item.vaultId)
+            lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
+            let detail = try await fetchItem(item.id, currentShareId)
             try Task.checkCancellation()
             guard isCurrentLargeTypeGeneration(generation) else { throw CancellationError() }
             guard case .login(let login) = detail.content.content else {
@@ -73,8 +75,8 @@ extension QuickAccessViewModel {
             }
             return login.password
         case .copyTotp:
-            lastCommand = "\(cliService.cliPath) item totp --output json pass://\(item.vaultId)/\(item.id)"
-            return try await cliService.getTotp(itemId: item.id, shareId: item.vaultId)
+            lastCommand = "\(cliService.cliPath) item totp --output json pass://\(currentShareId)/\(item.id)"
+            return try await cliService.getTotp(itemId: item.id, shareId: currentShareId)
         case .openURL, .copyPrimary:
             throw LargeTypeDisplay.ValidationError.unsupportedRow
         }

@@ -36,6 +36,7 @@ Quick Access for Pass is designed around a few core invariants:
 - **No secrets in the database** — only metadata is persisted locally
 - **Secrets are never persisted locally**; sync may temporarily load full item content from `pass-cli` to derive metadata, and selected actions fetch current values on demand
 - **Database encryption is mandatory** — the local cache is encrypted using GRDB/SQLCipher with a Keychain-backed passphrase
+- **Optional Proton Pass CLI personal access tokens stay in Keychain** — PATs use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and are never written to UserDefaults, SQLite, logs, notifications, or captured CLI output
 - **Local proxies are permission constrained** — sockets are created with strict owner-only permissions
 - **Run proxy peers are verified** — unverified local clients are rejected; trusted helper handling is explicit
 - **Authorization is contextual** — remembered decisions are scoped to app identity and command/profile context rather than globally

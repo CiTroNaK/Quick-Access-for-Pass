@@ -110,6 +110,10 @@ actor PassCLIService {
         return try Self.parseItemList(from: data)
     }
 
+    func logout() async throws {
+        _ = try await run(arguments: ["logout"])
+    }
+
     func viewItem(itemId: String, shareId: String) async throws -> CLIItem {
         let uri = "pass://\(shareId)/\(itemId)"
         let data = try await run(arguments: ["item", "view", "--output", "json", uri])
@@ -129,7 +133,7 @@ actor PassCLIService {
             for vault in vaults {
                 group.addTask {
                     let items = try await self.listItems(shareId: vault.shareId)
-                    return items.map { (item: $0, vaultId: vault.shareId) }
+                    return items.map { (item: $0, vaultId: vault.vaultId) }
                 }
             }
             var result: [(item: CLIItem, vaultId: String)] = []

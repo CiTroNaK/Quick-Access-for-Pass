@@ -92,4 +92,15 @@ struct PassCLILoginNotifierTests {
         #expect(handled == true)
         #expect(starter.count == 1)
     }
+
+    @Test func patFailureNotificationUsesLoginActionCategoryAndDoesNotIncludeRawDiagnostic() {
+        let poster = FakeLoginNotificationPoster()
+        let notifier = PassCLILoginNotifier(notificationRouter: nil, poster: poster, startLogin: {})
+
+        notifier.handlePATLoginFailure("invalid pst_test_token::secret")
+
+        #expect(poster.resultMessages.first?.title == "Personal access token login failed")
+        #expect(poster.resultMessages.first?.body.contains("pst_test_token") == false)
+        #expect(poster.resultMessages.first?.categoryIdentifier == PassCLILoginNotifier.categoryIdentifier)
+    }
 }

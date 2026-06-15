@@ -16,6 +16,8 @@ I built this for myself and my wife after moving from 1Password to Proton Pass �
 
 1. **Install and log in to [`pass-cli`](https://protonpass.github.io/pass-cli/)** — the app reads your vaults through it.
    If Proton Pass CLI is logged out, Quick Access shows a macOS notification with a **Log In** action and also exposes login actions from the menu-bar status menu and Pass CLI Settings. These actions run `pass-cli login`, open the Proton browser authentication URL produced by the CLI, then refresh health and sync after the CLI reconnects.
+
+   Quick Access can optionally store a Proton Pass CLI personal access token (PAT) in Keychain from **Settings → Pass CLI**. When a PAT is saved, Quick Access validates it immediately with `pass-cli login` and later uses it to recreate lost CLI sessions before showing the normal browser login notification. PAT expiration is managed by Proton Pass: Quick Access cannot discover the expiration date or extend it from a PAT-created session, so an expired or revoked token must be replaced or followed by normal browser login.
 2. **Install** this app via [Homebrew](https://brew.sh/):
    ```bash
    brew install CiTroNaK/tap/quick-access-for-pass

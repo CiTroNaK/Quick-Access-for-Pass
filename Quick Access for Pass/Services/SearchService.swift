@@ -22,4 +22,8 @@ nonisolated struct SearchService: Sendable {
     func vaultName(for vaultId: String) throws -> String? {
         try databaseManager.vaultName(for: vaultId)
     }
+
+    func vaultShareId(for vaultId: String) throws -> String? {
+        try databaseManager.vaultShareId(for: vaultId)
+    }
 }

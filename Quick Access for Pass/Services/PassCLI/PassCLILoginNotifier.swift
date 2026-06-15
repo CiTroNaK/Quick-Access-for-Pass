@@ -104,6 +104,17 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         poster.postResultNotification(title: title, body: body, categoryIdentifier: categoryIdentifier)
     }
 
+    func handlePATLoginFailure(_ message: String) {
+        let title = String(localized: "Personal access token login failed")
+        let body = String(localized: "Replace the saved token or log in normally from Settings → Pass CLI.")
+        AccessibilityNotification.Announcement("\(title). \(body)").post()
+        poster.postResultNotification(
+            title: title,
+            body: body,
+            categoryIdentifier: Self.categoryIdentifier
+        )
+    }
+
     func handleNotificationAction(_ context: NotificationActionContext) async -> Bool {
         guard context.actionIdentifier == Self.loginActionIdentifier else { return false }
         guard isLoggedOutEpisodeActive || context.requestIdentifier.hasPrefix("pass-cli-login-result") else { return false }
