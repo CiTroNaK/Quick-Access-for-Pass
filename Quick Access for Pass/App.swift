@@ -337,15 +337,7 @@ private extension AppDelegate {
     func applyCLIPathOverride() -> Bool {
         guard let cliService else { return false }
         let override = UserDefaults.standard.string(forKey: DefaultsKey.cliPath)
-        let resolved: String
-        if let override, !override.isEmpty {
-            resolved = override
-        } else {
-            resolved = PassCLIService.findCLIPath() ?? "pass-cli"
-        }
-        guard resolved != cliService.cliPath else { return false }
-        cliService.updateCLIPath(resolved)
-        return true
+        return cliService.updateCLISelection(customPath: override)
     }
 
     func reloadHotkey() {

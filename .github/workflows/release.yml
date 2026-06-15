@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version label for manual dry runs"
+        type: string
+        default: "dry-run"
 
 permissions:
   contents: read
@@ -22,12 +28,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Extract version from tag
+      - name: Extract version
         id: version
+        env:
+          VERSION_INPUT: ${{ inputs.version || 'dry-run' }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/v}"
-          echo "tag_version=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Building version $TAG (build $GITHUB_RUN_NUMBER)"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${VERSION_INPUT:-dry-run}"
+          fi
+
+          echo "tag_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION (build $GITHUB_RUN_NUMBER)"
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -58,6 +71,9 @@ jobs:
 
       - name: List signing identities
         run: security find-identity -v -p codesigning
+
+      - name: Prepare bundled Proton Pass CLI
+        run: scripts/prepare-bundled-pass-cli.sh build/bundled-pass-cli
 
       - name: Install provisioning profile
         env:
@@ -114,6 +130,19 @@ jobs:
             -archivePath build/QuickAccessForPass.xcarchive \
             -exportPath build/export \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Inject and sign bundled Proton Pass CLI
+        env:
+          SIGN_IDENTITY: Developer ID Application
+        run: |
+          scripts/inject-bundled-pass-cli.sh \
+            "build/export/$APP_NAME" \
+            build/bundled-pass-cli
+
+      - name: Verify bundled Proton Pass CLI helpers
+        run: |
+          "build/export/$APP_NAME/Contents/Helpers/pass-cli-arm64" --version
+          "build/export/$APP_NAME/Contents/Helpers/pass-cli-x86_64" --version
 
       - name: Notarize app
         env:
@@ -192,12 +221,18 @@ jobs:
           name: zip
           path: Quick.Access.for.Pass-*.zip
 
+      - name: Summarize dry run
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "Manual dry run complete. Artifacts were uploaded, and publish jobs were skipped."
+
       - name: Cleanup keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
   release:
     name: Create Release
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -219,6 +254,8 @@ jobs:
       - name: Build release body
         run: |
           TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          DMG_NAME="Quick.Access.for.Pass-${VERSION}.dmg"
           cat > "$RUNNER_TEMP/release-body.md" << 'BODY'
           <details>
           <summary>Installation</summary>
@@ -230,11 +267,18 @@ jobs:
           ```
 
           ### macOS (Apple Silicon & Intel)
-          Download `Quick.Access.for.Pass-VERSION.dmg` from the assets below, open it, and drag to Applications. The app is a universal binary and runs natively on both architectures.
+          Download `__DMG_NAME__` from the assets below, open it, and drag to Applications. The app is a universal binary and runs natively on both architectures.
 
           > Signed and notarized with Apple Developer ID.
           </details>
           BODY
+          python3 - "$RUNNER_TEMP/release-body.md" "$DMG_NAME" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          path.write_text(path.read_text().replace("__DMG_NAME__", sys.argv[2]))
+          PY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -246,6 +290,7 @@ jobs:
 
   update-homebrew:
     name: Update Homebrew Cask
+    if: github.event_name == 'push'
     needs: release
     runs-on: ubuntu-latest
 

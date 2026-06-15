@@ -14,19 +14,20 @@ I built this for myself and my wife after moving from 1Password to Proton Pass �
 
 ## Quick start
 
-1. **Install and log in to [`pass-cli`](https://protonpass.github.io/pass-cli/)** — the app reads your vaults through it.
-   If Proton Pass CLI is logged out, Quick Access shows a macOS notification with a **Log In** action and also exposes login actions from the menu-bar status menu and Pass CLI Settings. These actions run `pass-cli login`, open the Proton browser authentication URL produced by the CLI, then refresh health and sync after the CLI reconnects.
-
-   Quick Access can optionally store a Proton Pass CLI personal access token (PAT) in Keychain from **Settings → Pass CLI**. When a PAT is saved, Quick Access validates it immediately with `pass-cli login` and later uses it to recreate lost CLI sessions before showing the normal browser login notification. PAT expiration is managed by Proton Pass: Quick Access cannot discover the expiration date or extend it from a PAT-created session, so an expired or revoked token must be replaced or followed by normal browser login.
-2. **Install** this app via [Homebrew](https://brew.sh/):
-   ```bash
-   brew install CiTroNaK/tap/quick-access-for-pass
-   ```
-   (or download from [Releases](../../releases) and install manually to `/Applications`)
-3. Open the app.
+1. **Download the signed app from [Releases](../../releases)**, open the DMG, and drag Quick Access for Pass to `/Applications`.
+2. Open the app.
+3. Click **Log In** when prompted. Quick Access includes the official Proton Pass CLI in the signed app, so normal users do **not** need Homebrew, Terminal setup, or a separate CLI install.
 4. **Press `⇧⌥Space`**, search for an item, hit Return to copy.
 
-That's it. Everything else below is optional.
+That bundled CLI is a big simplification: the technical `pass-cli` dependency is still there, but it is already inside the app bundle for signed releases. Everything else below is optional.
+
+Advanced users can still install via [Homebrew](https://brew.sh/):
+
+```bash
+brew install CiTroNaK/tap/quick-access-for-pass
+```
+
+Quick Access can optionally store a Proton Pass CLI personal access token (PAT) in Keychain from **Settings → Pass CLI**. When a PAT is saved, Quick Access validates it immediately with `pass-cli login` and later uses it to recreate lost CLI sessions before showing the normal browser login notification. PAT expiration is managed by Proton Pass: Quick Access cannot discover the expiration date or extend it from a PAT-created session, so an expired or revoked token must be replaced or followed by normal browser login.
 
 ## Features
 
@@ -123,8 +124,63 @@ Most of the app's behavior is configurable in Settings — from the global hotke
 ## Requirements
 
 - macOS 15 or later
-- [Proton Pass CLI](https://protonpass.github.io/pass-cli/) installed and authenticated
+- A Proton Pass account. Signed app releases include the official Proton Pass CLI fallback, so a separate `pass-cli` install is optional.
 - Touch ID (required for biometric prompts)
+
+## Bundled Proton Pass CLI
+
+Quick Access talks to Proton Pass through Proton's `pass-cli`. Earlier versions expected users to install that command-line tool themselves, usually with Homebrew. That is fine for developers, but it is a bad first-run experience for everyone else.
+
+Signed Quick Access releases now include Proton's official macOS CLI binaries inside the app bundle:
+
+- `Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64`
+- `Quick Access for Pass.app/Contents/Helpers/pass-cli-x86_64`
+
+On first run, if no system CLI is installed, Quick Access uses the bundled helper automatically and shows the same login flow from the menu-bar app. No Homebrew required.
+
+CLI selection order:
+
+1. A custom path from **Settings → Pass CLI**, if set
+2. `/opt/homebrew/bin/pass-cli`
+3. `/usr/local/bin/pass-cli`
+4. `~/.local/bin/pass-cli`
+5. `pass-cli` found on `PATH`
+6. The bundled CLI fallback included in signed app releases
+
+A custom path is authoritative. If you enter one, Quick Access uses exactly that executable and does not fall back to a system or bundled CLI if the custom path fails. Clear the field to return to auto-detection and bundled fallback.
+
+The bundled CLI updates only when Quick Access updates. If you want to track Proton Pass CLI releases independently, install `pass-cli` yourself and leave the custom path empty so the system install wins.
+
+### Provenance and verification
+
+The bundled CLI is not a fork. Quick Access vendors Proton's release binaries under `ThirdParty/ProtonPassCLI/<version>/`, verifies their SHA256 checksums during release preparation, copies them into `Contents/Helpers`, and signs the copied helpers so macOS will run them inside the signed app.
+
+For the current bundled Proton Pass CLI `2.1.4`:
+
+| Architecture | Upstream asset | SHA256 |
+| --- | --- | --- |
+| Apple Silicon | `pass-cli-macos-aarch64` | `8b579bf452c346da57349a5e72c3839c466e064179b9383f481eefbfa8a65a44` |
+| Intel | `pass-cli-macos-x86_64` | `ee0f41d3a1c26022e3f99aff6f2280ec3e0f0e1c443c2c58652c26d3456dc235` |
+
+You can verify the vendored files match Proton's release assets:
+
+```bash
+VERSION=2.1.4
+curl -L -o /tmp/pass-cli-macos-aarch64 \
+  "https://github.com/protonpass/pass-cli/releases/download/$VERSION/pass-cli-macos-aarch64"
+curl -L -o /tmp/pass-cli-macos-x86_64 \
+  "https://github.com/protonpass/pass-cli/releases/download/$VERSION/pass-cli-macos-x86_64"
+
+shasum -a 256 /tmp/pass-cli-macos-aarch64 \
+  ThirdParty/ProtonPassCLI/$VERSION/pass-cli-arm64
+shasum -a 256 /tmp/pass-cli-macos-x86_64 \
+  ThirdParty/ProtonPassCLI/$VERSION/pass-cli-x86_64
+
+cmp /tmp/pass-cli-macos-aarch64 ThirdParty/ProtonPassCLI/$VERSION/pass-cli-arm64
+cmp /tmp/pass-cli-macos-x86_64 ThirdParty/ProtonPassCLI/$VERSION/pass-cli-x86_64
+```
+
+The final app helpers are code-signed during packaging, so their bytes may differ from Proton's raw release downloads because the signature is added for macOS distribution. The verification point is the vendored input plus the packaging scripts: `scripts/prepare-bundled-pass-cli.sh` checksum-verifies the upstream bytes, and `scripts/inject-bundled-pass-cli.sh` only copies those files into the app and code-signs them.
 
 ## Optional integrations
 
@@ -179,7 +235,7 @@ For vulnerability reporting, see [SECURITY.md](SECURITY.md). For the full securi
 
 ```bash
 make build      # Release build
-make install    # Build + copy to /Applications + launch
+make install    # Build, inject bundled CLI helpers, copy to /Applications, and launch
 xcodebuild -scheme "Quick Access for Pass" -configuration Debug build
 xcodebuild -scheme "Quick Access for Pass" test
 ```
@@ -201,4 +257,4 @@ Not affiliated with, endorsed by, or associated with Proton AG. Proton Pass is a
 
 [MIT](LICENSE)
 
-Uses [SQLCipher](https://www.zetetic.net/sqlcipher/) (BSD) and [GRDB.swift](https://github.com/groue/GRDB.swift) (MIT).
+Uses [SQLCipher](https://www.zetetic.net/sqlcipher/) (BSD), [GRDB.swift](https://github.com/groue/GRDB.swift) (MIT), and bundled copies of Proton's official [Proton Pass CLI](https://github.com/protonpass/pass-cli) release binaries (GPL-3.0). See **Settings → About → Open Source Licenses** for bundled CLI version, source, and checksums.

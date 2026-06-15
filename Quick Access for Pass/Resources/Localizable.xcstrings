@@ -763,6 +763,16 @@
         }
       }
     },
+    "CLI source" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI umístění"
+          }
+        }
+      }
+    },
     "Close" : {
       "localizations" : {
         "cs" : {
@@ -1560,16 +1570,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Instagram"
-          }
-        }
-      }
-    },
-    "Install instruction at https://protonpass.github.io/pass-cli/ or set a custom path above." : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pokyny k instalaci na https://protonpass.github.io/pass-cli/ nebo nastavte cestu výše."
           }
         }
       }

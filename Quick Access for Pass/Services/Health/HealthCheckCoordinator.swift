@@ -134,6 +134,7 @@ final class HealthCheckCoordinator {
         guard !Task.isCancelled else { return }
 
         let previous = cliStore.health
+        cliStore.selection = cliService.cliSelection
         cliStore.health = outcome.health
         cliStore.identity = outcome.identity
         cliStore.version = outcome.version

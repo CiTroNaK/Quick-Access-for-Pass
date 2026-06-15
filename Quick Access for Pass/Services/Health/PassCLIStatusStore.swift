@@ -11,6 +11,7 @@ final class PassCLIStatusStore {
     var health: PassCLIHealth = .ok
     var identity: PassCLIIdentity?
     var version: String?
+    var selection: PassCLISelection = .unresolved(command: "pass-cli")
 
     init() {}
 }

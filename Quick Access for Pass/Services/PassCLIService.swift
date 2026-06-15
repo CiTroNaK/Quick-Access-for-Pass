@@ -47,51 +47,44 @@ nonisolated private struct PassCLIVersion: Comparable, Sendable {
 actor PassCLIService {
     private static let minimumShowSecretsVersion = PassCLIVersion(major: 2, minor: 0, patch: 3)
 
-    private nonisolated let pathStore: OSAllocatedUnfairLock<String>
+    private nonisolated let selectionStore: OSAllocatedUnfairLock<PassCLISelection>
+    private let resolver: PassCLIResolver
     private let timeoutSeconds: Double = 300
     private let runner: any CLIRunning
     private var supportsShowSecretsCache: (path: String, supported: Bool)?
     private var supportsShowSecretsTask: (path: String, task: Task<Bool, Never>)?
 
+    nonisolated var cliSelection: PassCLISelection {
+        selectionStore.withLock { $0 }
+    }
+
     nonisolated var cliPath: String {
-        pathStore.withLock { $0 }
+        cliSelection.path
+    }
+
+    @discardableResult
+    nonisolated func updateCLISelection(customPath: String?) -> Bool {
+        let resolved = resolver.resolve(customPath: customPath)
+        return selectionStore.withLock { selection in
+            guard selection != resolved else { return false }
+            selection = resolved
+            return true
+        }
     }
 
     nonisolated func updateCLIPath(_ path: String) {
-        pathStore.withLock { $0 = path }
+        selectionStore.withLock { $0 = .custom(path: path) }
     }
 
-    init(cliPath: String? = nil, runner: any CLIRunning = LiveCLIRunner()) {
-        let resolved = cliPath ?? Self.findCLIPath() ?? "pass-cli"
-        self.pathStore = OSAllocatedUnfairLock(initialState: resolved)
+    init(
+        cliPath: String? = nil,
+        resolver: PassCLIResolver = PassCLIResolver(),
+        runner: any CLIRunning = LiveCLIRunner()
+    ) {
+        let resolved = resolver.resolve(customPath: cliPath)
+        self.selectionStore = OSAllocatedUnfairLock(initialState: resolved)
+        self.resolver = resolver
         self.runner = runner
-    }
-
-    // MARK: - CLI Path Discovery
-
-    static func findCLIPath() -> String? {
-        let candidates = [
-            "/opt/homebrew/bin/pass-cli",
-            "/usr/local/bin/pass-cli",
-            NSString("~/.local/bin/pass-cli").expandingTildeInPath,
-        ]
-        for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
-            return path
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["pass-cli"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try? process.run()
-        process.waitUntilExit()
-        if process.terminationStatus == 0,
-           let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !output.isEmpty {
-            return output
-        }
-        return nil
     }
 
     // MARK: - Commands

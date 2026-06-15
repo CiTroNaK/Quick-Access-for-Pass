@@ -33,14 +33,19 @@ struct PassCLISettingsTab: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
                 }
-                if case .notInstalled = statusStore.health {
-                    SettingsLayout.settingsRow {
-                        Text("Install instruction at https://protonpass.github.io/pass-cli/ or set a custom path above.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
+                SettingsLayout.settingsRow(label: "CLI source") {
+                    Text(cliSourceText)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                SettingsLayout.settingsRow {
+                    Text(cliSourceHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 if case .notLoggedIn = statusStore.health {
                     SettingsLayout.settingsRow {
@@ -109,6 +114,36 @@ struct PassCLISettingsTab: View {
         .onDisappear {
             patInput = ""
             isReplacingPAT = false
+        }
+    }
+
+    private var cliSourceText: String {
+        switch statusStore.selection {
+        case .custom(let path):
+            "Custom: \(path)"
+        case .system(let path):
+            "System: \(path)"
+        case .bundled(_, let architecture):
+            if let version = statusStore.version {
+                "Bundled: pass-cli \(version) (\(architecture.rawValue))"
+            } else {
+                "Bundled: pass-cli (\(architecture.rawValue))"
+            }
+        case .unresolved:
+            "Not found"
+        }
+    }
+
+    private var cliSourceHelpText: String {
+        switch statusStore.selection {
+        case .custom:
+            "Clear this field to use auto-detection and bundled fallback. No fallback is attempted while a custom path is set."
+        case .system:
+            "Using your installed Proton Pass CLI. Clear or change the path field to alter discovery."
+        case .bundled:
+            "Included with Quick Access for Pass. Updates with the app."
+        case .unresolved:
+            "Install Proton Pass CLI or leave the path empty to use the bundled fallback in signed releases."
         }
     }
 
