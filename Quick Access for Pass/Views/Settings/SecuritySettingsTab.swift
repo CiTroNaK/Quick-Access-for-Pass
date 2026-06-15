@@ -38,20 +38,6 @@ struct SecuritySettingsTab: View {
                 Toggle("", isOn: $concealFromClipboardManagers)
                     .toggleStyle(.switch)
             }
-            SettingsLayout.settingsRow(label: "Lock after inactivity") {
-                Toggle("", isOn: $lockoutEnabled)
-                    .toggleStyle(.switch)
-                    .onChange(of: lockoutEnabled) { oldValue, newValue in
-                        Task {
-                            await Self.restoreLockToggleIfDisableDenied(
-                                oldValue: oldValue,
-                                newValue: newValue,
-                                setValue: { lockoutEnabled = $0 },
-                                authorize: onDisableLocking
-                            )
-                        }
-                    }
-            }
             SettingsLayout.settingsRow(label: "Lock when Mac locks") {
                 Toggle("", isOn: $lockOnSystemLock)
                     .toggleStyle(.switch)
@@ -61,6 +47,20 @@ struct SecuritySettingsTab: View {
                                 oldValue: oldValue,
                                 newValue: newValue,
                                 setValue: { lockOnSystemLock = $0 },
+                                authorize: onDisableLocking
+                            )
+                        }
+                    }
+            }
+            SettingsLayout.settingsRow(label: "Lock after inactivity") {
+                Toggle("", isOn: $lockoutEnabled)
+                    .toggleStyle(.switch)
+                    .onChange(of: lockoutEnabled) { oldValue, newValue in
+                        Task {
+                            await Self.restoreLockToggleIfDisableDenied(
+                                oldValue: oldValue,
+                                newValue: newValue,
+                                setValue: { lockoutEnabled = $0 },
                                 authorize: onDisableLocking
                             )
                         }

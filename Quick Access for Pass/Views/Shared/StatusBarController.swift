@@ -8,6 +8,7 @@ final class StatusBarController: NSObject {
     private let passCLIStatusStore: PassCLIStatusStore
     private let onToggle: () -> Void
     private let onRefresh: () -> Void
+    private let onLoginPassCLI: () -> Void
     private let onQuit: () -> Void
 
     private var currentStatus: MenuBarStatus = .normal
@@ -17,12 +18,14 @@ final class StatusBarController: NSObject {
         passCLIStatusStore: PassCLIStatusStore,
         onToggle: @escaping () -> Void,
         onRefresh: @escaping () -> Void,
+        onLoginPassCLI: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         self.healthStore = healthStore
         self.passCLIStatusStore = passCLIStatusStore
         self.onToggle = onToggle
         self.onRefresh = onRefresh
+        self.onLoginPassCLI = onLoginPassCLI
         self.onQuit = onQuit
         super.init()
 
@@ -182,6 +185,16 @@ final class StatusBarController: NSObject {
             addStatusItem(to: menu, label: String(localized: "Run Proxy"), proxyHealth: healthStore.runHealth)
         }
 
+        if passCLIStatusStore.health == .notLoggedIn {
+            let item = NSMenuItem(
+                title: String(localized: "Log In to Proton Pass CLI…"),
+                action: #selector(loginPassCLIClicked),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.addItem(item)
+        }
+
         menu.addItem(.separator())
 
         menu.addItem(NSMenuItem(
@@ -261,5 +274,6 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func refreshClicked() { onRefresh() }
+    @objc private func loginPassCLIClicked() { onLoginPassCLI() }
     @objc private func quitClicked() { onQuit() }
 }

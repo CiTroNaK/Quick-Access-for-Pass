@@ -1,6 +1,84 @@
 import Foundation
 
+@MainActor
+private struct AppPassCLIHealthRefresher: PassCLIHealthRefreshing {
+    weak var appDelegate: AppDelegate?
+
+    func refreshPassCLIHealth() async -> PassCLIHealth {
+        await appDelegate?.healthCoordinator?.refreshPassCLI()
+            ?? .failed(reason: "Health refresh unavailable")
+    }
+}
+
 extension AppDelegate {
+    func setupCoordinators() {
+        notificationRouter = UserNotificationRouter()
+
+        syncCoordinator = SyncCoordinator(cliService: cliService!, databaseManager: databaseManager!, viewModel: viewModel!)
+        syncCoordinator?.start()
+
+        if let cliService {
+            let loginCoordinator = PassCLILoginCoordinator(
+                cliService: cliService,
+                healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
+                syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() },
+                resultHandler: { [weak self] result in self?.passCLILoginNotifier?.handleLoginResult(result) }
+            )
+            passCLILoginCoordinator = loginCoordinator
+
+            let loginNotifier = PassCLILoginNotifier(
+                notificationRouter: notificationRouter,
+                startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() }
+            )
+            loginNotifier.requestAuthorizationIfNeeded()
+            passCLILoginNotifier = loginNotifier
+        }
+
+        let authCallbacks = AuthDialogHelper.Callbacks(
+            onAuthSuccess: { [weak self] in self?.resetAuthTimestamp() },
+            onBiometryLockout: { [weak self] in self?.forceLock() }
+        )
+
+        sshCoordinator = makeSSHCoordinator(authCallbacks: authCallbacks)
+        wireLockClosures(on: sshCoordinator)
+
+        runCoordinator = makeRunCoordinator(authCallbacks: authCallbacks)
+        wireLockClosures(on: runCoordinator)
+
+        if let cliService, let runCoordinator, let sshCoordinator {
+            healthCoordinator = HealthCheckCoordinator(
+                cliStore: passCLIStatusStore,
+                cliService: cliService,
+                cliChecker: LivePassCLIHealthChecker(),
+                runChecker: LiveRunProbeChecker(),
+                sshChecker: LiveSSHProbeChecker(),
+                runCoordinator: runCoordinator,
+                sshCoordinator: sshCoordinator,
+                passCLITransitionHandler: passCLILoginNotifier
+            )
+        }
+    }
+
+    func setupWakeObserver() {
+        wakeObserver = WakeObserver { [weak self] in
+            await self?.healthCoordinator?.handleSystemWake()
+        }
+        wakeObserver?.start()
+    }
+
+    func setupSystemLockObserver() {
+        systemLockObserver = SystemLockObserver { [weak self] in
+            self?.handleSystemLockEvent()
+        }
+        systemLockObserver?.start()
+    }
+
+    func runLaunchTimeSanityCheck() {
+        Task { [weak self] in
+            await self?.healthCoordinator?.start()
+        }
+    }
+
     func makeSSHCoordinator(authCallbacks: AuthDialogHelper.Callbacks) -> SSHProxyCoordinator {
         let coordinator = SSHProxyCoordinator(
             cliService: cliService!,
@@ -9,7 +87,8 @@ extension AppDelegate {
             healthStore: healthStore,
             keychainService: keychainService!,
             passCLIStatusStore: passCLIStatusStore,
-            authCallbacks: authCallbacks
+            authCallbacks: authCallbacks,
+            notificationRouter: notificationRouter
         )
         coordinator.setup()
         return coordinator

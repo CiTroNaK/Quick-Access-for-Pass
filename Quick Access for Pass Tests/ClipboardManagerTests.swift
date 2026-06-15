@@ -11,19 +11,46 @@ struct ClipboardManagerTests {
         NSPasteboard(name: NSPasteboard.Name(name))
     }
 
-    /// Yield repeatedly to let pending MainActor tasks execute, then check a condition.
     @MainActor
-    private static func waitFor(
-        timeout: Duration = .milliseconds(2000),
-        condition: @MainActor () -> Bool
-    ) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while !condition() {
-            if ContinuousClock.now >= deadline {
-                break
+    private final class TestClipboardScheduler: ClipboardScheduling {
+        @MainActor
+        private final class ScheduledWork: ClipboardScheduledWork {
+            private let operation: @MainActor () -> Void
+            private(set) var isCancelled = false
+
+            init(operation: @escaping @MainActor () -> Void) {
+                self.operation = operation
             }
-            await Task.yield()
-            try await Task.sleep(for: .milliseconds(10))
+
+            func cancel() {
+                isCancelled = true
+            }
+
+            func run() {
+                guard !isCancelled else { return }
+                operation()
+            }
+        }
+
+        private var scheduledWork: [ScheduledWork] = []
+
+        var scheduledCount: Int {
+            scheduledWork.count
+        }
+
+        @discardableResult
+        func schedule(
+            after delay: Duration,
+            operation: @escaping @MainActor () -> Void
+        ) -> ClipboardScheduledWork {
+            let work = ScheduledWork(operation: operation)
+            scheduledWork.append(work)
+            return work
+        }
+
+        func runScheduledWork(at index: Int = 0) {
+            let work = scheduledWork.remove(at: index)
+            work.run()
         }
     }
 
@@ -49,40 +76,48 @@ struct ClipboardManagerTests {
     }
 
     @Test("onCopy callback fires with correct label")
-    @MainActor func onCopyCallbackLabel() async throws {
+    @MainActor func onCopyCallbackLabel() {
         let pb = Self.makePasteboard("test-label")
-        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb)
+        let scheduler = TestClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb, scheduler: scheduler)
         var receivedLabel: String?
         manager.onCopy = { receivedLabel = $0 }
 
         manager.copy("abc", label: "Password copied")
 
-        try await Self.waitFor { receivedLabel != nil }
+        #expect(receivedLabel == nil)
+        #expect(scheduler.scheduledCount == 1)
+        scheduler.runScheduledWork()
         #expect(receivedLabel == "Password copied")
     }
 
     @Test("onCopy uses default label when none specified")
-    @MainActor func onCopyDefaultLabel() async throws {
+    @MainActor func onCopyDefaultLabel() {
         let pb = Self.makePasteboard("test-default-label")
-        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb)
+        let scheduler = TestClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb, scheduler: scheduler)
         var receivedLabel: String?
         manager.onCopy = { receivedLabel = $0 }
 
         manager.copy("abc") // no label arg
 
-        try await Self.waitFor { receivedLabel != nil }
+        #expect(receivedLabel == nil)
+        #expect(scheduler.scheduledCount == 1)
+        scheduler.runScheduledWork()
         #expect(receivedLabel == "Copied to clipboard")
     }
 
     // MARK: - Auto-clear disabled
 
     @Test("autoClearSeconds = 0 disables auto-clear")
-    @MainActor func zeroClearSecondsDisablesAutoClear() async throws {
+    @MainActor func zeroClearSecondsDisablesAutoClear() {
         let pb = Self.makePasteboard("test-no-clear")
-        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb)
+        let scheduler = TestClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 0, pasteboard: pb, scheduler: scheduler)
         manager.copy("stay")
-        // Even after a brief wait the content should remain because clear is disabled
-        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(scheduler.scheduledCount == 1)
+        scheduler.runScheduledWork()
         let value = pb.string(forType: .string)
         #expect(value == "stay")
     }
@@ -90,46 +125,56 @@ struct ClipboardManagerTests {
     // MARK: - Auto-clear respects external changes
 
     @Test("auto-clear does NOT clear if pasteboard was changed externally")
-    @MainActor func autoClearSkipsIfExternallyChanged() async throws {
+    @MainActor func autoClearSkipsIfExternallyChanged() {
         let pb = Self.makePasteboard("test-external")
-        let manager = ClipboardManager(autoClearSeconds: 0.1, pasteboard: pb)
+        let scheduler = TestClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 0.1, pasteboard: pb, scheduler: scheduler)
         manager.copy("app-secret")
 
         // Simulate external paste after our copy
         pb.clearContents()
         pb.setString("user-pasted", forType: .string)
 
-        try await Task.sleep(for: .milliseconds(300))
+        #expect(scheduler.scheduledCount == 2)
+        scheduler.runScheduledWork(at: 0)
         // changeCount differs, so auto-clear should have been skipped
         #expect(pb.string(forType: .string) == "user-pasted")
     }
 
     @Test("auto-clear wipes content after timeout if unchanged")
-    @MainActor func autoClearWipesAfterTimeout() async throws {
+    @MainActor func autoClearWipesAfterTimeout() {
         let pb = Self.makePasteboard("test-auto-clear")
-        let manager = ClipboardManager(autoClearSeconds: 0.1, pasteboard: pb)
+        let scheduler = TestClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 0.1, pasteboard: pb, scheduler: scheduler)
         manager.copy("temp-secret")
 
-        try await Self.waitFor { pb.string(forType: .string) != "temp-secret" }
+        #expect(pb.string(forType: .string) == "temp-secret")
+        #expect(scheduler.scheduledCount == 2)
+        scheduler.runScheduledWork(at: 0)
+
         let value = pb.string(forType: .string)
-        // Should be cleared (empty string)
         #expect(value == "" || value == nil)
     }
 
     // MARK: - Cancel on subsequent copy
 
     @Test("second copy cancels first auto-clear timer")
-    @MainActor func secondCopyCancelsFirstTimer() async throws {
+    @MainActor func secondCopyCancelsFirstTimer() {
         let pb = Self.makePasteboard("test-cancel-timer")
-        let manager = ClipboardManager(autoClearSeconds: 0.5, pasteboard: pb)
+        let scheduler = TestClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 0.5, pasteboard: pb, scheduler: scheduler)
         manager.copy("first-secret")
         // Immediately copy again — should reset the timer
         manager.copy("second-secret")
 
-        // After 200ms (well within the 500ms timeout), the content should still be present
-        try await Task.sleep(for: .milliseconds(200))
+        #expect(scheduler.scheduledCount == 4)
+
+        scheduler.runScheduledWork(at: 0)
+        #expect(pb.string(forType: .string) == "second-secret")
+
+        scheduler.runScheduledWork(at: 1)
         let value = pb.string(forType: .string)
-        #expect(value == "second-secret")
+        #expect(value == "" || value == nil)
     }
 
     // MARK: - Concealment

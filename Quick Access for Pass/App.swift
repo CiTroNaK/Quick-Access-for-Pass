@@ -38,13 +38,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let healthStore = ProxyHealthStore()
     let passCLIStatusStore = PassCLIStatusStore()
-    @ObservationIgnored private var wakeObserver: WakeObserver?
-    @ObservationIgnored private var systemLockObserver: SystemLockObserver?
+    @ObservationIgnored var wakeObserver: WakeObserver?
+    @ObservationIgnored var systemLockObserver: SystemLockObserver?
 
-    @ObservationIgnored private var syncCoordinator: SyncCoordinator?
-    @ObservationIgnored private var sshCoordinator: SSHProxyCoordinator?
+    @ObservationIgnored var syncCoordinator: SyncCoordinator?
+    @ObservationIgnored var sshCoordinator: SSHProxyCoordinator?
     @ObservationIgnored var runCoordinator: RunProxyCoordinator?
     @ObservationIgnored var healthCoordinator: HealthCheckCoordinator?
+    @ObservationIgnored var notificationRouter: UserNotificationRouter?
+    @ObservationIgnored var passCLILoginCoordinator: PassCLILoginCoordinator?
+    @ObservationIgnored var passCLILoginNotifier: PassCLILoginNotifier?
+    @ObservationIgnored var passCLILoginObserver: Any?
 
     /// Lock state: set by `forceLock()`, cleared by `resetAuthTimestamp()`.
     var isForceLocked = false
@@ -117,55 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupCoordinators() {
-        syncCoordinator = SyncCoordinator(cliService: cliService!, databaseManager: databaseManager!, viewModel: viewModel!)
-        syncCoordinator?.start()
-
-        let authCallbacks = AuthDialogHelper.Callbacks(
-            onAuthSuccess: { [weak self] in self?.resetAuthTimestamp() },
-            onBiometryLockout: { [weak self] in self?.forceLock() }
-        )
-
-        sshCoordinator = makeSSHCoordinator(authCallbacks: authCallbacks)
-        wireLockClosures(on: sshCoordinator)
-
-        runCoordinator = makeRunCoordinator(authCallbacks: authCallbacks)
-        wireLockClosures(on: runCoordinator)
-
-        if let cliService, let runCoordinator, let sshCoordinator {
-            healthCoordinator = HealthCheckCoordinator(
-                cliStore: passCLIStatusStore,
-                cliService: cliService,
-                cliChecker: LivePassCLIHealthChecker(),
-                runChecker: LiveRunProbeChecker(),
-                sshChecker: LiveSSHProbeChecker(),
-                runCoordinator: runCoordinator,
-                sshCoordinator: sshCoordinator
-            )
-        }
-    }
-
-    private func setupWakeObserver() {
-        wakeObserver = WakeObserver { [weak self] in
-            await self?.healthCoordinator?.handleSystemWake()
-        }
-        wakeObserver?.start()
-    }
-
-    private func setupSystemLockObserver() {
-        systemLockObserver = SystemLockObserver { [weak self] in
-            self?.handleSystemLockEvent()
-        }
-        systemLockObserver?.start()
-    }
-
-    private func runLaunchTimeSanityCheck() {
-        Task { [weak self] in
-            await self?.healthCoordinator?.start()
-        }
-    }
-
     func applicationWillTerminate(_ notification: Notification) {
+        passCLILoginCoordinator?.cancel()
         healthCoordinator?.cancel()
         wakeObserver?.stop()
         systemLockObserver?.stop()
@@ -303,6 +260,9 @@ private extension AppDelegate {
                     await self?.healthCoordinator?.refreshAll()
                 }
             },
+            onLoginPassCLI: {
+                NotificationCenter.default.post(name: .passCLILoginRequested, object: nil)
+            },
             onQuit: { NSApp.terminate(nil) }
         )
     }
@@ -321,6 +281,14 @@ private extension AppDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.syncCoordinator?.resetAndSync()
+            }
+        }
+
+        passCLILoginObserver = NotificationCenter.default.addObserver(
+            forName: .passCLILoginRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.passCLILoginCoordinator?.startLogin()
             }
         }
 

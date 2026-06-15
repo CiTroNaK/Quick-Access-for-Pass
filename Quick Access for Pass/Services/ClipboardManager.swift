@@ -2,11 +2,59 @@ import AppKit
 import Foundation
 
 @MainActor
+protocol ClipboardScheduledWork {
+    /// Cancels scheduled clipboard work before it runs.
+    func cancel()
+}
+
+@MainActor
+protocol ClipboardScheduling {
+    /// Schedules clipboard work to run after a delay.
+    @discardableResult
+    func schedule(
+        after delay: Duration,
+        operation: @escaping @MainActor () -> Void
+    ) -> ClipboardScheduledWork
+}
+
+@MainActor
+private final class TaskClipboardScheduledWork: ClipboardScheduledWork {
+    private let task: Task<Void, Never>
+
+    init(task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
+@MainActor
+struct TaskClipboardScheduler: ClipboardScheduling {
+    /// Schedules clipboard work using Swift concurrency's cooperative cancellation.
+    @discardableResult
+    func schedule(
+        after delay: Duration,
+        operation: @escaping @MainActor () -> Void
+    ) -> ClipboardScheduledWork {
+        TaskClipboardScheduledWork(
+            task: Task { @MainActor in
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                operation()
+            }
+        )
+    }
+}
+
+@MainActor
 final class ClipboardManager {
     private let autoClearSeconds: TimeInterval
     private let pasteboard: NSPasteboard
     private let userDefaults: UserDefaults
-    private var clearTask: Task<Void, Never>?
+    private let scheduler: ClipboardScheduling
+    private var clearTask: ClipboardScheduledWork?
     private var lastChangeCount: Int = 0
 
     /// Test-only mirror of the most recent `copy(_:label:)` payload. Never
@@ -23,11 +71,13 @@ final class ClipboardManager {
     init(
         autoClearSeconds: TimeInterval = 30,
         pasteboard: NSPasteboard = .general,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        scheduler: ClipboardScheduling = TaskClipboardScheduler()
     ) {
         self.autoClearSeconds = autoClearSeconds
         self.pasteboard = pasteboard
         self.userDefaults = userDefaults
+        self.scheduler = scheduler
     }
 
     func copy(_ text: String, label: String = String(localized: "Copied to clipboard")) {
@@ -46,9 +96,8 @@ final class ClipboardManager {
         scheduleClear()
 
         // Delay slightly so the quick-access panel finishes closing before the toast appears.
-        Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            onCopy?(label)
+        scheduler.schedule(after: .milliseconds(150)) { [weak self] in
+            self?.onCopy?(label)
         }
     }
 
@@ -72,17 +121,15 @@ final class ClipboardManager {
 
     private func scheduleClear() {
         clearTask?.cancel()
+        clearTask = nil
 
         guard autoClearSeconds > 0 else { return }
 
         let expectedChangeCount = lastChangeCount
-        let pb = pasteboard
-        let seconds = autoClearSeconds
-        clearTask = Task {
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled else { return }
-            if pb.changeCount == expectedChangeCount {
-                pb.clearContents()
+        clearTask = scheduler.schedule(after: .seconds(autoClearSeconds)) { [weak self] in
+            guard let self else { return }
+            if self.pasteboard.changeCount == expectedChangeCount {
+                self.pasteboard.clearContents()
             }
         }
     }

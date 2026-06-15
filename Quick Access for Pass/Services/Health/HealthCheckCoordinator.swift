@@ -36,6 +36,7 @@ final class HealthCheckCoordinator {
     // the invariant is ever violated, which is worse than a loud crash.
     let runCoordinator: any RunProxyDispatching
     let sshCoordinator: any SSHProxyDispatching
+    weak var passCLITransitionHandler: (any PassCLIHealthTransitionHandling)?
 
     private var cliTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -52,7 +53,8 @@ final class HealthCheckCoordinator {
         runChecker: any RunProbeChecking,
         sshChecker: any SSHProbeChecking,
         runCoordinator: any RunProxyDispatching,
-        sshCoordinator: any SSHProxyDispatching
+        sshCoordinator: any SSHProxyDispatching,
+        passCLITransitionHandler: (any PassCLIHealthTransitionHandling)? = nil
     ) {
         self.cliStore = cliStore
         self.cliService = cliService
@@ -61,6 +63,7 @@ final class HealthCheckCoordinator {
         self.sshChecker = sshChecker
         self.runCoordinator = runCoordinator
         self.sshCoordinator = sshCoordinator
+        self.passCLITransitionHandler = passCLITransitionHandler
     }
 
     // MARK: - Public API
@@ -139,6 +142,12 @@ final class HealthCheckCoordinator {
         guard previous != outcome.health else { return }
         runCoordinator.handleCLIHealthTransition(to: outcome.health)
         await sshCoordinator.handleCLIHealthTransition(to: outcome.health)
+        passCLITransitionHandler?.handleCLIHealthTransition(to: outcome.health)
+    }
+
+    func refreshPassCLI() async -> PassCLIHealth {
+        await tickCLI()
+        return cliStore.health
     }
 
     /// Executes one Run probe tick body. Gated on CLI health and proxy liveness.

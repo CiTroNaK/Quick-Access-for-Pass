@@ -1,5 +1,10 @@
 import Foundation
 
+@MainActor
+protocol PassCLIHealthTransitionHandling: AnyObject {
+    func handleCLIHealthTransition(to health: PassCLIHealth)
+}
+
 /// Protocol surface `HealthCheckCoordinator` needs from `RunProxyCoordinator`.
 /// Exposes the two read properties the gate check consults (`lastEnabled`,
 /// `isProxyLive`) and the three dispatch methods the tick bodies / wake

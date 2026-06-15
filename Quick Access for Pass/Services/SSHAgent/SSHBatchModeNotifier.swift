@@ -3,9 +3,11 @@ import UserNotifications
 import os
 
 @MainActor
-final class SSHBatchModeNotifier: NSObject, UNUserNotificationCenterDelegate {
+final class SSHBatchModeNotifier: NSObject, UserNotificationActionHandling {
     private let databaseManager: DatabaseManager
     private nonisolated let nonceStore = OSAllocatedUnfairLock(initialState: NonceStore())
+    private let notificationCenter: UNUserNotificationCenter
+    private weak var notificationRouter: UserNotificationRouter?
 
     private var pendingProbes: [String: PendingProbe] = [:]
 
@@ -44,16 +46,20 @@ final class SSHBatchModeNotifier: NSObject, UNUserNotificationCenterDelegate {
         "ssh-batch-\(host)-\(UUID().uuidString)"
     }
 
-    init(databaseManager: DatabaseManager) {
+    init(
+        databaseManager: DatabaseManager,
+        notificationRouter: UserNotificationRouter? = nil,
+        notificationCenter: UNUserNotificationCenter = .current()
+    ) {
         self.databaseManager = databaseManager
+        self.notificationRouter = notificationRouter
+        self.notificationCenter = notificationCenter
         super.init()
         setupNotificationCategory()
+        notificationRouter?.register(self, forCategoryIdentifier: Self.categoryIdentifier)
     }
 
     private func setupNotificationCategory() {
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-
         let allow = UNNotificationAction(
             identifier: Self.allowActionIdentifier,
             title: String(localized: "Allow"),
@@ -69,12 +75,11 @@ final class SSHBatchModeNotifier: NSObject, UNUserNotificationCenterDelegate {
             actions: [allow, deny],
             intentIdentifiers: []
         )
-        center.setNotificationCategories([category])
+        notificationRouter?.registerCategory(category)
     }
 
     func requestAuthorizationIfNeeded() {
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        notificationCenter.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     func postBlockedProbeNotification(
@@ -142,67 +147,43 @@ final class SSHBatchModeNotifier: NSObject, UNUserNotificationCenterDelegate {
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request)
+        notificationCenter.add(request)
     }
 
-    // MARK: - UNUserNotificationCenterDelegate
-
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
-    ) {
-        let userInfo = response.notification.request.content.userInfo
-        guard let host = userInfo["host"] as? String, !host.isEmpty else {
-            completionHandler()
-            return
-        }
+    func handleNotificationAction(_ context: NotificationActionContext) async -> Bool {
+        guard let host = context.userInfo.host, !host.isEmpty else { return false }
 
         let allowed: Bool
-        switch response.actionIdentifier {
+        switch context.actionIdentifier {
         case Self.allowActionIdentifier:
             allowed = true
         case Self.denyActionIdentifier:
             allowed = false
         default:
-            completionHandler()
-            return
+            return false
         }
 
-        let identifier = response.notification.request.identifier
-        let fingerprints = nonceStore.withLock { $0.validate(nonce: identifier) }
-        guard let fingerprints else {
-            completionHandler()
-            return
-        }
+        let fingerprints = nonceStore.withLock { $0.validate(nonce: context.requestIdentifier) }
+        guard let fingerprints else { return false }
 
-        let keyNames = (userInfo["keyNames"] as? [String]) ?? Array(repeating: "", count: fingerprints.count)
-        let appIdentifiers = (userInfo["appIdentifiers"] as? [String]) ?? Array(repeating: "", count: fingerprints.count)
-        let appTeamIDs = (userInfo["appTeamIDs"] as? [String]) ?? Array(repeating: "", count: fingerprints.count)
+        let keyNames = context.userInfo.keyNames
+        let appIdentifiers = context.userInfo.appIdentifiers
+        let appTeamIDs = context.userInfo.appTeamIDs
+
         for (index, fingerprint) in fingerprints.enumerated() {
             let keyNameRaw = index < keyNames.count ? keyNames[index] : ""
             let appIdentifierRaw = index < appIdentifiers.count ? appIdentifiers[index] : ""
             let appTeamIDRaw = index < appTeamIDs.count ? appTeamIDs[index] : ""
-            let keyName: String? = keyNameRaw.isEmpty ? nil : keyNameRaw
-            let appIdentifier: String? = appIdentifierRaw.isEmpty ? nil : appIdentifierRaw
-            let appTeamID: String? = appTeamIDRaw.isEmpty ? nil : appTeamIDRaw
             try? databaseManager.saveBatchModeDecision(
                 keyFingerprint: fingerprint,
                 host: host,
-                keyName: keyName,
+                keyName: keyNameRaw.isEmpty ? nil : keyNameRaw,
                 allowed: allowed,
-                appIdentifier: appIdentifier,
-                appTeamID: appTeamID
+                appIdentifier: appIdentifierRaw.isEmpty ? nil : appIdentifierRaw,
+                appTeamID: appTeamIDRaw.isEmpty ? nil : appTeamIDRaw
             )
         }
-        completionHandler()
-    }
 
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .sound])
+        return true
     }
 }
