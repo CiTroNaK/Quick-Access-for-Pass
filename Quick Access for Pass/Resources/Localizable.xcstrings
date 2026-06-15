@@ -1977,26 +1977,6 @@
         }
       }
     },
-    "Not logged in to Proton Pass. Please run: pass-cli login" : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nejste přihlášeni do Proton Pass. Spusťte: pass-cli login"
-          }
-        }
-      }
-    },
-    "Not logged in. Run: pass-cli login" : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nejste přihlášeni. Spusťte: pass-cli login"
-          }
-        }
-      }
-    },
     "Note" : {
       "localizations" : {
         "cs" : {
@@ -2123,6 +2103,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pass CLI chyba — %@"
+          }
+        }
+      }
+    },
+    "Pass CLI is logged out. Open Settings → Pass CLI to log in." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI je odhlášené. Přihlaste se v Nastavení → Pass CLI."
+          }
+        }
+      }
+    },
+    "Pass CLI is logged out. Open Settings → Pass CLI to log in. You can also run `pass-cli login` in Terminal." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI je odhlášené. Přihlaste se v Nastavení → Pass CLI. Případně můžete v Terminálu spustit `pass-cli login`."
           }
         }
       }
@@ -2406,16 +2406,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PIN"
-          }
-        }
-      }
-    },
-    "Please log in: pass-cli login" : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Přihlaste se: pass-cli login"
           }
         }
       }
@@ -3153,12 +3143,22 @@
         }
       }
     },
-    "SSH agent requires login. Run: pass-cli login" : {
+    "SSH agent requires Pass CLI login. Open Settings → Pass CLI to log in." : {
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "SSH agent vyžaduje přihlášení. Spusťte: pass-cli login"
+            "value" : "SSH agent vyžaduje přihlášení k Pass CLI. Přihlaste se v Nastavení → Pass CLI."
+          }
+        }
+      }
+    },
+    "SSH agent requires Pass CLI login. Open Settings → Pass CLI to log in. You can also run `pass-cli login` in Terminal." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH agent vyžaduje přihlášení k Pass CLI. Přihlaste se v Nastavení → Pass CLI. Případně můžete v Terminálu spustit `pass-cli login`."
           }
         }
       }

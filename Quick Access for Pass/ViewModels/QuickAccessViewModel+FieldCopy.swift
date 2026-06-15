@@ -35,7 +35,7 @@ extension QuickAccessViewModel {
         } catch is CancellationError {
             return
         } catch let error as CLIError where error.isAuthError {
-            publishCopyError(String(localized: "Please log in: pass-cli login"), generation: generation)
+            publishCopyError(cliService.cliSelection.loginRequiredMessage, generation: generation)
         } catch {
             publishCopyError(String(localized: "Failed to copy field"), generation: generation)
         }

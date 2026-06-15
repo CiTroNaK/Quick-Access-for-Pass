@@ -165,7 +165,7 @@ final class SSHProxyCoordinator {
         do {
             try await daemon.startDaemon(vaultNames: currentVaultFilter())
         } catch let error as CLIError where error.isAuthError {
-            onError(String(localized: "SSH agent requires login. Run: pass-cli login"))
+            onError(cliService.cliSelection.sshLoginRequiredMessage)
             await resetStartupState()
             return
         } catch {

@@ -75,7 +75,8 @@ struct PassCLIServiceTests {
         #expect(notFound.errorDescription?.contains("pass-cli") == true)
 
         let notLoggedIn = CLIError.notLoggedIn
-        #expect(notLoggedIn.errorDescription?.contains("login") == true)
+        #expect(notLoggedIn.errorDescription?.contains("Settings → Pass CLI") == true)
+        #expect(notLoggedIn.errorDescription?.contains("pass-cli login") == false)
     }
 
     @Test("updating with blank custom path re-runs auto resolution")

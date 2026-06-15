@@ -33,7 +33,7 @@ extension QuickAccessViewModel {
         } catch is CancellationError {
             return
         } catch let error as CLIError where error.isAuthError {
-            publishLargeTypeError(String(localized: "Please log in: pass-cli login"), generation: generation)
+            publishLargeTypeError(cliService.cliSelection.loginRequiredMessage, generation: generation)
         } catch let error as LargeTypeDisplay.ValidationError {
             publishLargeTypeError(message(for: error), generation: generation)
         } catch {

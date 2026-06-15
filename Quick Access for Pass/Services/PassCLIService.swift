@@ -24,7 +24,7 @@ nonisolated enum CLIError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notInstalled: String(localized: "pass-cli is not installed. Instructionas at https://protonpass.github.io/pass-cli/")
-        case .notLoggedIn: String(localized: "Not logged in to Proton Pass. Please run: pass-cli login")
+        case .notLoggedIn: String(localized: "Pass CLI is logged out. Open Settings → Pass CLI to log in.")
         case .commandFailed(let msg): String(localized: "pass-cli command failed: \(msg)")
         case .timeout: String(localized: "pass-cli command timed out")
         case .parseError(let msg): String(localized: "Failed to parse pass-cli output: \(msg)")
