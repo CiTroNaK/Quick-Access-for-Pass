@@ -20,6 +20,7 @@ final class SSHProxyCoordinator {
     private let keychainService: any BiometricAuthorizing
     let passCLIStatusStore: PassCLIStatusStore
     private let authCallbacks: AuthDialogHelper.Callbacks
+    private weak var notificationRouter: UserNotificationRouter?
     let defaults: UserDefaults
     var isAppLocked: @MainActor @Sendable () -> Bool = { false }
     var showLockedPanel: (@MainActor @Sendable () async -> Bool)?
@@ -45,7 +46,8 @@ final class SSHProxyCoordinator {
         keychainService: any BiometricAuthorizing,
         passCLIStatusStore: PassCLIStatusStore,
         defaults: UserDefaults = .standard,
-        authCallbacks: AuthDialogHelper.Callbacks = .noop
+        authCallbacks: AuthDialogHelper.Callbacks = .noop,
+        notificationRouter: UserNotificationRouter? = nil
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
@@ -55,6 +57,7 @@ final class SSHProxyCoordinator {
         self.passCLIStatusStore = passCLIStatusStore
         self.defaults = defaults
         self.authCallbacks = authCallbacks
+        self.notificationRouter = notificationRouter
     }
 
     // MARK: - Public
@@ -65,7 +68,7 @@ final class SSHProxyCoordinator {
 
         authWindowController = SSHAuthWindowController(databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks)
 
-        let notifier = SSHBatchModeNotifier(databaseManager: databaseManager)
+        let notifier = SSHBatchModeNotifier(databaseManager: databaseManager, notificationRouter: notificationRouter)
         notifier.requestAuthorizationIfNeeded()
         authWindowController?.batchModeNotifier = notifier
         batchModeNotifier = notifier

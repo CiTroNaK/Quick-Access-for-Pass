@@ -15,6 +15,7 @@ I built this for myself and my wife after moving from 1Password to Proton Pass â
 ## Quick start
 
 1. **Install and log in to [`pass-cli`](https://protonpass.github.io/pass-cli/)** â€” the app reads your vaults through it.
+   If Proton Pass CLI is logged out, Quick Access shows a macOS notification with a **Log In** action and also exposes login actions from the menu-bar status menu and Pass CLI Settings. These actions run `pass-cli login`, open the Proton browser authentication URL produced by the CLI, then refresh health and sync after the CLI reconnects.
 2. **Install** this app via [Homebrew](https://brew.sh/):
    ```bash
    brew install CiTroNaK/tap/quick-access-for-pass

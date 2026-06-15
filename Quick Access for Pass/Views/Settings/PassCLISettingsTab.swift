@@ -39,6 +39,14 @@ struct PassCLISettingsTab: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
+                if case .notLoggedIn = statusStore.health {
+                    SettingsLayout.settingsRow {
+                        Button("Log In to Proton Pass CLI…") {
+                            NotificationCenter.default.post(name: .passCLILoginRequested, object: nil)
+                        }
+                        .accessibilityHint("Starts Proton Pass CLI login and opens the Proton authentication page in your browser")
+                    }
+                }
                 SettingsLayout.settingsRow(label: "Version") {
                     Text(statusStore.version ?? "—")
                         .foregroundStyle(.secondary)

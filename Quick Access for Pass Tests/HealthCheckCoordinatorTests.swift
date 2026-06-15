@@ -79,6 +79,32 @@ struct HealthCheckCoordinatorTests {
         #expect(h.sshDispatcher.cliTransitions.isEmpty)
     }
 
+    @Test("cliTransition to logged out notifies extra transition handler")
+    func cliTransitionToLoggedOutNotifiesExtraTransitionHandler() async {
+        let h = makeHarness()
+        let handler = FakePassCLITransitionHandler()
+        h.coordinator.passCLITransitionHandler = handler
+        h.cliStore.health = .ok
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .notLoggedIn, identity: nil, version: nil)
+
+        await h.coordinator.tickCLI()
+
+        #expect(handler.transitions == [.notLoggedIn])
+    }
+
+    @Test("unchanged logged out health does not renotify transition handler")
+    func unchangedLoggedOutHealthDoesNotRenotifyTransitionHandler() async {
+        let h = makeHarness()
+        let handler = FakePassCLITransitionHandler()
+        h.coordinator.passCLITransitionHandler = handler
+        h.cliStore.health = .notLoggedIn
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .notLoggedIn, identity: nil, version: nil)
+
+        await h.coordinator.tickCLI()
+
+        #expect(handler.transitions.isEmpty)
+    }
+
     // MARK: - Flow B/C: hard gate
 
     @Test("runTick skipped when CLI is not ok")

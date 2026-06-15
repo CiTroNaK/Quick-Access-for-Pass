@@ -1756,6 +1756,36 @@
         }
       }
     },
+    "Log In" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlásit"
+          }
+        }
+      }
+    },
+    "Log in to continue syncing and using Quick Access." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlásit pro pokračování synchronizace a užití Quick Access."
+          }
+        }
+      }
+    },
+    "Log In to Proton Pass CLI…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlásit do Proton Pass CLI…"
+          }
+        }
+      }
+    },
     "Login" : {
       "localizations" : {
         "cs" : {
@@ -2007,6 +2037,16 @@
         }
       }
     },
+    "Pass CLI login did not complete. Open Settings → Pass CLI to retry." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI přihlášení neproběhlo v pořádku. Otevři Nastvení - Pass CLI a zkus znova."
+          }
+        }
+      }
+    },
     "Pass CLI not found" : {
       "localizations" : {
         "cs" : {
@@ -2230,6 +2270,36 @@
         }
       }
     },
+    "Proton Pass CLI connected" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proton Pass CLI připojen"
+          }
+        }
+      }
+    },
+    "Proton Pass CLI is logged out" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proton Pass CLI je odhlášený"
+          }
+        }
+      }
+    },
+    "Proton Pass CLI login failed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proton Pass CLI přihlášení selhalo"
+          }
+        }
+      }
+    },
     "Proton Pass is a trademark of Proton AG." : {
       "localizations" : {
         "cs" : {
@@ -2326,6 +2396,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Quick Access je uzamčen"
+          }
+        }
+      }
+    },
+    "Quick Access is syncing your vaults." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Access synchronizuje trezory."
           }
         }
       }
@@ -2929,6 +3009,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "SSID"
+          }
+        }
+      }
+    },
+    "Starts Proton Pass CLI login and opens the Proton authentication page in your browser" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zahájí Proton Pass CLI přihlášení a otevře stránku s přihláním v prohlížeči. "
           }
         }
       }
