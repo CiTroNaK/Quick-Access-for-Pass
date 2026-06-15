@@ -12,6 +12,16 @@ nonisolated extension DatabaseManager {
         }
     }
 
+    func removeVaultsNotIn(_ vaultIds: Set<String>) throws {
+        try writer.write { db in
+            let existingIds = try String.fetchAll(db, sql: "SELECT id FROM vaults")
+            let staleIds = existingIds.filter { !vaultIds.contains($0) }
+            if !staleIds.isEmpty {
+                try PassVault.filter(staleIds.contains(Column("id"))).deleteAll(db)
+            }
+        }
+    }
+
     func allVaults() throws -> [PassVault] {
         try reader.read { db in
             try PassVault.fetchAll(db)
@@ -21,6 +31,12 @@ nonisolated extension DatabaseManager {
     func vaultName(for vaultId: String) throws -> String? {
         try reader.read { db in
             try PassVault.fetchOne(db, key: vaultId)?.name
+        }
+    }
+
+    func vaultShareId(for vaultId: String) throws -> String? {
+        try reader.read { db in
+            try PassVault.fetchOne(db, key: vaultId)?.shareId
         }
     }
 }

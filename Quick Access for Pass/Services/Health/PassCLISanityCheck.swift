@@ -1,14 +1,36 @@
 import Foundation
 
 nonisolated struct PassCLIIdentity: Sendable, Equatable, Decodable {
-    let username: String
-    let email: String
-    let releaseTrack: String
+    let username: String?
+    let email: String?
+    let releaseTrack: String?
+    let personalAccessTokenName: String?
+
+    init(
+        username: String?,
+        email: String?,
+        releaseTrack: String?,
+        personalAccessTokenName: String? = nil
+    ) {
+        self.username = username
+        self.email = email
+        self.releaseTrack = releaseTrack
+        self.personalAccessTokenName = personalAccessTokenName
+    }
+
+    var displayName: String? {
+        personalAccessTokenName ?? username
+    }
+
+    var isPersonalAccessTokenSession: Bool {
+        personalAccessTokenName != nil
+    }
 
     private enum CodingKeys: String, CodingKey {
         case username
         case email
         case releaseTrack = "release_track"
+        case personalAccessTokenName = "personal_access_token_name"
     }
 }
 

@@ -5,6 +5,9 @@ struct PassCLISettingsTab: View {
     @Binding var lastSyncTime: Double
     @Binding var cliPath: String
     @Environment(PassCLIStatusStore.self) private var statusStore
+    @Environment(\.passCLIPATSettingsModel) private var patSettingsModel
+    @State private var patInput = ""
+    @State private var isReplacingPAT = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,20 +50,34 @@ struct PassCLISettingsTab: View {
                         .accessibilityHint("Starts Proton Pass CLI login and opens the Proton authentication page in your browser")
                     }
                 }
+                SettingsLayout.settingsRow(label: "Personal access token") {
+                    personalAccessTokenControls
+                }
                 SettingsLayout.settingsRow(label: "Version") {
                     Text(statusStore.version ?? "—")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                SettingsLayout.settingsRow(label: "Username") {
-                    Text(statusStore.identity?.username ?? "—")
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                SettingsLayout.settingsRow(label: "Email") {
-                    Text(statusStore.identity?.email ?? "—")
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                if let tokenName = statusStore.identity?.personalAccessTokenName {
+                    SettingsLayout.settingsRow(label: "Token name") {
+                        Text(tokenName)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .help(tokenName)
+                    }
+                } else {
+                    SettingsLayout.settingsRow(label: "Username") {
+                        Text(statusStore.identity?.username ?? "—")
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    SettingsLayout.settingsRow(label: "Email") {
+                        Text(statusStore.identity?.email ?? "—")
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
                 SettingsLayout.settingsRow(label: "Release track") {
                     Text(statusStore.identity?.releaseTrack ?? "—")
@@ -86,5 +103,99 @@ struct PassCLISettingsTab: View {
             PassCLIStatusRow(health: statusStore.health, identity: statusStore.identity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task {
+            await patSettingsModel?.refreshSavedTokenState()
+        }
+        .onDisappear {
+            patInput = ""
+            isReplacingPAT = false
+        }
+    }
+
+    @ViewBuilder
+    private var personalAccessTokenControls: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if let patSettingsModel {
+                if patSettingsModel.hasSavedToken && !isReplacingPAT {
+                    Text("Saved in Keychain")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    HStack {
+                        Button("Replace…") {
+                            isReplacingPAT = true
+                            patInput = ""
+                        }
+                        Button("Log In with Saved Token") {
+                            Task { await patSettingsModel.loginUsingSavedToken() }
+                        }
+                        .disabled(patSettingsModel.isLoggingIn)
+                        Button("Remove", role: .destructive) {
+                            Task { await patSettingsModel.removeToken() }
+                        }
+                        .disabled(patSettingsModel.isLoggingIn)
+                    }
+                } else {
+                    SecureField("Personal access token", text: $patInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 260)
+                        .accessibilityHint("Paste a Proton Pass personal access token. The token is stored in Keychain.")
+                    HStack {
+                        if patSettingsModel.hasSavedToken {
+                            Button("Cancel") {
+                                isReplacingPAT = false
+                                patInput = ""
+                            }
+                        }
+                        Button(patSettingsModel.hasSavedToken ? "Replace & Log In" : "Save & Log In") {
+                            let token = patInput
+                            patInput = ""
+                            isReplacingPAT = false
+                            Task { await patSettingsModel.saveAndLogin(token: token) }
+                        }
+                        .disabled(patSettingsModel.isLoggingIn || patInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+
+                PATSettingsMessage(
+                    "Quick Access stores the token in Keychain and uses it to recreate lost pass-cli sessions. "
+                        + "Token expiration is managed in Proton Pass and cannot be discovered or extended here."
+                )
+
+                if patSettingsModel.isLoggingIn {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Logging in with personal access token")
+                }
+                if let statusMessage = patSettingsModel.statusMessage {
+                    PATSettingsMessage(statusMessage, color: .green)
+                }
+                if let errorMessage = patSettingsModel.errorMessage {
+                    PATSettingsMessage(errorMessage, color: .red)
+                }
+            } else {
+                PATSettingsMessage("Personal access token settings are loading.")
+            }
+        }
+    }
+}
+
+private struct PATSettingsMessage: View {
+    let text: String
+    let color: Color
+
+    init(_ text: String, color: Color = .secondary) {
+        self.text = text
+        self.color = color
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(color)
+            .multilineTextAlignment(.trailing)
+            .lineLimit(nil)
+            .frame(width: 300, alignment: .trailing)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

@@ -24,6 +24,49 @@ struct DatabaseManagerTests {
         #expect(vaults[0].name == "Personal")
     }
 
+    @Test("syncing vaults replaces stale session-specific ids without losing item usage")
+    func vaultSyncRemovesStaleSessionSpecificIds() throws {
+        let db = try makeTestDB()
+        try db.upsertVaults([PassVault(id: "normal-login-share-id", name: "Personal")])
+        let oldItem = PassItem(
+            id: "i1", vaultId: "normal-login-share-id",
+            title: "GitHub", itemType: .login, subtitle: "user@example.com",
+            url: "https://github.com", hasTOTP: false, state: "Active",
+            createTime: Date(), modifyTime: Date(),
+            useCount: 0, lastUsedAt: nil
+        )
+        try db.upsertItems([oldItem])
+        try db.recordUsage(itemId: "i1")
+
+        let patVault = CLIVault(name: "Personal", vaultId: "stable-vault-id", shareId: "pat-login-share-id")
+        let currentItem = PassItem(
+            id: "i1", vaultId: "stable-vault-id",
+            title: "GitHub", itemType: .login, subtitle: "user@example.com",
+            url: "https://github.com", hasTOTP: false, state: "Active",
+            createTime: Date(), modifyTime: Date(),
+            useCount: 0, lastUsedAt: nil
+        )
+        try db.upsertVaults([PassVault(from: patVault)])
+        try db.syncItems([currentItem])
+        try db.removeVaultsNotIn(Set(["stable-vault-id"]))
+
+        let vaults = try db.allVaults()
+        let items = try db.allActiveItems()
+        #expect(vaults.map(\.id) == ["stable-vault-id"])
+        #expect(items.map(\.id) == ["i1"])
+        #expect(items[0].vaultId == "stable-vault-id")
+        #expect(items[0].useCount == 1)
+    }
+
+    @Test("stores current share id for stable vault id")
+    func vaultShareIdLookup() throws {
+        let db = try makeTestDB()
+        let vault = CLIVault(name: "Personal", vaultId: "stable-vault-id", shareId: "current-share-id")
+        try db.upsertVaults([PassVault(from: vault)])
+
+        #expect(try db.vaultShareId(for: "stable-vault-id") == "current-share-id")
+    }
+
     @Test("stores and retrieves items")
     func itemCRUD() throws {
         let db = try makeTestDB()

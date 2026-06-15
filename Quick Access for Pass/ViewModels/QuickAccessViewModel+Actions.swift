@@ -105,23 +105,24 @@ extension QuickAccessViewModel {
     }
 
     private func handleSecretAction(_ action: ItemAction, for item: PassItem, generation: Int) async throws {
+        let currentShareId = shareId(for: item)
         switch action {
         case .copyPassword:
-            lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
-            let detail = try await cliService.viewItem(itemId: item.id, shareId: item.vaultId)
+            lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
+            let detail = try await cliService.viewItem(itemId: item.id, shareId: currentShareId)
             try Task.checkCancellation()
             guard isCurrentCopyGeneration(generation) else { return }
             if case .login(let login) = detail.content.content {
                 clipboardManager.copy(login.password, label: String(localized: "Password copied"))
             }
         case .copyTotp:
-            lastCommand = "\(cliService.cliPath) item totp --output json pass://\(item.vaultId)/\(item.id)"
-            let code = try await cliService.getTotp(itemId: item.id, shareId: item.vaultId)
+            lastCommand = "\(cliService.cliPath) item totp --output json pass://\(currentShareId)/\(item.id)"
+            let code = try await cliService.getTotp(itemId: item.id, shareId: currentShareId)
             try Task.checkCancellation()
             guard isCurrentCopyGeneration(generation) else { return }
             clipboardManager.copy(code, label: String(localized: "TOTP code copied"))
         case .copyPrimary:
-            lastCommand = "\(cliService.cliPath) item view --output json pass://\(item.vaultId)/\(item.id)"
+            lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
             try await copyPrimarySecret(for: item, generation: generation)
         case .copyUsername, .openURL:
             return
@@ -136,7 +137,7 @@ extension QuickAccessViewModel {
     }
 
     private func copyPrimarySecret(for item: PassItem, generation: Int) async throws {
-        let detail = try await cliService.viewItem(itemId: item.id, shareId: item.vaultId)
+        let detail = try await cliService.viewItem(itemId: item.id, shareId: shareId(for: item))
         try Task.checkCancellation()
         guard isCurrentCopyGeneration(generation) else { return }
         let content = detail.content.content

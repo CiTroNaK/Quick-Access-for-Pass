@@ -48,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var notificationRouter: UserNotificationRouter?
     @ObservationIgnored var passCLILoginCoordinator: PassCLILoginCoordinator?
     @ObservationIgnored var passCLILoginNotifier: PassCLILoginNotifier?
+    @ObservationIgnored var passCLIPATCredentialStore: KeychainPassCLIPATCredentialStore?
+    @ObservationIgnored var passCLIPATLoginService: PassCLIPATLoginService?
+    @ObservationIgnored var passCLIPATAutoLoginCoordinator: PassCLIPATAutoLoginCoordinator?
+    var passCLIPATSettingsModel: PassCLIPATSettingsModel?
     @ObservationIgnored var passCLILoginObserver: Any?
 
     /// Lock state: set by `forceLock()`, cleared by `resetAuthTimestamp()`.

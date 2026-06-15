@@ -1014,6 +1014,36 @@
         }
       }
     },
+    "Could not read saved personal access token: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se načíst uložený osobní přístupový token: %@"
+          }
+        }
+      }
+    },
+    "Could not remove personal access token: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se odebrat osobní přístupový token: %@"
+          }
+        }
+      }
+    },
+    "Could not save personal access token: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nepodařilo se uložit osobní přístupový token: %@"
+          }
+        }
+      }
+    },
     "Country / Region" : {
       "localizations" : {
         "cs" : {
@@ -1201,6 +1231,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "English"
+          }
+        }
+      }
+    },
+    "Enter a personal access token." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zadejte osobní přístupový token."
           }
         }
       }
@@ -1786,6 +1826,26 @@
         }
       }
     },
+    "Log In with Saved Token" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlásit s uloženým Tokenem"
+          }
+        }
+      }
+    },
+    "Logging in with personal access token" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlašování pomocí osobního přístupového tokenu"
+          }
+        }
+      }
+    },
     "Login" : {
       "localizations" : {
         "cs" : {
@@ -1873,6 +1933,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "žádné klíče nejsou k dispozici"
+          }
+        }
+      }
+    },
+    "No personal access token is saved." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Není uložen žádný osobní přístupový token."
           }
         }
       }
@@ -2027,6 +2097,26 @@
         }
       }
     },
+    "Pass CLI connected using token %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI je připojené pomocí tokenu %@"
+          }
+        }
+      }
+    },
+    "Pass CLI connected with saved personal access token." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pass CLI je připojené pomocí uloženého osobního přístupového tokenu."
+          }
+        }
+      }
+    },
     "Pass CLI error — %@" : {
       "localizations" : {
         "cs" : {
@@ -2093,6 +2183,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "chyba pass-cli"
+          }
+        }
+      }
+    },
+    "pass-cli is not installed." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pass-cli není nainstalovaný."
           }
         }
       }
@@ -2173,6 +2273,106 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Heslo zkopírováno"
+          }
+        }
+      }
+    },
+    "Paste a Proton Pass personal access token. The token is stored in Keychain." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vložte osobní přístupový token Proton Pass. Token se uloží do Keychainu."
+          }
+        }
+      }
+    },
+    "Personal access token" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osobní přístupový token"
+          }
+        }
+      }
+    },
+    "Personal access token is invalid, expired, or deleted. Replace it in Settings → Pass CLI or log in normally." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osobní přístupový token je neplatný, vypršel nebo byl odstraněn. Nahraďte ho v Nastavení → Pass CLI nebo se přihlaste běžným způsobem."
+          }
+        }
+      }
+    },
+    "Personal access token login failed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlášení osobním přístupovým tokenem selhalo"
+          }
+        }
+      }
+    },
+    "Personal access token login finished, but Pass CLI is still not connected." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlášení osobním přístupovým tokenem skončilo, ale Pass CLI stále není připojené."
+          }
+        }
+      }
+    },
+    "Personal access token login is unavailable." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlášení osobním přístupovým tokenem není dostupné."
+          }
+        }
+      }
+    },
+    "Personal access token login timed out." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vypršel časový limit přihlášení osobním přístupovým tokenem."
+          }
+        }
+      }
+    },
+    "Personal access token removed." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osobní přístupový token byl odstraněn."
+          }
+        }
+      }
+    },
+    "Personal access token saved and Pass CLI connected." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osobní přístupový token byl uložen a Pass CLI je připojené."
+          }
+        }
+      }
+    },
+    "Personal access token settings are loading." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nastavení osobního přístupového tokenu se načítá."
           }
         }
       }
@@ -2561,6 +2761,36 @@
         }
       }
     },
+    "Replace & Log In" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nahradit a přihlásit"
+          }
+        }
+      }
+    },
+    "Replace the saved token or log in normally from Settings → Pass CLI." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nahraďte uložený token nebo se přihlaste běžným způsobem v Nastavení → Pass CLI."
+          }
+        }
+      }
+    },
+    "Replace…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nahradit…"
+          }
+        }
+      }
+    },
     "Reset & Sync" : {
       "localizations" : {
         "cs" : {
@@ -2707,6 +2937,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Uložit"
+          }
+        }
+      }
+    },
+    "Save & Log In" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uložit a přihlásit"
+          }
+        }
+      }
+    },
+    "Saved in Keychain" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uloženo v Keychainu"
           }
         }
       }
@@ -3141,6 +3391,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tento řádek nejde ve velkém zobrazení ukázat"
+          }
+        }
+      }
+    },
+    "Token name" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Název tokenu"
           }
         }
       }

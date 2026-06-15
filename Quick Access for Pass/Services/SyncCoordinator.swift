@@ -35,11 +35,13 @@ final class SyncCoordinator {
                 let (vaults, cliItems) = try await cliService.fetchAllItems()
                 let passVaults = vaults.map { PassVault(from: $0) }
                 let passItems = cliItems.map { PassItem(from: $0.item, vaultId: $0.vaultId) }
+                let currentVaultIds = Set(passVaults.map(\.id))
 
                 let db = databaseManager
                 try await Task.detached {
                     try db.upsertVaults(passVaults)
                     try db.syncItems(passItems)
+                    try db.removeVaultsNotIn(currentVaultIds)
                 }.value
 
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: DefaultsKey.lastSyncTime)

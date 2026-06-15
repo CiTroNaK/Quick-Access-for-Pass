@@ -18,8 +18,8 @@ struct PassCLISanityCheckIdentityTests {
         {
           "release_track": "stable",
           "id": "AU4rjZ1nIGTPtLJRBXjQY2dei0zKq0NTAZ2c0Lclv7Q7rA9MqR6gflD2VT182QF6D3LFQMOgRiYikA8YpB0O1w==",
-          "username": "hlavicka",
-          "email": "petr@hlavicka.cz"
+          "username": "johndoe",
+          "email": "john@example.com"
         }
         """
         let runner = FakeRunner { args in
@@ -27,9 +27,51 @@ struct PassCLISanityCheckIdentityTests {
             return Data(json.utf8)
         }
         let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
-        #expect(identity?.username == "hlavicka")
-        #expect(identity?.email == "petr@hlavicka.cz")
+        #expect(identity?.username == "johndoe")
+        #expect(identity?.email == "john@example.com")
         #expect(identity?.releaseTrack == "stable")
+        #expect(identity?.personalAccessTokenName == nil)
+        #expect(identity?.displayName == "johndoe")
+        #expect(identity?.isPersonalAccessTokenSession == false)
+    }
+
+    @Test func fetchIdentityDecodesPATOnlyIdentityJSON() async {
+        let json = """
+        {
+          "username": "Personal Access Token"
+        }
+        """
+        let runner = FakeRunner { args in
+            #expect(args == ["info", "--output", "json"])
+            return Data(json.utf8)
+        }
+        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
+        #expect(identity?.username == "Personal Access Token")
+        #expect(identity?.email == nil)
+        #expect(identity?.releaseTrack == nil)
+        #expect(identity?.personalAccessTokenName == nil)
+        #expect(identity?.displayName == "Personal Access Token")
+    }
+
+    @Test func fetchIdentityDecodesPATNameJSON() async {
+        let json = """
+        {
+          "release_track": "stable",
+          "id": "N/A",
+          "personal_access_token_name": "Quick Access for Pass"
+        }
+        """
+        let runner = FakeRunner { args in
+            #expect(args == ["info", "--output", "json"])
+            return Data(json.utf8)
+        }
+        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
+        #expect(identity?.username == nil)
+        #expect(identity?.email == nil)
+        #expect(identity?.releaseTrack == "stable")
+        #expect(identity?.personalAccessTokenName == "Quick Access for Pass")
+        #expect(identity?.displayName == "Quick Access for Pass")
+        #expect(identity?.isPersonalAccessTokenSession == true)
     }
 
     @Test func fetchIdentityReturnsNilOnInvalidJSON() async {

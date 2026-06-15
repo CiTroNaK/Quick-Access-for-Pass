@@ -15,13 +15,17 @@ struct PassCLIStatusRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if let badge = usernameBadge {
+            if let badge = identityBadge {
                 Text(badge)
                     .font(.caption2)
                     .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 160, alignment: .trailing)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .background(.green.opacity(0.15), in: Capsule())
+                    .help(badge)
             }
         }
         .padding(.horizontal, 20)
@@ -50,16 +54,19 @@ struct PassCLIStatusRow: View {
         }
     }
 
-    private var usernameBadge: String? {
+    private var identityBadge: String? {
         guard case .ok = health, let identity else { return nil }
-        return identity.username
+        return identity.displayName
     }
 
     private var voiceOverLabel: String {
         switch health {
         case .ok:
-            if let identity {
-                return String(localized: "Pass CLI connected as \(identity.username)")
+            if let identity, let displayName = identity.displayName {
+                if identity.isPersonalAccessTokenSession {
+                    return String(localized: "Pass CLI connected using token \(displayName)")
+                }
+                return String(localized: "Pass CLI connected as \(displayName)")
             }
             return String(localized: "Pass CLI connected")
         case .notLoggedIn:          return String(localized: "Pass CLI not logged in")
@@ -72,7 +79,7 @@ struct PassCLIStatusRow: View {
 #Preview("OK with identity") {
     PassCLIStatusRow(
         health: .ok,
-        identity: PassCLIIdentity(username: "hlavicka", email: "petr@hlavicka.cz", releaseTrack: "stable")
+        identity: PassCLIIdentity(username: "johndoe", email: "john@example.com", releaseTrack: "stable")
     ).frame(width: 420)
 }
 #Preview("OK no identity") {

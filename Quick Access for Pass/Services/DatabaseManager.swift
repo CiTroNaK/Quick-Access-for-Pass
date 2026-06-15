@@ -178,6 +178,13 @@ nonisolated final class DatabaseManager: Sendable {
             try db.drop(table: "runAuthDecisions")
             try db.rename(table: "runAuthDecisions_new", to: "runAuthDecisions")
         }
+
+        migrator.registerMigration("v7") { db in
+            try db.alter(table: "vaults") { t in
+                t.add(column: "shareId", .text).notNull().defaults(to: "")
+            }
+            try db.execute(sql: "UPDATE vaults SET shareId = id WHERE shareId = ''")
+        }
         // swiftlint:enable identifier_name
     }
 
