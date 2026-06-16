@@ -89,10 +89,11 @@ Key behaviors:
 
 1. `qa-run` sends a length-prefixed JSON `RunProxyRequest`
 2. `PeerVerifier` rejects unverified peers — only signed apps and the trusted `qa-run` helper are accepted
-3. `RunProxyCoordinator` resolves `pass://` URIs through `pass-cli run --env-file ... -- /usr/bin/env`
-4. Resolved secrets are cached in memory per profile using the profile `cacheDuration`
-5. `RunAuthWindowController` authorizes by app + subcommand + profile
-6. Allowed responses return environment variables for client-side injection
+3. `RunProxyCoordinator` resolves `pass://` URIs through `pass-cli run --env-file ... -- qa-env-export ...`
+4. The bundled `qa-env-export` helper writes only approved environment variables to a private FIFO channel, avoiding stdout/stderr masking and local secret persistence
+5. Resolved secrets are cached in memory per profile using the profile `cacheDuration`
+6. `RunAuthWindowController` authorizes by app + subcommand + profile
+7. Allowed responses return environment variables for client-side injection
 
 ## Health Checks & Recovery
 
@@ -189,7 +190,8 @@ Quick Access for Pass/
 │   ├── ViewModels/
 │   └── Views/
 ├── Quick Access for Pass Tests/
-└── qa-run/
+├── qa-run/
+└── qa-env-export/
 ```
 
 ## Development Guidelines
@@ -208,4 +210,5 @@ Quick Access for Pass/
 - `CONTRIBUTING.md` — contribution workflow and contributor expectations
 - `SECURITY.md` — vulnerability reporting + security posture summary
 
-If a change affects agent instructions, contributor workflow, user setup, security posture, or architecture, update the relevant docs in the same change.
+If a change affects agent instructions, contributor workflow, user setup, security
+posture, or architecture, update the relevant docs in the same change.
