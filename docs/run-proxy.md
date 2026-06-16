@@ -133,7 +133,11 @@ If a command does not receive an expected variable, review the profile mapping a
 
 - The Run Proxy socket is local and owner-only.
 - Peer verification rejects unverified local clients.
-- Secrets are resolved on demand and returned to the trusted helper for the wrapped process.
+- Secrets are resolved on demand through Proton Pass and returned to the trusted
+  `qa-run` helper for the wrapped process.
+- Quick Access uses the bundled, signed `qa-env-export` helper internally to read
+  only approved environment variables through a private FIFO channel; it does
+  not print resolved secrets to stdout/stderr or persist them to disk.
 - Optional profile cache duration is in memory only.
 
 ## Related docs

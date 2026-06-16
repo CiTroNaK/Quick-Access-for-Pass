@@ -10,7 +10,9 @@
 		4BA584192F7C202A005D6F81 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 4BA584182F7C202A005D6F81 /* GRDB */; };
 		4BA5856A2F7C224B005D6F81 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 4BA584D02F7C2200005D6F81 /* GRDB */; };
 		7BDFD9B4E38F6483D55EB3DC /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7BC1A4E8847A68A86DA0EA7C /* Cocoa.framework */; };
+		A1B2C3D4E5F60718293A4B5C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F203142536475869A7B8C9 /* main.swift */; };
 		A7C84B00AE6803273D2F085B /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE192C6A61056E11CDB5EA1 /* main.swift */; };
+		B1C2D3E4F5061728394A5B6C /* qa-env-export in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = D1E2F3041526374859A6B7C8 /* qa-env-export */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CA8090ADFF78D87CD0716FBB /* qa-run in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = 4E831D0129FFC62BD7071873 /* qa-run */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -21,6 +23,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 4BA584082F7C1FA0005D6F81;
 			remoteInfo = "Quick Access for Pass";
+		};
+		C1D2E3F40516273849A5B6C7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4BA584012F7C1FA0005D6F81 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2233445566778899AABBCCDD;
+			remoteInfo = "qa-env-export";
 		};
 		ECE5D56A718919FE4A6394E3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -38,6 +47,7 @@
 			dstPath = Contents/Helpers;
 			dstSubfolderSpec = 1;
 			files = (
+				B1C2D3E4F5061728394A5B6C /* qa-env-export in Copy qa-run Helper */,
 				CA8090ADFF78D87CD0716FBB /* qa-run in Copy qa-run Helper */,
 			);
 			name = "Copy qa-run Helper";
@@ -51,6 +61,8 @@
 		4BA584C62F7C215B005D6F81 /* Quick Access for Pass Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Quick Access for Pass Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E831D0129FFC62BD7071873 /* qa-run */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "qa-run"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7BC1A4E8847A68A86DA0EA7C /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		D1E2F3041526374859A6B7C8 /* qa-env-export */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "qa-env-export"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E1F203142536475869A7B8C9 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -67,6 +79,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		102132435465768798A9BACD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		4BA584062F7C1FA0005D6F81 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -102,6 +121,7 @@
 				4BA5840A2F7C1FA0005D6F81 /* Products */,
 				8C29B6D8AA346BDBE06675BA /* Frameworks */,
 				880AE4F63701C6B6EF52ECC1 /* qa-run */,
+				F102132435465768798A9BAC /* qa-env-export */,
 			);
 			sourceTree = "<group>";
 		};
@@ -111,6 +131,7 @@
 				4BA584092F7C1FA0005D6F81 /* Quick Access for Pass.app */,
 				4BA584C62F7C215B005D6F81 /* Quick Access for Pass Tests.xctest */,
 				4E831D0129FFC62BD7071873 /* qa-run */,
+				D1E2F3041526374859A6B7C8 /* qa-env-export */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -139,6 +160,14 @@
 			name = "OS X";
 			sourceTree = "<group>";
 		};
+		F102132435465768798A9BAC /* qa-env-export */ = {
+			isa = PBXGroup;
+			children = (
+				E1F203142536475869A7B8C9 /* main.swift */,
+			);
+			path = "qa-env-export";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -158,6 +187,22 @@
 			productReference = 4E831D0129FFC62BD7071873 /* qa-run */;
 			productType = "com.apple.product-type.tool";
 		};
+		2233445566778899AABBCCDD /* qa-env-export */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 66778899AABBCCDDEEFF0011 /* Build configuration list for PBXNativeTarget "qa-env-export" */;
+			buildPhases = (
+				112233445566778899AABBCC /* Sources */,
+				102132435465768798A9BACD /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "qa-env-export";
+			productName = "qa-env-export";
+			productReference = D1E2F3041526374859A6B7C8 /* qa-env-export */;
+			productType = "com.apple.product-type.tool";
+		};
 		4BA584082F7C1FA0005D6F81 /* Quick Access for Pass */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 4BA584142F7C1FA1005D6F81 /* Build configuration list for PBXNativeTarget "Quick Access for Pass" */;
@@ -170,6 +215,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				33445566778899AABBCCDDEE /* PBXTargetDependency */,
 				A39BAB2E19C074C336E137BF /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -247,6 +293,7 @@
 				4BA584082F7C1FA0005D6F81 /* Quick Access for Pass */,
 				4BA584C52F7C215B005D6F81 /* Quick Access for Pass Tests */,
 				0CDCED80094C9CF2DE7BE887 /* qa-run */,
+				2233445566778899AABBCCDD /* qa-env-export */,
 			);
 		};
 /* End PBXProject section */
@@ -269,6 +316,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		112233445566778899AABBCC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F60718293A4B5C /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		15192E8E456E94C41D0AE0F1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -294,6 +349,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		33445566778899AABBCCDDEE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = "qa-env-export";
+			target = 2233445566778899AABBCCDD /* qa-env-export */;
+			targetProxy = C1D2E3F40516273849A5B6C7 /* PBXContainerItemProxy */;
+		};
 		4BA584CB2F7C215B005D6F81 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 4BA584082F7C1FA0005D6F81 /* Quick Access for Pass */;
@@ -308,6 +369,28 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		445566778899AABBCCDDEEFF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "codes.petr.quick-access-for-pass.qa-env-export";
+				PRODUCT_NAME = "qa-env-export";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
 		4BA584122F7C1FA1005D6F81 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -547,6 +630,28 @@
 			};
 			name = Release;
 		};
+		5566778899AABBCCDDEEFF00 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "codes.petr.quick-access-for-pass.qa-env-export";
+				PRODUCT_NAME = "qa-env-export";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		BC2304AE9E57CDCD70C1FBB2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -613,6 +718,15 @@
 			buildConfigurations = (
 				4BA584CC2F7C215B005D6F81 /* Debug */,
 				4BA584CD2F7C215B005D6F81 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		66778899AABBCCDDEEFF0011 /* Build configuration list for PBXNativeTarget "qa-env-export" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				445566778899AABBCCDDEEFF /* Debug */,
+				5566778899AABBCCDDEEFF00 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
