@@ -1,235 +1,154 @@
 # Quick Access for Pass
 
-**A macOS menu-bar app for fast, Touch-ID-protected access to your [Proton Pass](https://proton.me/pass) secrets.** Press a hotkey, search, copy — done.
+**Fast, Touch-ID-protected access to your [Proton Pass](https://proton.me/pass) secrets from the macOS menu bar.** Press a hotkey, search, copy — done.
 
 <p align="center">
-  <img src="docs/intro.gif" alt="Quick Access for Pass in action" width="640">
+  <img src="docs/images/intro.gif" alt="Quick Access for Pass in action" width="640">
 </p>
 
-> 💛 **Like this project?** Sign up for Proton with my [referral link](https://pr.tn/ref/DRHZ4WW3) — you get 2 weeks of a paid plan, and I get a small reward if you subscribe.
+## Get started
 
-## Why
+For the simplest setup, download the signed app from [Releases](../../releases), open the DMG, and drag **Quick Access for Pass** to `/Applications`. The signed app includes Proton's official Pass CLI, so you do **not** need Homebrew, Terminal setup, or a separate CLI install.
 
-I built this for myself and my wife after moving from 1Password to Proton Pass — and as a way to learn Swift and macOS development. If it's useful to you too, that's a nice bonus.
-
-## Quick start
-
-1. **Download the signed app from [Releases](../../releases)**, open the DMG, and drag Quick Access for Pass to `/Applications`.
-2. Open the app.
-3. Click **Log In** when prompted. Quick Access includes the official Proton Pass CLI in the signed app, so normal users do **not** need Homebrew, Terminal setup, or a separate CLI install.
-4. **Press `⇧⌥Space`**, search for an item, hit Return to copy.
-
-That bundled CLI is a big simplification: the technical `pass-cli` dependency is still there, but it is already inside the app bundle for signed releases. Everything else below is optional.
-
-Advanced users can still install via [Homebrew](https://brew.sh/):
+If you manage apps with [Homebrew](https://brew.sh/), you can install Quick Access that way too:
 
 ```bash
 brew install CiTroNaK/tap/quick-access-for-pass
 ```
 
-Quick Access can optionally store a Proton Pass CLI personal access token (PAT) in Keychain from **Settings → Pass CLI**. When a PAT is saved, Quick Access validates it immediately with `pass-cli login` and later uses it to recreate lost CLI sessions before showing the normal browser login notification. PAT expiration is managed by Proton Pass: Quick Access cannot discover the expiration date or extend it from a PAT-created session, so an expired or revoked token must be replaced or followed by normal browser login.
+Homebrew can fetch app updates through your normal `brew` workflow. Quick Access can also use an already installed Proton Pass CLI before falling back to the bundled helper; see [Proton Pass CLI integration](docs/pass-cli.md).
 
-## Features
+## Quick start
 
-At a glance: global-hotkey search, Touch ID for sensitive actions, and two optional proxies that add biometric gating to SSH signing and secret-injected command execution.
+1. Open Quick Access for Pass.
+2. Log in to Proton Pass CLI:
+   - If a login notification appears, click **Log In**.
+   - If notifications are disabled or you miss the notification, open Quick Access, press `⌘,`, then use **Settings → Pass CLI → Log In to Proton Pass CLI…**.
+3. Press `⇧⌥Space`.
+4. Search for a Proton Pass item.
+5. Hit Return to copy the selected value.
 
-<details>
-<summary><strong>Quick Access panel</strong></summary>
+Everything else is optional configuration.
 
-- Global hotkey (default `⇧⌥Space`) opens a floating search panel
-- Fast local search over synced item metadata (encrypted SQLite + FTS5)
-- Keyboard-first flow: `↑` / `↓` move through results, `→` opens item detail, `←` goes back, and `Return` runs the selected action
-- Default shortcuts: Copy Username `⌘C`, Copy Password `⇧⌘C`, Copy TOTP `⌥⌘C`, Open in Browser `⌘O`, Show in Large Type `⇧Return`
-- All of these shortcuts can be changed in **Settings → Shortcuts**
-- Usage-based ranking so your most-used items surface first
-- Clipboard auto-clear with concealed-type support for clipboard managers
+## What you get
+
+- **Global-hotkey search** — open a floating search panel from anywhere with `⇧⌥Space` by default.
+- **Fast local metadata search** — encrypted SQLite + FTS5 keeps item search responsive without storing secrets in the database.
+- **Keyboard-first actions** — copy usernames, passwords, TOTP codes, URLs, or fields with configurable shortcuts.
+- **Touch ID protection** — unlock the app and authorize sensitive optional proxy actions with biometrics.
+- **Clipboard safety controls** — concealed pasteboard type support and automatic clipboard clearing.
+- **Large Type** — display selected values in a large temporary window when you need to read them aloud.
+- **Optional SSH Agent Proxy** — gate Proton Pass SSH key signing behind Touch ID.
+- **Optional Run Proxy** — inject Proton Pass secrets into commands through the bundled `qa-run` helper.
+
+## Quick Access panel
+
+The core app is a small menu-bar utility for searching Proton Pass and copying values quickly.
+
+- Default hotkey: `⇧⌥Space`
+- Result navigation: `↑` / `↓`
+- Open item detail: `→`
+- Go back: `←`
+- Run selected action: `Return`
+- Copy Username: `⌘C`
+- Copy Password: `⇧⌘C`
+- Copy TOTP: `⌥⌘C`
+- Open in Browser: `⌘O`
+- Show in Large Type: `⇧Return`
+
+All shortcuts can be changed in **Settings → Shortcuts**.
 
 <table>
   <tr>
-    <td align="center"><img src="docs/detail.png" alt="Item detail view with per-field actions" width="340"><br><sub>Item detail with per-field copy actions</sub></td>
-    <td align="center"><img src="docs/large-type.png" alt="Large Type display of a value" width="340"><br><sub>Large Type display, handy when reading a password aloud</sub></td>
+    <td align="center"><img src="docs/images/detail.png" alt="Item detail view with per-field actions" width="340"><br><sub>Item detail with per-field copy actions</sub></td>
+    <td align="center"><img src="docs/images/large-type.png" alt="Large Type display of a value" width="340"><br><sub>Large Type display, handy when reading a password aloud</sub></td>
   </tr>
 </table>
 
-</details>
+## Why trust it?
 
-<details>
-<summary><strong>SSH Agent Proxy (optional)</strong></summary>
+Quick Access is built around a few security constraints:
 
-Touch-ID-gated signing between SSH clients and the Proton Pass SSH agent.
+- **No secrets in the local database** — only item metadata is cached for search.
+- **Secrets are fetched on demand** from Proton Pass when you copy or display a value.
+- **Secrets are never cached on disk** by Quick Access.
+- **Database encryption** uses a Keychain-managed passphrase.
+- **Clipboard leakage is reduced** with `org.nspasteboard.ConcealedType` and automatic clearing.
+- **Auto-lock** can lock the app after inactivity, macOS lock, or sleep.
+- **Owner-only sockets** protect optional local proxy communication.
+- **Run Proxy peer verification** rejects unverified local clients.
 
-- Identifies the requesting app and command context for the prompt
-- BatchMode-aware handling for non-interactive probes (`ssh -o BatchMode=yes`)
-- Remembered decisions + short in-memory session cache to avoid prompt fatigue during multi-step operations
-- Vault filtering and per-app command-display controls in Settings
+Signed releases bundle Proton's official Pass CLI binaries. The bundled CLI is vendored from Proton's release assets, checksum-verified during release preparation, and signed as part of the app bundle. See [Proton Pass CLI integration](docs/pass-cli.md) for selection order, PAT support, provenance, and verification commands.
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/ssh-auth-terminal.png" alt="SSH authorization from a terminal (git fetch)" width="340"><br><sub>Terminal (Ghostty) running <code>git fetch</code></sub></td>
-    <td align="center"><img src="docs/ssh-auth-app.png" alt="SSH authorization from a GUI app (Tower)" width="340"><br><sub>GUI app (Tower)</sub></td>
-  </tr>
-</table>
+For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
-</details>
+## Optional power-user integrations
 
-<details>
-<summary><strong>Run Proxy (optional)</strong></summary>
+Quick Access works as a normal menu-bar app without these integrations. Enable them only if they fit your workflow.
 
-Inject Proton Pass secrets into commands at runtime, with a Touch ID gate.
+### SSH Agent Proxy
 
-- Profiles map environment variables to `pass://` references
-- Context-aware remembering (app identity + subcommand + profile)
-- In-memory secret caching per profile with configurable TTL
-- Peer verification rejects unverified local clients
+The SSH Agent Proxy places a Touch ID gate between SSH clients and Proton Pass's SSH agent. Identity listing passes through, while signing requests can show an authorization prompt with requesting app and command context.
+
+Useful for Git, Terminal, and GUI Git clients that use SSH keys stored in Proton Pass.
+
+Read the setup guide: [SSH Agent Proxy](docs/ssh-agent-proxy.md)
 
 <p align="center">
-  <img src="docs/run-auth-gh.png" alt="Run Proxy authorization for a gh command" width="340"><br>
-  <sub>Authorizing <code>gh status</code> with GitHub CLI secrets injected from Proton Pass</sub>
+  <img src="docs/images/ssh-auth-terminal.png" alt="SSH authorization from a terminal running git fetch" width="340">
 </p>
 
-</details>
+### Run Proxy
 
-<details>
-<summary><strong>Health & accessibility</strong></summary>
+The Run Proxy lets the bundled `qa-run` helper inject Proton Pass secrets into command environments after Touch ID authorization.
 
-- Pass CLI / SSH / Run status rows in Settings
-- Menu-bar icon reflects degraded/error state; automatic probe-driven recovery
-- VoiceOver and Voice Control aware throughout
-- Explicit selection state, announcements, and focus handling
+Useful for tools that expect API tokens in environment variables, such as `gh`, deployment CLIs, or local development commands.
 
-</details>
+Read the setup guide: [Run Proxy and qa-run](docs/run-proxy.md)
 
-<details>
-<summary><strong>Settings</strong></summary>
+<p align="center">
+  <img src="docs/images/run-auth-gh.png" alt="Run Proxy authorization for a gh command" width="340">
+</p>
 
-Most of the app's behavior is configurable in Settings — from the global hotkey and per-action shortcuts to clipboard behavior, sync, and the optional SSH / Run proxies.
+## Settings
+
+Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI path, security preferences, and optional SSH/Run proxy settings.
 
 <table>
   <tr>
-    <td align="center"><img src="docs/settings-general.png" alt="General settings with launch at login, global hotkey, and language options" width="340"><br><sub>General: launch at login, Quick Access hotkey, language</sub></td>
-    <td align="center"><img src="docs/settings-shortcuts.png" alt="Shortcuts settings with configurable keyboard shortcuts for item actions" width="340"><br><sub>Shortcuts: customize copy and Large Type shortcuts</sub></td>
+    <td align="center"><img src="docs/images/settings-general.png" alt="General settings with launch at login, global hotkey, and language options" width="340"><br><sub>General: launch at login, Quick Access hotkey, language</sub></td>
+    <td align="center"><img src="docs/images/settings-shortcuts.png" alt="Shortcuts settings with configurable keyboard shortcuts for item actions" width="340"><br><sub>Shortcuts: customize copy and Large Type shortcuts</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, and auto-lock options" width="340"><br><sub>Security: clipboard handling, search clearing, auto-lock</sub></td>
-    <td align="center"><img src="docs/settings-cli.png" alt="Pass CLI settings with refresh interval, sync status, and CLI path" width="340"><br><sub>Pass CLI: sync cadence, status, and CLI path</sub></td>
+    <td align="center"><img src="docs/images/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, and auto-lock options" width="340"><br><sub>Security: clipboard handling, search clearing, auto-lock</sub></td>
+    <td align="center"><img src="docs/images/settings-cli.png" alt="Pass CLI settings with refresh interval, sync status, and CLI path" width="340"><br><sub>Pass CLI: sync cadence, status, and CLI path</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/settings-ssh.png" alt="SSH settings with proxy enablement, socket paths, and filtering options" width="340"><br><sub>SSH: proxy enablement, socket paths, filtering, remembered decisions</sub></td>
-    <td align="center"><img src="docs/settings-run.png" alt="Run settings with run proxy enablement and profiles" width="340"><br><sub>Run: proxy enablement and secret-injection profiles</sub></td>
+    <td align="center"><img src="docs/images/settings-ssh.png" alt="SSH settings with proxy enablement, socket paths, and filtering options" width="340"><br><sub>SSH: proxy enablement, socket paths, filtering, remembered decisions</sub></td>
+    <td align="center"><img src="docs/images/settings-run.png" alt="Run settings with run proxy enablement and profiles" width="340"><br><sub>Run: proxy enablement and secret-injection profiles</sub></td>
   </tr>
 </table>
-
-</details>
 
 ## Requirements
 
 - macOS 15 or later
-- A Proton Pass account. Signed app releases include the official Proton Pass CLI fallback, so a separate `pass-cli` install is optional.
-- Touch ID (required for biometric prompts)
+- A paid Proton Pass subscription with Pass CLI access
+- Touch ID for biometric prompts
 
-## Bundled Proton Pass CLI
+Signed app releases include Proton's official Pass CLI fallback. A separate `pass-cli` install is optional.
 
-Quick Access talks to Proton Pass through Proton's `pass-cli`. Earlier versions expected users to install that command-line tool themselves, usually with Homebrew. That is fine for developers, but it is a bad first-run experience for everyone else.
+## Advanced docs
 
-Signed Quick Access releases now include Proton's official macOS CLI binaries inside the app bundle:
+- [Proton Pass CLI integration](docs/pass-cli.md) — bundled CLI, CLI selection order, PAT support, provenance, and checksum verification.
+- [SSH Agent Proxy](docs/ssh-agent-proxy.md) — Touch-ID-gated SSH signing setup and behavior.
+- [Run Proxy and qa-run](docs/run-proxy.md) — command secret injection setup and behavior.
+- [Security policy](SECURITY.md) — vulnerability reporting and security posture summary.
 
-- `Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64`
-- `Quick Access for Pass.app/Contents/Helpers/pass-cli-x86_64`
+## Why this exists
 
-On first run, if no system CLI is installed, Quick Access uses the bundled helper automatically and shows the same login flow from the menu-bar app. No Homebrew required.
+I built this for myself and my wife after moving from 1Password to Proton Pass — and as a way to learn Swift and macOS development. If it is useful to you too, that is a nice bonus.
 
-CLI selection order:
-
-1. A custom path from **Settings → Pass CLI**, if set
-2. `/opt/homebrew/bin/pass-cli`
-3. `/usr/local/bin/pass-cli`
-4. `~/.local/bin/pass-cli`
-5. `pass-cli` found on `PATH`
-6. The bundled CLI fallback included in signed app releases
-
-A custom path is authoritative. If you enter one, Quick Access uses exactly that executable and does not fall back to a system or bundled CLI if the custom path fails. Clear the field to return to auto-detection and bundled fallback.
-
-The bundled CLI updates only when Quick Access updates. If you want to track Proton Pass CLI releases independently, install `pass-cli` yourself and leave the custom path empty so the system install wins.
-
-### Provenance and verification
-
-The bundled CLI is not a fork. Quick Access vendors Proton's release binaries under `ThirdParty/ProtonPassCLI/<version>/`, verifies their SHA256 checksums during release preparation, copies them into `Contents/Helpers`, and signs the copied helpers so macOS will run them inside the signed app.
-
-For the current bundled Proton Pass CLI `2.1.4`:
-
-| Architecture | Upstream asset | SHA256 |
-| --- | --- | --- |
-| Apple Silicon | `pass-cli-macos-aarch64` | `8b579bf452c346da57349a5e72c3839c466e064179b9383f481eefbfa8a65a44` |
-| Intel | `pass-cli-macos-x86_64` | `ee0f41d3a1c26022e3f99aff6f2280ec3e0f0e1c443c2c58652c26d3456dc235` |
-
-You can verify the vendored files match Proton's release assets:
-
-```bash
-VERSION=2.1.4
-curl -L -o /tmp/pass-cli-macos-aarch64 \
-  "https://github.com/protonpass/pass-cli/releases/download/$VERSION/pass-cli-macos-aarch64"
-curl -L -o /tmp/pass-cli-macos-x86_64 \
-  "https://github.com/protonpass/pass-cli/releases/download/$VERSION/pass-cli-macos-x86_64"
-
-shasum -a 256 /tmp/pass-cli-macos-aarch64 \
-  ThirdParty/ProtonPassCLI/$VERSION/pass-cli-arm64
-shasum -a 256 /tmp/pass-cli-macos-x86_64 \
-  ThirdParty/ProtonPassCLI/$VERSION/pass-cli-x86_64
-
-cmp /tmp/pass-cli-macos-aarch64 ThirdParty/ProtonPassCLI/$VERSION/pass-cli-arm64
-cmp /tmp/pass-cli-macos-x86_64 ThirdParty/ProtonPassCLI/$VERSION/pass-cli-x86_64
-```
-
-The final app helpers are code-signed during packaging, so their bytes may differ from Proton's raw release downloads because the signature is added for macOS distribution. The verification point is the vendored input plus the packaging scripts: `scripts/prepare-bundled-pass-cli.sh` checksum-verifies the upstream bytes, and `scripts/inject-bundled-pass-cli.sh` only copies those files into the app and code-signs them.
-
-## Optional integrations
-
-<details>
-<summary><strong>Set up the SSH Agent Proxy</strong></summary>
-
-1. Enable **Settings → SSH → Enable SSH proxy**.
-2. Add to `~/.ssh/config`:
-   ```sshconfig
-   Host *
-        IdentityAgent "~/.ssh/quick-access-agent.sock"
-   ```
-3. Optional: configure upstream socket override, vault filtering, per-app command display, and remembered decisions in Settings.
-
-</details>
-
-<details>
-<summary><strong>Set up the Run Proxy</strong></summary>
-
-1. Enable **Settings → Run → Enable run proxy**.
-2. Create a profile and map env variables to `pass://...` references.
-3. Add the helper alias shown in Settings:
-   ```bash
-   alias qa-run='/Applications/Quick Access for Pass.app/Contents/Helpers/qa-run'
-   ```
-4. Wrap commands with the helper:
-   ```bash
-   qa-run --profile github-cli -- gh auth status
-   ```
-   Or alias the command itself:
-   ```bash
-   alias gh='qa-run --profile github-cli -- gh'
-   gh auth status
-   ```
-
-</details>
-
-## Security
-
-Built around a few non-negotiable constraints:
-
-- **No secrets in the local database** — only item metadata is cached
-- **Secrets are never cached on disk**; sync may temporarily load full item content from `pass-cli` to derive searchable metadata, and selected actions fetch current values on demand
-- **Database encryption** via a Keychain-managed passphrase
-- **Owner-only sockets** for local proxy communication; Run Proxy verifies peers
-- **Reduced clipboard leakage** via `org.nspasteboard.ConcealedType`
-- **Auto-lock** after 5+ minutes of inactivity, plus optional locking when macOS locks or sleeps; unlock with Touch ID or password
-
-For vulnerability reporting, see [SECURITY.md](SECURITY.md). For the full security posture, read the source — it's the whole point.
+💛 **Like this project?** You can [sponsor it on GitHub](https://github.com/sponsors/CiTroNaK), or sign up for Proton with my [referral link](https://pr.tn/ref/DRHZ4WW3) — you get 2 weeks of a paid plan, and I get a small reward if you subscribe.
 
 ## Building from source
 
@@ -257,4 +176,4 @@ Not affiliated with, endorsed by, or associated with Proton AG. Proton Pass is a
 
 [MIT](LICENSE)
 
-Uses [SQLCipher](https://www.zetetic.net/sqlcipher/) (BSD), [GRDB.swift](https://github.com/groue/GRDB.swift) (MIT), and bundled copies of Proton's official [Proton Pass CLI](https://github.com/protonpass/pass-cli) release binaries (GPL-3.0). See **Settings → About → Open Source Licenses** for bundled CLI version, source, and checksums.
+Uses [SQLCipher](https://www.zetetic.net/sqlcipher/) (BSD), [GRDB.swift](https://github.com/groue/GRDB.swift) (MIT), and bundled copies of Proton's official [Proton Pass CLI](https://github.com/protonpass/pass-cli) release binaries (GPL-3.0). See [Proton Pass CLI integration](docs/pass-cli.md) for bundled CLI version, source, and checksums.
