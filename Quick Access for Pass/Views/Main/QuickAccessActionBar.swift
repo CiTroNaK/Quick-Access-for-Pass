@@ -54,6 +54,8 @@ struct QuickAccessActionBar: View {
             viewModel.handleAction(action, for: item)
         case .showDetail:
             viewModel.showDetail()
+        case .showSkippedItems:
+            viewModel.showSkippedSyncItems()
         case .copyError(let details):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(details, forType: .string)

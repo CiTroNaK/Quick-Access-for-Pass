@@ -57,7 +57,16 @@ extension AppDelegate {
 
         let loginNotifier = PassCLILoginNotifier(
             notificationRouter: notificationRouter,
-            startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() }
+            startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() },
+            showLoginRequired: { [weak self] in
+                self?.viewModel?.errorMessage = nil
+                self?.viewModel?.syncProgress = nil
+                self?.viewModel?.syncError = .loginRequired()
+            },
+            clearLoginRequired: { [weak self] in
+                guard self?.viewModel?.syncError == .loginRequired() else { return }
+                self?.viewModel?.syncError = nil
+            }
         )
         loginNotifier.requestAuthorizationIfNeeded()
         passCLILoginNotifier = loginNotifier

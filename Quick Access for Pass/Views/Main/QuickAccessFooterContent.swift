@@ -4,6 +4,7 @@ import Foundation
 nonisolated enum QuickAccessFooterActionIntent: Equatable, Sendable {
     case itemAction(ItemAction)
     case showDetail
+    case showSkippedItems
     case copyError(details: String)
     case dismissError
 }
@@ -59,18 +60,36 @@ enum QuickAccessFooterContent {
     static func emptyStateContent(
         hotkeyLabel: String,
         isSyncing: Bool,
+        syncProgress: SyncProgressPresentation? = nil,
+        hasSkippedItems: Bool = false,
+        syncStatusText: String? = nil,
         syncDescription: String?
     ) -> QuickAccessFooterContentModel {
-        let leading: [QuickAccessFooterItem] = [
+        var leading: [QuickAccessFooterItem] = [
             .hint(title: showQuickAccessTitle(), shortcut: hotkeyLabel, collapsesWhenTight: true),
             .hint(title: refreshTitle(), shortcut: "⌘R", collapsesWhenTight: true),
             .hint(title: settingsTitle(), shortcut: "⌘,", collapsesWhenTight: true),
         ]
+        if hasSkippedItems {
+            leading.append(.action(
+                intent: .showSkippedItems,
+                title: viewSkippedItemsTitle(),
+                shortcut: nil
+            ))
+        }
 
         let trailing: QuickAccessFooterItem?
-        if isSyncing {
+        if let syncProgress {
             trailing = .status(
-                text: String(
+                text: syncProgress.statusText,
+                symbol: nil,
+                tone: .secondary,
+                showsProgress: syncProgress.showsProgress,
+                collapsesWhenTight: false
+            )
+        } else if isSyncing {
+            trailing = .status(
+                text: syncStatusText ?? String(
                     localized: "Syncing…",
                     comment: "Footer status while the app is syncing Proton Pass metadata."
                 ),
@@ -100,11 +119,17 @@ enum QuickAccessFooterContent {
     static func emptyStateItems(
         hotkeyLabel: String,
         isSyncing: Bool,
+        syncProgress: SyncProgressPresentation? = nil,
+        hasSkippedItems: Bool = false,
+        syncStatusText: String? = nil,
         syncDescription: String?
     ) -> [QuickAccessFooterItem] {
         let content = emptyStateContent(
             hotkeyLabel: hotkeyLabel,
             isSyncing: isSyncing,
+            syncProgress: syncProgress,
+            hasSkippedItems: hasSkippedItems,
+            syncStatusText: syncStatusText,
             syncDescription: syncDescription
         )
         return content.leading + (content.trailing.map { [$0] } ?? [])
@@ -167,6 +192,10 @@ enum QuickAccessFooterContent {
 
     static func settingsTitle() -> String {
         String(localized: "Settings", comment: "Footer hint label for opening Settings.")
+    }
+
+    static func viewSkippedItemsTitle() -> String {
+        String(localized: "View Skipped Items", comment: "Footer action title for showing skipped sync item details.")
     }
 
     @MainActor

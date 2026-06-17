@@ -4,6 +4,17 @@
     "" : {
       "shouldTranslate" : false
     },
+    " · %lld skipped" : {
+      "comment" : "Suffix for skipped sync items.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : " · %lld přeskočeno"
+          }
+        }
+      }
+    },
     "·" : {
       "shouldTranslate" : false
     },
@@ -365,6 +376,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%llds"
+          }
+        }
+      }
+    },
+    "+%lld more in copied report" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%lld dalších v kopírované zprávě"
           }
         }
       }
@@ -873,6 +894,17 @@
         }
       }
     },
+    "Copies a sanitized diagnostic report, then opens an email draft to yes@petr.codes.\n\nIf no email app opens, paste the copied report into your preferred email app and send it to yes@petr.codes." : {
+      "comment" : "Help text for the sync error Copy & Report info icon.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopíruje sanitizovanou diagnostickou zprávu a potom otevře rozepsaný e-mail na yes@petr.codes.\n\nPokud se neotevře žádná e-mailová aplikace, vložte zkopírovanou zprávu do své e-mailové aplikace a pošlete ji na yes@petr.codes."
+          }
+        }
+      }
+    },
     "Copy" : {
       "localizations" : {
         "cs" : {
@@ -883,12 +915,34 @@
         }
       }
     },
+    "Copy & Report" : {
+      "comment" : "Button title for copying sync diagnostics and opening a support email draft.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat a nahlásit"
+          }
+        }
+      }
+    },
     "Copy Alias" : {
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kopírovat alias"
+          }
+        }
+      }
+    },
+    "Copy and report help" : {
+      "comment" : "Accessibility label for the sync error Copy & Report help icon.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nápověda ke zkopírování a nahlášení"
           }
         }
       }
@@ -990,6 +1044,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zkopírovat alias qa-run"
+          }
+        }
+      }
+    },
+    "Copy Report" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zkopírovat zprávu"
           }
         }
       }
@@ -1797,6 +1861,7 @@
       }
     },
     "Log In" : {
+      "comment" : "Button title for starting Proton Pass CLI login from a sync error.",
       "localizations" : {
         "cs" : {
           "stringUnit" : {
@@ -2367,16 +2432,6 @@
         }
       }
     },
-    "Personal access token settings are loading." : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nastavení osobního přístupového tokenu se načítá."
-          }
-        }
-      }
-    },
     "Personal Website" : {
       "localizations" : {
         "cs" : {
@@ -2406,6 +2461,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PIN"
+          }
+        }
+      }
+    },
+    "Please log in to Proton Pass CLI." : {
+      "comment" : "Friendly sync error message shown when Pass CLI requires login.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlaste se prosím do Proton Pass CLI."
           }
         }
       }
@@ -3083,6 +3149,16 @@
         }
       }
     },
+    "Skipped Sync Items" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přeskočené položky synchronizace"
+          }
+        }
+      }
+    },
     "Slug" : {
       "localizations" : {
         "cs" : {
@@ -3099,6 +3175,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rodné číslo"
+          }
+        }
+      }
+    },
+    "Sorry, there was a sync error." : {
+      "comment" : "Friendly sync error message shown instead of a long technical sync failure.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omlouváme se, při synchronizaci došlo k chybě."
           }
         }
       }
@@ -3293,16 +3380,6 @@
         }
       }
     },
-    "Sync failed: %@" : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Synchronizace selhala: %@"
-          }
-        }
-      }
-    },
     "Synced %@" : {
       "comment" : "Footer status showing relative time since the last successful sync.",
       "localizations" : {
@@ -3310,6 +3387,45 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronizováno %@"
+          }
+        }
+      }
+    },
+    "Synced with %lld skipped items" : {
+      "comment" : "Sync status after a successful sync that skipped malformed items.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronizováno s %lld přeskočenými položkami"
+          }
+        }
+      }
+    },
+    "Syncing %@ %lld/%lld items" : {
+      "comment" : "Sync status showing decoded item progress for a Proton Pass vault.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronizuji %1$@, %2$lld/%3$lld položek"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Syncing %1$@ %2$lld/%3$lld items"
+          }
+        }
+      }
+    },
+    "Syncing %@…" : {
+      "comment" : "Sync status shown while fetching a specific Proton Pass vault.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronizuji %@…"
           }
         }
       }
@@ -3351,6 +3467,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Slug \"%@\" je rezervován pro interní kontroly. Zvolte jiný slug."
+          }
+        }
+      }
+    },
+    "These items could not be parsed, but the rest of your vault synced successfully." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tyto položky se nepodařilo zpracovat, ale zbytek vašeho trezoru byl úspěšně synchronizován."
           }
         }
       }
@@ -3591,6 +3717,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verze %@ (%@)"
+          }
+        }
+      }
+    },
+    "View Skipped Items" : {
+      "comment" : "Footer action title for showing skipped sync item details.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zobrazit přeskočené položky"
           }
         }
       }

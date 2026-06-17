@@ -5,12 +5,17 @@ struct QuickAccessShortcutHints: View {
     let isLoading: Bool
     let hasItems: Bool
     let searchQuery: String
+    let syncProgress: SyncProgressPresentation?
+    let hasSkippedItems: Bool
+    let showSkippedItems: @MainActor @Sendable () -> Void
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             let content = QuickAccessFooterContent.emptyStateContent(
                 hotkeyLabel: hotkeyLabel,
                 isSyncing: isLoading && !hasItems && searchQuery.isEmpty,
+                syncProgress: syncProgress,
+                hasSkippedItems: hasSkippedItems,
                 syncDescription: formatSyncTime(
                     UserDefaults.standard.double(forKey: "lastSyncTime"),
                     relativeTo: context.date
@@ -20,7 +25,11 @@ struct QuickAccessShortcutHints: View {
             QuickAccessFooter(
                 leadingItems: content.leading,
                 trailingItem: content.trailing,
-                performAction: { _ in }
+                performAction: { intent in
+                    if intent == .showSkippedItems {
+                        showSkippedItems()
+                    }
+                }
             )
         }
     }

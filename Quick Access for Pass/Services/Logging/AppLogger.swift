@@ -19,4 +19,5 @@ nonisolated enum AppLogger {
     static let probe = Logger(subsystem: subsystem, category: "probe")
     static let database = Logger(subsystem: subsystem, category: "database")
     static let audit = Logger(subsystem: subsystem, category: "audit")
+    static let sync = Logger(subsystem: subsystem, category: "sync")
 }

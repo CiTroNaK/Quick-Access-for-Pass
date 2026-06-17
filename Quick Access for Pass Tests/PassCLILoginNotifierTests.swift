@@ -38,6 +38,50 @@ struct PassCLILoginNotifierTests {
         #expect(poster.loggedOutCount == 1)
     }
 
+    @Test func loggedOutTransitionShowsMainWindowLoginErrorImmediately() {
+        var syncError: SyncErrorPresentation?
+        let notifier = PassCLILoginNotifier(
+            notificationRouter: nil,
+            poster: FakeLoginNotificationPoster(),
+            startLogin: {},
+            showLoginRequired: { syncError = .loginRequired() }
+        )
+
+        notifier.handleCLIHealthTransition(to: .notLoggedIn)
+
+        #expect(syncError == .loginRequired())
+    }
+
+    @Test func successfulLoginClearsMainWindowLoginError() {
+        var syncError: SyncErrorPresentation? = .loginRequired()
+        let notifier = PassCLILoginNotifier(
+            notificationRouter: nil,
+            poster: FakeLoginNotificationPoster(),
+            startLogin: {},
+            showLoginRequired: { syncError = .loginRequired() },
+            clearLoginRequired: { syncError = nil }
+        )
+
+        notifier.handleLoginResult(.succeeded)
+
+        #expect(syncError == nil)
+    }
+
+    @Test func nonLoggedOutHealthClearsMainWindowLoginError() {
+        var syncError: SyncErrorPresentation? = .loginRequired()
+        let notifier = PassCLILoginNotifier(
+            notificationRouter: nil,
+            poster: FakeLoginNotificationPoster(),
+            startLogin: {},
+            showLoginRequired: { syncError = .loginRequired() },
+            clearLoginRequired: { syncError = nil }
+        )
+
+        notifier.handleCLIHealthTransition(to: .failed(reason: "network unavailable"))
+
+        #expect(syncError == nil)
+    }
+
     @Test func resetsAfterHealthyTransition() {
         let poster = FakeLoginNotificationPoster()
         let notifier = PassCLILoginNotifier(notificationRouter: nil, poster: poster, startLogin: {})
@@ -49,7 +93,7 @@ struct PassCLILoginNotifierTests {
         #expect(poster.loggedOutCount == 2)
     }
 
-    @Test func loginActionStartsLoginAndReturnsPromptly() async {
+    @Test(.timeLimit(.minutes(1))) func loginActionStartsLoginAndReturnsPromptly() async {
         let starter = FakeLoginStarter()
         let notifier = PassCLILoginNotifier(notificationRouter: nil, poster: FakeLoginNotificationPoster()) {
             starter.start()
