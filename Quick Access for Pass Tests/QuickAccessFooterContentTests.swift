@@ -146,4 +146,57 @@ struct QuickAccessFooterContentTests {
             collapsesWhenTight: false
         ))
     }
+
+    @Test("empty footer uses rich sync progress text while syncing")
+    func emptyFooterUsesRichSyncProgressText() {
+        let content = QuickAccessFooterContent.emptyStateContent(
+            hotkeyLabel: "⌥Space",
+            isSyncing: true,
+            syncStatusText: "Syncing Personal 10/400 items",
+            syncDescription: "5m ago"
+        )
+
+        #expect(content.trailing == .status(
+            text: "Syncing Personal 10/400 items",
+            symbol: nil,
+            tone: .secondary,
+            showsProgress: true,
+            collapsesWhenTight: false
+        ))
+    }
+
+    @Test("empty footer shows completed sync progress even after loading finishes")
+    func emptyFooterShowsCompletedSyncProgress() {
+        let content = QuickAccessFooterContent.emptyStateContent(
+            hotkeyLabel: "⌥Space",
+            isSyncing: false,
+            syncProgress: .completedWithSkippedItems(3),
+            syncDescription: "just now"
+        )
+
+        #expect(content.trailing == .status(
+            text: "Synced with 3 skipped items",
+            symbol: nil,
+            tone: .secondary,
+            showsProgress: false,
+            collapsesWhenTight: false
+        ))
+    }
+
+    @Test("empty footer offers skipped item details when skipped items exist")
+    func emptyFooterOffersSkippedItemDetails() {
+        let content = QuickAccessFooterContent.emptyStateContent(
+            hotkeyLabel: "⌥Space",
+            isSyncing: false,
+            syncProgress: .completedWithSkippedItems(3),
+            hasSkippedItems: true,
+            syncDescription: "just now"
+        )
+
+        #expect(content.leading.contains(.action(
+            intent: .showSkippedItems,
+            title: "View Skipped Items",
+            shortcut: nil
+        )))
+    }
 }

@@ -64,13 +64,29 @@ struct QuickAccessView: View {
         return "⇧⌥Space"
     }
 
+    private var contentState: QuickAccessViewContentState {
+        QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
+            isLocked: appDelegate.isLocked,
+            hasDetailItem: viewModel.detailItem != nil,
+            hasItems: !viewModel.items.isEmpty,
+            hasSyncError: viewModel.syncError != nil,
+            hasSkippedItemDetails: viewModel.isShowingSkippedSyncItems && viewModel.skippedSyncItems != nil,
+            hasErrorMessage: viewModel.errorMessage != nil,
+            searchQuery: viewModel.searchQuery
+        ))
+    }
+
     private var hasItemContent: Bool {
-        viewModel.detailItem != nil || !viewModel.items.isEmpty
+        contentState == .itemContent
     }
 
     private var hasEmptyState: Bool {
-        viewModel.errorMessage != nil
-        || (!viewModel.searchQuery.isEmpty && viewModel.items.isEmpty)
+        switch contentState {
+        case .syncError, .skippedItemDetails, .errorMessage, .noResults:
+            true
+        case .locked, .itemContent, .shortcuts:
+            false
+        }
     }
 
     var body: some View {
@@ -112,7 +128,10 @@ struct QuickAccessView: View {
                     hotkeyLabel: hotkeyLabel,
                     isLoading: viewModel.isLoading,
                     hasItems: !viewModel.items.isEmpty,
-                    searchQuery: viewModel.searchQuery
+                    searchQuery: viewModel.searchQuery,
+                    syncProgress: viewModel.syncProgress,
+                    hasSkippedItems: viewModel.skippedSyncItems != nil,
+                    showSkippedItems: { viewModel.showSkippedSyncItems() }
                 )
             }
         }
@@ -120,7 +139,9 @@ struct QuickAccessView: View {
         .appGlassBackground(cornerRadius: 16)
         .onAppear { isSearchFocused = true }
         .onExitCommand {
-            if viewModel.detailItem != nil {
+            if viewModel.isShowingSkippedSyncItems {
+                viewModel.hideSkippedSyncItems()
+            } else if viewModel.detailItem != nil {
                 viewModel.hideDetail()
             } else if !viewModel.searchQuery.isEmpty {
                 appDelegate.recordActivity()
@@ -188,6 +209,11 @@ struct QuickAccessView: View {
                 AccessibilityNotification.Announcement(error).post()
             }
         }
+        .onChange(of: viewModel.syncError) { _, newValue in
+            if let syncError = newValue {
+                AccessibilityNotification.Announcement(syncError.visibleMessage).post()
+            }
+        }
         .onChange(of: viewModel.isActionLoading) { oldValue, newValue in
             if !oldValue && newValue {
                 AccessibilityNotification.Announcement("Fetching…").post()
@@ -221,64 +247,4 @@ struct QuickAccessView: View {
         .padding(16)
     }
 
-    @ViewBuilder
-    private var content: some View {
-        if let detailItem = viewModel.detailItem {
-            VStack(spacing: 0) {
-                ItemDetailView(
-                    item: detailItem,
-                    viewModel: viewModel,
-                    onBack: { viewModel.hideDetail() }
-                )
-                .frame(maxHeight: .infinity)
-
-                if let error = viewModel.errorMessage {
-                    Divider()
-                        .opacity(0.5)
-                    detailErrorBar(error)
-                }
-            }
-        } else if !viewModel.items.isEmpty {
-            VStack(spacing: 0) {
-                QuickAccessResultsList(
-                    items: viewModel.items,
-                    selectedIndex: viewModel.selectedIndex,
-                    vaultName: viewModel.vaultName(for:),
-                    showDetailAtIndex: { index in
-                        viewModel.selectedIndex = index
-                        viewModel.showDetail()
-                    }
-                )
-                Divider()
-                    .opacity(0.5)
-                QuickAccessActionBar(viewModel: viewModel)
-            }
-        } else if let error = viewModel.errorMessage {
-            QuickAccessEmptyStateView(message: error, secondaryMessage: nil, systemImage: nil)
-        } else if !viewModel.searchQuery.isEmpty {
-            QuickAccessEmptyStateView(
-                message: "No items found",
-                secondaryMessage: "Try a different search or press ⌘R to refresh",
-                systemImage: "magnifyingglass"
-            )
-        }
-    }
-
-    private func detailErrorBar(_ error: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .accessibilityHidden(true)
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .lineLimit(2)
-            Spacer()
-            Button("Dismiss") { viewModel.errorMessage = nil }
-                .font(.caption)
-                .appClearGlassButtonStyle()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
 }

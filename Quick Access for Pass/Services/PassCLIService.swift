@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+typealias SyncProgressHandler = @Sendable (SyncProgressPresentation) async -> Void
+
 nonisolated enum CLIError: Error, LocalizedError {
     case notInstalled
     case notLoggedIn
@@ -103,6 +105,23 @@ actor PassCLIService {
         return try Self.parseItemList(from: data)
     }
 
+    func listItemsForSync(vault: CLIVault, progress: SyncProgressHandler? = nil) async throws -> CLIItemListParseResult {
+        await progress?(.vaultStarted(vaultName: vault.name))
+        var arguments = ["item", "list", "--share-id=\(vault.shareId)", "--output", "json"]
+        if await supportsShowSecrets() {
+            arguments.append("--show-secrets")
+        }
+        let data = try await run(arguments: arguments)
+        let result = try CLIItemListLossyParser.parse(data, vaultId: vault.vaultId, vaultName: vault.name)
+        await progress?(.itemsDecoded(
+            vaultName: vault.name,
+            completedItems: result.items.count,
+            totalItems: result.totalItemCount,
+            skippedItems: result.skippedItems.count
+        ))
+        return result
+    }
+
     func logout() async throws {
         _ = try await run(arguments: ["logout"])
     }
@@ -120,22 +139,35 @@ actor PassCLIService {
         return try Self.parseTotp(from: data)
     }
 
-    func fetchAllItems() async throws -> (vaults: [CLIVault], items: [(item: CLIItem, vaultId: String)]) {
+    func fetchAllItems(
+        progress: SyncProgressHandler? = nil
+    ) async throws -> (
+        vaults: [CLIVault],
+        items: [(item: CLIItem, vaultId: String)],
+        skippedItems: [SkippedSyncItem]
+    ) {
         let vaults = try await listVaults()
-        let allItems = try await withThrowingTaskGroup(of: [(item: CLIItem, vaultId: String)].self) { group in
+        let syncResult = try await withThrowingTaskGroup(
+            of: (items: [(item: CLIItem, vaultId: String)], skippedItems: [SkippedSyncItem]).self
+        ) { group in
             for vault in vaults {
                 group.addTask {
-                    let items = try await self.listItems(shareId: vault.shareId)
-                    return items.map { (item: $0, vaultId: vault.vaultId) }
+                    let result = try await self.listItemsForSync(vault: vault, progress: progress)
+                    return (
+                        items: result.items.map { (item: $0, vaultId: vault.vaultId) },
+                        skippedItems: result.skippedItems
+                    )
                 }
             }
-            var result: [(item: CLIItem, vaultId: String)] = []
+            var items: [(item: CLIItem, vaultId: String)] = []
+            var skippedItems: [SkippedSyncItem] = []
             for try await batch in group {
-                result.append(contentsOf: batch)
+                items.append(contentsOf: batch.items)
+                skippedItems.append(contentsOf: batch.skippedItems)
             }
-            return result
+            return (items: items, skippedItems: skippedItems)
         }
-        return (vaults, allItems)
+        return (vaults, syncResult.items, syncResult.skippedItems)
     }
 
     // MARK: - CLI Capabilities
@@ -219,7 +251,7 @@ actor PassCLIService {
         }
     }
 
-    private static func parseErrorDescription(_ error: Error, context: String) -> String {
+    static func parseErrorDescription(_ error: Error, context: String) -> String {
         switch error {
         case DecodingError.keyNotFound(let key, let decodingContext):
             let path = codingPathDescription(decodingContext.codingPath + [key])
@@ -235,7 +267,7 @@ actor PassCLIService {
         }
     }
 
-    private static func codingPathDescription(_ path: [CodingKey]) -> String {
+    static func codingPathDescription(_ path: [CodingKey]) -> String {
         guard !path.isEmpty else { return "<root>" }
         return path.map(\.stringValue).joined(separator: ".")
     }

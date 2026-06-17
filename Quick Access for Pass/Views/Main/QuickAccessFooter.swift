@@ -35,13 +35,18 @@ struct QuickAccessFooter: View {
     @ViewBuilder
     private func itemView(_ item: QuickAccessFooterItem) -> some View {
         switch item {
-        case .action(_, let title, let shortcut):
-            HStack(spacing: 6) {
-                Text(title)
-                if let shortcut, !shortcut.isEmpty {
-                    shortcutPill(shortcut, foreground: .tertiary)
+        case .action(let intent, let title, let shortcut):
+            Button {
+                performAction(intent)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(title)
+                    if let shortcut, !shortcut.isEmpty {
+                        shortcutPill(shortcut, foreground: .tertiary)
+                    }
                 }
             }
+            .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(.tertiary)
             .lineLimit(1)

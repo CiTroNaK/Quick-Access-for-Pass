@@ -51,16 +51,22 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
 
     private let poster: any PassCLILoginNotificationPosting
     private let startLogin: @MainActor @Sendable () -> Void
+    private let showLoginRequired: @MainActor @Sendable () -> Void
+    private let clearLoginRequired: @MainActor @Sendable () -> Void
     private var hasPostedForCurrentLogout = false
     private var isLoggedOutEpisodeActive = false
 
     init(
         notificationRouter: UserNotificationRouter?,
         poster: any PassCLILoginNotificationPosting = LivePassCLILoginNotificationPoster(),
-        startLogin: @escaping @MainActor @Sendable () -> Void
+        startLogin: @escaping @MainActor @Sendable () -> Void,
+        showLoginRequired: @escaping @MainActor @Sendable () -> Void = {},
+        clearLoginRequired: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.poster = poster
         self.startLogin = startLogin
+        self.showLoginRequired = showLoginRequired
+        self.clearLoginRequired = clearLoginRequired
         let login = UNNotificationAction(identifier: Self.loginActionIdentifier, title: String(localized: "Log In"), options: [])
         let category = UNNotificationCategory(identifier: Self.categoryIdentifier, actions: [login], intentIdentifiers: [])
         notificationRouter?.registerCategory(category)
@@ -75,14 +81,17 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         switch health {
         case .notLoggedIn:
             isLoggedOutEpisodeActive = true
+            showLoginRequired()
             guard hasPostedForCurrentLogout == false else { return }
             hasPostedForCurrentLogout = true
             poster.postLoggedOutNotification()
         case .ok:
             isLoggedOutEpisodeActive = false
             hasPostedForCurrentLogout = false
+            clearLoginRequired()
         case .notInstalled, .failed:
             isLoggedOutEpisodeActive = false
+            clearLoginRequired()
         }
     }
 
@@ -92,6 +101,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         let categoryIdentifier: String?
         switch result {
         case .succeeded:
+            clearLoginRequired()
             title = String(localized: "Proton Pass CLI connected")
             body = String(localized: "Quick Access is syncing your vaults.")
             categoryIdentifier = nil
