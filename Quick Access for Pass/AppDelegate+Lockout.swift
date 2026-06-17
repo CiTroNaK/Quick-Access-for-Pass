@@ -45,6 +45,11 @@ extension AppDelegate {
         }
     }
 
+    func requestSearchFocusIfNeeded() {
+        guard !isLocked, viewModel?.detailItem == nil else { return }
+        searchFocusRequestID = UUID()
+    }
+
     /// If the panel was opened by `showPanelAndWaitForUnlock` (not by
     /// user action), dismiss it on the next run loop. Deferring past
     /// the current stack lets `LockedView.unlock()`'s `defer` clear
