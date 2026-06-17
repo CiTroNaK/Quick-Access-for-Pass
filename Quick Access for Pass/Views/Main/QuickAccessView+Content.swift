@@ -3,16 +3,13 @@ import SwiftUI
 extension QuickAccessView {
     @ViewBuilder
     var content: some View {
-        if let syncError = viewModel.syncError {
-            QuickAccessSyncErrorView(presentation: syncError) { action in
-                viewModel.handleSyncErrorAction(action)
-            }
-        } else if viewModel.isShowingSkippedSyncItems, let skippedItems = viewModel.skippedSyncItems {
-            QuickAccessSkippedItemsView(
-                presentation: skippedItems,
-                copyReport: { viewModel.copySkippedSyncItemsReport() },
-                copyAndReport: { viewModel.copyAndReportSkippedSyncItems() },
-                dismiss: { viewModel.hideSkippedSyncItems() }
+        if let syncIssue = viewModel.activeSyncIssuePresentation {
+            QuickAccessSyncIssueView(
+                presentation: syncIssue,
+                performLogin: { viewModel.requestPassCLILogin() },
+                copyReport: { viewModel.copySyncIssueReport() },
+                copyAndReport: { viewModel.copyAndReportSyncIssue() },
+                dismiss: { viewModel.dismissSyncIssue() }
             )
         } else if let detailItem = viewModel.detailItem {
             VStack(spacing: 0) {
