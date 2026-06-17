@@ -137,7 +137,9 @@ struct QuickAccessView: View {
         }
         .frame(minWidth: 480, idealWidth: 580, maxWidth: 620)
         .appGlassBackground(cornerRadius: 16)
-        .onAppear { isSearchFocused = true }
+        .task(id: appDelegate.searchFocusRequestID) {
+            await focusSearchField()
+        }
         .onExitCommand {
             if viewModel.isShowingSkippedSyncItems {
                 viewModel.hideSkippedSyncItems()
@@ -219,6 +221,14 @@ struct QuickAccessView: View {
                 AccessibilityNotification.Announcement("Fetching…").post()
             }
         }
+    }
+
+    @MainActor
+    private func focusSearchField() async {
+        isSearchFocused = false
+        await Task.yield()
+        guard !Task.isCancelled, !appDelegate.isLocked else { return }
+        isSearchFocused = true
     }
 
     private var searchField: some View {

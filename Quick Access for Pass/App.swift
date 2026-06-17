@@ -62,6 +62,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Bumped by `scheduleAutoUnlockIfNeeded()` on each fresh locked
     /// presentation. Observed by `LockedView.task(id:)` to drive auto-unlock.
     var autoUnlockToken: UUID?
+    /// Bumped whenever a visible unlocked panel should put keyboard focus
+    /// back into the SwiftUI search field. Hiding the panel can leave
+    /// `@FocusState` out of sync with AppKit's first responder, so each
+    /// presentation needs an explicit focus request.
+    var searchFocusRequestID: UUID?
     /// True while `LockedView.unlock()` is running. Read by
     /// `PanelController.shouldBlockHide` to keep the panel anchored
     /// while an LAContext sheet is on screen.
@@ -238,6 +243,7 @@ private extension AppDelegate {
         panelController?.setContent(quickAccessView)
         panelController?.onShow = { [weak self] in
             self?.viewModel?.cancelSearchClear()
+            self?.requestSearchFocusIfNeeded()
             self?.scheduleAutoUnlockIfNeeded()
         }
         panelController?.onHide = { [weak self] in
