@@ -353,7 +353,7 @@ struct QuickAccessFooterContentTests {
     func prominentFooterActionMetricsStayCompact() {
         #expect(QuickAccessFooter.prominentActionHeight == 24)
         #expect(QuickAccessFooter.prominentActionHorizontalPadding == 10)
-        #expect(QuickAccessFooter.prominentActionVerticalPadding == 6)
+        #expect(QuickAccessFooter.prominentActionVerticalPadding == CGFloat(6.5))
     }
 
     @Test("footer reduces vertical padding around prominent trailing actions")
@@ -367,7 +367,7 @@ struct QuickAccessFooterContentTests {
             collapsesWhenTight: false
         )
 
-        #expect(QuickAccessFooter.verticalPadding(for: prominentItem) == 6)
+        #expect(QuickAccessFooter.verticalPadding(for: prominentItem) == CGFloat(6.5))
         #expect(QuickAccessFooter.verticalPadding(for: statusItem) == 10)
         #expect(QuickAccessFooter.verticalPadding(for: nil) == 10)
     }

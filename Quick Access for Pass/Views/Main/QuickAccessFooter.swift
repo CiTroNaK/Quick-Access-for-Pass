@@ -7,7 +7,7 @@ struct QuickAccessFooter: View {
 
     nonisolated static let prominentActionHeight: CGFloat = 24
     nonisolated static let prominentActionHorizontalPadding: CGFloat = 10
-    nonisolated static let prominentActionVerticalPadding: CGFloat = 6
+    nonisolated static let prominentActionVerticalPadding: CGFloat = 6.5
     nonisolated static let standardVerticalPadding: CGFloat = 10
 
     nonisolated static func verticalPadding(for trailingItem: QuickAccessFooterItem?) -> CGFloat {
