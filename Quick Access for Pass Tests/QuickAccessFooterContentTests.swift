@@ -353,5 +353,22 @@ struct QuickAccessFooterContentTests {
     func prominentFooterActionMetricsStayCompact() {
         #expect(QuickAccessFooter.prominentActionHeight == 24)
         #expect(QuickAccessFooter.prominentActionHorizontalPadding == 10)
+        #expect(QuickAccessFooter.prominentActionVerticalPadding == 6)
+    }
+
+    @Test("footer reduces vertical padding around prominent trailing actions")
+    func footerReducesVerticalPaddingAroundProminentTrailingActions() {
+        let prominentItem = QuickAccessFooterItem.action(intent: .updatePAT, title: "Update PAT", shortcut: nil)
+        let statusItem = QuickAccessFooterItem.status(
+            text: "Logging in with saved PAT…",
+            symbol: nil,
+            tone: .secondary,
+            showsProgress: true,
+            collapsesWhenTight: false
+        )
+
+        #expect(QuickAccessFooter.verticalPadding(for: prominentItem) == 6)
+        #expect(QuickAccessFooter.verticalPadding(for: statusItem) == 10)
+        #expect(QuickAccessFooter.verticalPadding(for: nil) == 10)
     }
 }

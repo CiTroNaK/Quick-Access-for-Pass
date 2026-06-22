@@ -7,6 +7,16 @@ struct QuickAccessFooter: View {
 
     nonisolated static let prominentActionHeight: CGFloat = 24
     nonisolated static let prominentActionHorizontalPadding: CGFloat = 10
+    nonisolated static let prominentActionVerticalPadding: CGFloat = 6
+    nonisolated static let standardVerticalPadding: CGFloat = 10
+
+    nonisolated static func verticalPadding(for trailingItem: QuickAccessFooterItem?) -> CGFloat {
+        if trailingItem?.footerActionPresentation.isProminent == true {
+            prominentActionVerticalPadding
+        } else {
+            standardVerticalPadding
+        }
+    }
 
     private var compactLeadingItems: [QuickAccessFooterItem] {
         let preserved = leadingItems.filter { !$0.collapsesWhenTight }
@@ -19,7 +29,7 @@ struct QuickAccessFooter: View {
             footerRow(compactLeadingItems, trailingItem: trailingItem)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.vertical, Self.verticalPadding(for: trailingItem))
     }
 
     @ViewBuilder
