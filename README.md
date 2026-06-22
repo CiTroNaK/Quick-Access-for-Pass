@@ -28,6 +28,12 @@ Homebrew can fetch app updates through your normal `brew` workflow. Quick Access
 4. Search for a Proton Pass item.
 5. Hit Return to copy the selected value.
 
+If Quick Access needs a Proton Pass CLI session, the main panel shows a **Login** button in the sync status area so you can recover without leaving search.
+
+<p align="center">
+  <img src="docs/images/login.png" alt="Quick Access main panel showing the Login button in the sync status area" width="640">
+</p>
+
 Everything else is optional configuration.
 
 ## What you get
