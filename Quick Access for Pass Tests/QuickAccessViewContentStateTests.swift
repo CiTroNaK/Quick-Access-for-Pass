@@ -3,8 +3,8 @@ import Testing
 
 @Suite("QuickAccessView content state")
 struct QuickAccessViewContentStateTests {
-    @Test("sync error takes precedence over cached item content")
-    func syncErrorTakesPrecedenceOverCachedItemContent() {
+    @Test("cached item content stays visible during sync errors")
+    func cachedItemContentStaysVisibleDuringSyncErrors() {
         let state = QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
             isLocked: false,
             hasDetailItem: false,
@@ -15,11 +15,11 @@ struct QuickAccessViewContentStateTests {
             searchQuery: "github"
         ))
 
-        #expect(state == .syncError)
+        #expect(state == .itemContent)
     }
 
-    @Test("skipped item details take precedence over shortcuts")
-    func skippedItemDetailsTakePrecedenceOverShortcuts() {
+    @Test("shortcuts stay visible during skipped item diagnostics")
+    func shortcutsStayVisibleDuringSkippedItemDiagnostics() {
         let state = QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
             isLocked: false,
             hasDetailItem: false,
@@ -30,7 +30,22 @@ struct QuickAccessViewContentStateTests {
             searchQuery: ""
         ))
 
-        #expect(state == .skippedItemDetails)
+        #expect(state == .shortcuts)
+    }
+
+    @Test("normal empty state stays visible when sync fails with no cached items")
+    func normalEmptyStateStaysVisibleWhenSyncFailsWithNoCachedItems() {
+        let state = QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
+            isLocked: false,
+            hasDetailItem: false,
+            hasItems: false,
+            hasSyncError: true,
+            hasSkippedItemDetails: false,
+            hasErrorMessage: false,
+            searchQuery: ""
+        ))
+
+        #expect(state == .shortcuts)
     }
 
     @Test("successful login clears sync error back to item content")
@@ -46,5 +61,53 @@ struct QuickAccessViewContentStateTests {
         ))
 
         #expect(state == .itemContent)
+    }
+
+    @Test("no results state uses content with normal footer layout")
+    func noResultsStateUsesContentWithNormalFooterLayout() {
+        let state = QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
+            isLocked: false,
+            hasDetailItem: false,
+            hasItems: false,
+            hasSyncError: true,
+            hasSkippedItemDetails: false,
+            hasErrorMessage: false,
+            searchQuery: "missing"
+        ))
+
+        #expect(state == .noResults)
+        #expect(state.layout == .contentWithFooter)
+    }
+
+    @Test("shortcuts state remains footer only")
+    func shortcutsStateRemainsFooterOnly() {
+        let state = QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
+            isLocked: false,
+            hasDetailItem: false,
+            hasItems: false,
+            hasSyncError: false,
+            hasSkippedItemDetails: false,
+            hasErrorMessage: false,
+            searchQuery: ""
+        ))
+
+        #expect(state == .shortcuts)
+        #expect(state.layout == .footerOnly)
+    }
+
+    @Test("error message state remains content only")
+    func errorMessageStateRemainsContentOnly() {
+        let state = QuickAccessViewContentState.resolve(QuickAccessViewContentInputs(
+            isLocked: false,
+            hasDetailItem: false,
+            hasItems: false,
+            hasSyncError: false,
+            hasSkippedItemDetails: false,
+            hasErrorMessage: true,
+            searchQuery: "missing"
+        ))
+
+        #expect(state == .errorMessage)
+        #expect(state.layout == .contentOnly)
     }
 }

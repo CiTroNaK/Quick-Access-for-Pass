@@ -11,14 +11,16 @@ struct PassCLISettingsTabLayoutTests {
         #expect(source.contains(".fixedSize(horizontal: false, vertical: true)"))
     }
 
-    @Test("branch-added token names are constrained instead of overflowing rows")
-    func tokenNamesAreConstrained() throws {
+    @Test("token names truncate adaptively instead of using a fixed badge width")
+    func tokenNamesUseAdaptiveBadgeWidth() throws {
         let settingsSource = try passCLISettingsTabSource()
         let statusSource = try sourceFile(named: "Views/Settings/PassCLIStatusRow.swift")
 
         #expect(settingsSource.contains(".truncationMode(.middle)"))
         #expect(statusSource.contains(".truncationMode(.middle)"))
-        #expect(statusSource.contains(".frame(maxWidth: 160"))
+        #expect(statusSource.contains("Spacer(minLength: 8)"))
+        #expect(statusSource.contains(".layoutPriority(1)"))
+        #expect(!statusSource.contains(".frame(maxWidth: 160"))
     }
 
     private func passCLISettingsTabSource() throws -> String {

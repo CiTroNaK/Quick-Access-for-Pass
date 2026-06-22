@@ -6,15 +6,22 @@ final class SyncCoordinator {
     private let cliService: PassCLIService
     private let databaseManager: DatabaseManager
     private weak var viewModel: QuickAccessViewModel?
+    private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
 
     private var syncTask: Task<Void, Never>?
     private var syncTimer: Timer?
     private var currentSyncInterval: TimeInterval = 0
 
-    init(cliService: PassCLIService, databaseManager: DatabaseManager, viewModel: QuickAccessViewModel) {
+    init(
+        cliService: PassCLIService,
+        databaseManager: DatabaseManager,
+        viewModel: QuickAccessViewModel,
+        onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in }
+    ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
         self.viewModel = viewModel
+        self.onSyncIssueChanged = onSyncIssueChanged
     }
 
     // MARK: - Public
@@ -65,25 +72,38 @@ final class SyncCoordinator {
                     viewModel: viewModel
                 )
             } catch let error as CLIError where error.isNotInstalled {
+                viewModel.syncProgress = nil
                 viewModel.syncError = nil
                 viewModel.skippedSyncItems = nil
                 viewModel.isShowingSkippedSyncItems = false
                 viewModel.errorMessage = String(localized: "pass-cli not found. Install: brew install protonpass/tap/pass-cli")
+                onSyncIssueChanged(nil)
             } catch let error as CLIError where error.isAuthError {
-                viewModel.errorMessage = nil
-                viewModel.isShowingSkippedSyncItems = false
-                viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
+                handleAuthSyncError(error, viewModel: viewModel)
             } catch {
                 viewModel.errorMessage = nil
+                viewModel.syncProgress = nil
                 viewModel.isShowingSkippedSyncItems = false
-                viewModel.syncError = Self.syncErrorPresentation(
+                let presentation = Self.syncErrorPresentation(
                     for: error,
                     cliSelection: cliService.cliSelection,
                     skippedItems: skippedItemsForDiagnostics,
                     diagnosticFileURL: skippedDiagnosticFileURL
                 )
+                viewModel.syncError = presentation
+                onSyncIssueChanged(.syncError(presentation))
             }
         }
+    }
+
+    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) {
+        viewModel.errorMessage = nil
+        viewModel.syncProgress = nil
+        viewModel.isShowingSkippedSyncItems = false
+        if viewModel.syncError?.action != .updatePAT {
+            viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
+        }
+        onSyncIssueChanged(nil)
     }
 
     func reloadTimerIfNeeded() {
@@ -156,6 +176,11 @@ final class SyncCoordinator {
                 skippedItems: skippedItems,
                 diagnosticFileURL: diagnosticFileURL
             )
+        }
+        if let skippedSyncItems = viewModel.skippedSyncItems {
+            onSyncIssueChanged(.skippedItems(skippedSyncItems))
+        } else {
+            onSyncIssueChanged(nil)
         }
         viewModel.performSearch(query: viewModel.searchQuery)
     }

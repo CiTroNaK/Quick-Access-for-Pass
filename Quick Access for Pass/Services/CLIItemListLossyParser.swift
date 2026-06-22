@@ -3,6 +3,7 @@ import Foundation
 nonisolated struct SkippedSyncItem: Equatable, Sendable {
     let vaultId: String
     let vaultName: String
+    let shareId: String
     let itemIndex: Int
     let itemId: String?
     let codingPath: String
@@ -10,7 +11,28 @@ nonisolated struct SkippedSyncItem: Equatable, Sendable {
 
     var diagnosticSummary: String {
         let safeItem = itemId.map { " item_id=\($0)" } ?? ""
-        return "vault=\(vaultName) index=\(itemIndex)\(safeItem) path=\(codingPath) reason=\(reason)"
+        return "vault=\(vaultName) share_id=\(shareId) index=\(itemIndex)\(safeItem) path=\(codingPath) reason=\(reason)"
+    }
+
+    func inspectCommand(cliSelection: PassCLISelection) -> String {
+        let executable = Self.shellEscape(cliSelection.path)
+        let escapedShareId = Self.shellEscape(shareId)
+        if let itemId, !itemId.isEmpty {
+            return "\(executable) item view --share-id \(escapedShareId) --item-id \(Self.shellEscape(itemId)) --output json"
+        }
+
+        return """
+        # Item ID was not available. Inspect zero-based index \(itemIndex) in the returned items array.
+        \(executable) item list --share-id \(escapedShareId) --output json
+        """
+    }
+
+    private static func shellEscape(_ value: String) -> String {
+        let safeShellCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-")
+        guard value.rangeOfCharacter(from: safeShellCharacters.inverted) != nil else {
+            return value
+        }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 
@@ -21,7 +43,7 @@ nonisolated struct CLIItemListParseResult: Sendable {
 }
 
 nonisolated enum CLIItemListLossyParser {
-    static func parse(_ data: Data, vaultId: String, vaultName: String) throws -> CLIItemListParseResult {
+    static func parse(_ data: Data, vaultId: String, vaultName: String, shareId: String) throws -> CLIItemListParseResult {
         let root = try rootObject(from: data)
         guard let rawItems = root["items"] as? [Any] else {
             throw CLIError.parseError("item list: missing 'items' at <root>")
@@ -39,6 +61,7 @@ nonisolated enum CLIItemListLossyParser {
                 skippedItems.append(SkippedSyncItem(
                     vaultId: vaultId,
                     vaultName: vaultName,
+                    shareId: rawShareId(from: rawItem) ?? shareId,
                     itemIndex: index,
                     itemId: itemId(from: rawItem),
                     codingPath: codingPathDescription(from: error, itemIndex: index),
@@ -65,6 +88,11 @@ nonisolated enum CLIItemListLossyParser {
     private static func itemId(from rawItem: Any) -> String? {
         guard let dictionary = rawItem as? [String: Any] else { return nil }
         return dictionary["id"] as? String
+    }
+
+    private static func rawShareId(from rawItem: Any) -> String? {
+        guard let dictionary = rawItem as? [String: Any] else { return nil }
+        return dictionary["share_id"] as? String
     }
 
     private static func codingPathDescription(from error: Error, itemIndex: Int) -> String {

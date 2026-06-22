@@ -3,6 +3,8 @@ import SwiftUI
 
 struct QuickAccessActionBar: View {
     @Bindable var viewModel: QuickAccessViewModel
+    let syncIssueTrailingItem: QuickAccessFooterItem?
+    let performSyncIssueAction: @MainActor @Sendable (QuickAccessFooterActionIntent) -> Void
 
     private var footerItems: [QuickAccessFooterItem] {
         if let error = viewModel.errorMessage {
@@ -40,7 +42,7 @@ struct QuickAccessActionBar: View {
     var body: some View {
         QuickAccessFooter(
             leadingItems: footerItems,
-            trailingItem: nil
+            trailingItem: syncIssueTrailingItem
         ) { intent in
             handle(intent)
         }
@@ -54,8 +56,8 @@ struct QuickAccessActionBar: View {
             viewModel.handleAction(action, for: item)
         case .showDetail:
             viewModel.showDetail()
-        case .showSkippedItems:
-            viewModel.showSkippedSyncItems()
+        case .showSkippedItems, .showSyncIssues, .login, .updatePAT:
+            performSyncIssueAction(intent)
         case .copyError(let details):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(details, forType: .string)

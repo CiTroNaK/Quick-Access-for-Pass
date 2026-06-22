@@ -28,12 +28,19 @@ Homebrew can fetch app updates through your normal `brew` workflow. Quick Access
 4. Search for a Proton Pass item.
 5. Hit Return to copy the selected value.
 
+If Quick Access needs a Proton Pass CLI session, the main panel shows a **Login** button in the sync status area so you can recover without leaving search.
+
+<p align="center">
+  <img src="docs/images/login.png" alt="Quick Access main panel showing the Login button in the sync status area" width="640">
+</p>
+
 Everything else is optional configuration.
 
 ## What you get
 
 - **Global-hotkey search** — open a floating search panel from anywhere with `⇧⌥Space` by default.
 - **Fast local metadata search** — encrypted SQLite + FTS5 keeps item search responsive without storing secrets in the database.
+- **Non-blocking sync recovery** — if sync needs attention, search stays usable. Login-required states show **Login** in the sync status area, while sync diagnostics and skipped-item details open from **Show sync errors** in a separate window.
 - **Keyboard-first actions** — copy usernames, passwords, TOTP codes, URLs, or fields with configurable shortcuts.
 - **Touch ID protection** — unlock the app and authorize sensitive optional proxy actions with biometrics.
 - **Clipboard safety controls** — concealed pasteboard type support and automatic clipboard clearing.
@@ -139,6 +146,7 @@ Signed app releases include Proton's official Pass CLI fallback. A separate `pas
 
 ## Advanced docs
 
+- [Troubleshooting](docs/troubleshooting.md) — sync diagnostics, skipped items, and direct `pass-cli` inspection commands.
 - [Proton Pass CLI integration](docs/pass-cli.md) — bundled CLI, CLI selection order, PAT support, provenance, and checksum verification.
 - [SSH Agent Proxy](docs/ssh-agent-proxy.md) — Touch-ID-gated SSH signing setup and behavior.
 - [Run Proxy and qa-run](docs/run-proxy.md) — command secret injection setup and behavior.

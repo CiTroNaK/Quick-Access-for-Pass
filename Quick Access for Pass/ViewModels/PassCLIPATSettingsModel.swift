@@ -7,6 +7,7 @@ import SwiftUI
 final class PassCLIPATSettingsModel {
     private let credentialStore: any PassCLIPATCredentialStoring
     private let loginWithSavedToken: @MainActor @Sendable () async -> PassCLIPATLoginResult
+    private let invalidPATHandler: @MainActor @Sendable (String) -> Void
     private let isCurrentSessionPersonalAccessToken: @MainActor @Sendable () -> Bool
     private let logoutFromPassCLI: @MainActor @Sendable () async throws -> Void
 
@@ -18,11 +19,13 @@ final class PassCLIPATSettingsModel {
     init(
         credentialStore: any PassCLIPATCredentialStoring,
         loginWithSavedToken: @escaping @MainActor @Sendable () async -> PassCLIPATLoginResult,
+        invalidPATHandler: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         isCurrentSessionPersonalAccessToken: @escaping @MainActor @Sendable () -> Bool = { false },
         logoutFromPassCLI: @escaping @MainActor @Sendable () async throws -> Void = {}
     ) {
         self.credentialStore = credentialStore
         self.loginWithSavedToken = loginWithSavedToken
+        self.invalidPATHandler = invalidPATHandler
         self.isCurrentSessionPersonalAccessToken = isCurrentSessionPersonalAccessToken
         self.logoutFromPassCLI = logoutFromPassCLI
     }
@@ -77,7 +80,10 @@ final class PassCLIPATSettingsModel {
         case .missingToken:
             hasSavedToken = false
             setError(result.userFacingMessage)
-        case .notInstalled, .timeout, .invalidToken, .failed, .healthStillNotOK:
+        case .invalidToken:
+            setError(result.userFacingMessage)
+            invalidPATHandler(result.userFacingMessage)
+        case .notInstalled, .timeout, .failed, .healthStillNotOK:
             setError(result.userFacingMessage)
         }
     }

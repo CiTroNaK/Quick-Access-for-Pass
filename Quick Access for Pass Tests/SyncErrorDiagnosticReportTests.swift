@@ -19,6 +19,14 @@ struct SyncErrorDiagnosticReportTests {
         #expect(login.action == .login)
         #expect(login.action.title == "Log In")
         #expect(login.diagnosticReport == nil)
+
+        let invalidPAT = SyncErrorPresentation.invalidPAT(
+            userFacingMessage: "Personal access token is invalid, expired, or deleted. Replace it in Settings → Pass CLI or log in normally."
+        )
+        #expect(invalidPAT.visibleMessage == "Personal access token is invalid, expired, or deleted. Replace it in Settings → Pass CLI or log in normally.")
+        #expect(invalidPAT.action == .updatePAT)
+        #expect(invalidPAT.action.title == "Update PAT")
+        #expect(invalidPAT.diagnosticReport == nil)
     }
 
     @Test("sanitizer redacts known sensitive values")
@@ -79,6 +87,7 @@ struct SyncErrorDiagnosticReportTests {
         let skipped = SkippedSyncItem(
             vaultId: "vault",
             vaultName: "Personal",
+            shareId: "share-3",
             itemIndex: 3,
             itemId: "item-3",
             codingPath: "items.Index 3.content",
@@ -93,6 +102,7 @@ struct SyncErrorDiagnosticReportTests {
         )
 
         #expect(report.contains("Skipped items (showing first 1 of 1):"))
+        #expect(report.contains("share_id=share-3"))
         #expect(report.contains("item_id=item-3"))
         #expect(report.contains("Full skipped-item diagnostics file: ~/Library/Caches/SyncDiagnostics/report.txt"))
         #expect(!report.contains("user@example.com"))
@@ -104,6 +114,7 @@ struct SyncErrorDiagnosticReportTests {
         let skipped = SkippedSyncItem(
             vaultId: "vault",
             vaultName: "Personal",
+            shareId: "share-7",
             itemIndex: 7,
             itemId: "item-7",
             codingPath: "items.Index 7.content",
@@ -115,10 +126,49 @@ struct SyncErrorDiagnosticReportTests {
         ))
 
         let summary = try #require(presentation.visibleSummaries.first)
+        #expect(summary.contains("share_id=share-7"))
         #expect(summary.contains("item_id=item-7"))
         #expect(!summary.contains("user@example.com"))
         #expect(!summary.contains("/Users/alice"))
         #expect(!summary.contains("pass://share/item"))
+    }
+
+    @Test("skipped item inspect command uses exact CLI path and stable share ID")
+    func skippedItemInspectCommandUsesExactCLIPathAndStableShareID() {
+        let skipped = SkippedSyncItem(
+            vaultId: "vault",
+            vaultName: "Personal",
+            shareId: "share with spaces",
+            itemIndex: 7,
+            itemId: "item-7",
+            codingPath: "items.Index 7.content",
+            reason: "expected String"
+        )
+
+        let command = skipped.inspectCommand(cliSelection: .bundled(
+            path: "/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64",
+            architecture: .arm64
+        ))
+
+        #expect(command == "'/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64' item view --share-id 'share with spaces' --item-id item-7 --output json")
+    }
+
+    @Test("skipped item inspect command falls back to item list when item ID is missing")
+    func skippedItemInspectCommandFallsBackToItemListWhenItemIDIsMissing() {
+        let skipped = SkippedSyncItem(
+            vaultId: "vault",
+            vaultName: "Personal",
+            shareId: "share-7",
+            itemIndex: 7,
+            itemId: nil,
+            codingPath: "items.Index 7.content",
+            reason: "expected String"
+        )
+
+        let command = skipped.inspectCommand(cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"))
+
+        #expect(command.contains("# Item ID was not available. Inspect zero-based index 7 in the returned items array."))
+        #expect(command.contains("/opt/homebrew/bin/pass-cli item list --share-id share-7 --output json"))
     }
 
     @Test("sync coordinator helper can build generic presentation from an error")
@@ -139,6 +189,7 @@ struct SyncErrorDiagnosticReportTests {
         let skipped = SkippedSyncItem(
             vaultId: "vault",
             vaultName: "Personal",
+            shareId: "share-7",
             itemIndex: 7,
             itemId: "item-7",
             codingPath: "items.Index 7.content",
@@ -152,6 +203,7 @@ struct SyncErrorDiagnosticReportTests {
         )
 
         #expect(presentation.diagnosticReport?.contains("Skipped items (showing first 1 of 1):") == true)
+        #expect(presentation.diagnosticReport?.contains("share_id=share-7") == true)
         #expect(presentation.diagnosticReport?.contains("item_id=item-7") == true)
         #expect(presentation.diagnosticReport?.contains("Full skipped-item diagnostics file: ~/Library/Caches/SyncDiagnostics/report.txt") == true)
         #expect(presentation.diagnosticReport?.contains("user@example.com") == false)

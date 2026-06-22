@@ -30,6 +30,15 @@ private final class FakePATLoginAction {
 }
 
 @MainActor
+private final class FakePATInvalidRecorder {
+    var messages: [String] = []
+
+    func record(_ message: String) {
+        messages.append(message)
+    }
+}
+
+@MainActor
 private final class FakePATLogoutAction {
     var callCount = 0
 
@@ -105,6 +114,27 @@ struct PassCLIPATSettingsModelTests {
         #expect(model.hasSavedToken == true)
         #expect(model.statusMessage == "Pass CLI connected with saved personal access token.")
         #expect(model.errorMessage == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func loginUsingSavedTokenReportsInvalidPATToAppRecovery() async {
+        let store = FakePATSettingsCredentialStore(token: "pst_test_token::secret")
+        let login = FakePATLoginAction(results: [.invalidToken])
+        let invalidPAT = FakePATInvalidRecorder()
+        let model = PassCLIPATSettingsModel(
+            credentialStore: store,
+            loginWithSavedToken: { await login.login() },
+            invalidPATHandler: { invalidPAT.record($0) }
+        )
+        model.hasSavedToken = true
+
+        await model.loginUsingSavedToken()
+
+        #expect(login.callCount == 1)
+        #expect(model.hasSavedToken == true)
+        #expect(model.statusMessage == nil)
+        #expect(model.errorMessage == PassCLIPATLoginResult.invalidToken.userFacingMessage)
+        #expect(invalidPAT.messages == [PassCLIPATLoginResult.invalidToken.userFacingMessage])
     }
 
     @Test(.timeLimit(.minutes(1)))

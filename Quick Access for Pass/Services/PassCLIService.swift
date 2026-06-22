@@ -112,7 +112,12 @@ actor PassCLIService {
             arguments.append("--show-secrets")
         }
         let data = try await run(arguments: arguments)
-        let result = try CLIItemListLossyParser.parse(data, vaultId: vault.vaultId, vaultName: vault.name)
+        let result = try CLIItemListLossyParser.parse(
+            data,
+            vaultId: vault.vaultId,
+            vaultName: vault.name,
+            shareId: vault.shareId
+        )
         await progress?(.itemsDecoded(
             vaultName: vault.name,
             completedItems: result.items.count,

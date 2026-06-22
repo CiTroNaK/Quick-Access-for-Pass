@@ -2,12 +2,15 @@ import Foundation
 
 nonisolated enum SyncErrorAction: Equatable, Sendable {
     case login
+    case updatePAT
     case copyAndReport
 
     var title: String {
         switch self {
         case .login:
             String(localized: "Log In", comment: "Button title for starting Proton Pass CLI login from a sync error.")
+        case .updatePAT:
+            String(localized: "Update PAT", comment: "Button title for replacing an invalid Proton Pass personal access token.")
         case .copyAndReport:
             String(localized: "Copy & Report", comment: "Button title for copying sync diagnostics and opening a support email draft.")
         }
@@ -27,6 +30,14 @@ nonisolated struct SyncErrorPresentation: Equatable, Sendable {
             ),
             diagnosticReport: nil,
             action: .login
+        )
+    }
+
+    static func invalidPAT(userFacingMessage: String) -> SyncErrorPresentation {
+        SyncErrorPresentation(
+            visibleMessage: userFacingMessage,
+            diagnosticReport: nil,
+            action: .updatePAT
         )
     }
 

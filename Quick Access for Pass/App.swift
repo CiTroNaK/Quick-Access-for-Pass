@@ -18,6 +18,7 @@ struct QuickAccessPassApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var panelController: PanelController?
     @ObservationIgnored private var largeTypeWindowController: LargeTypeWindowController?
+    @ObservationIgnored var syncIssueWindowController: SyncIssueWindowController?
     @ObservationIgnored private var statusBarController: StatusBarController?
     @ObservationIgnored private var hotkeyManager: HotkeyManager?
     @ObservationIgnored var viewModel: QuickAccessViewModel?
@@ -234,6 +235,21 @@ private extension AppDelegate {
         )
 
         guard let viewModel else { return }
+
+        syncIssueWindowController = SyncIssueWindowController(actions: .init(
+            copyReport: { [weak viewModel] presentation in
+                viewModel?.copySyncIssueReport(presentation)
+            },
+            copyAndReport: { [weak viewModel] presentation in
+                viewModel?.copyAndReportSyncIssue(presentation)
+            },
+            copySkippedItemCommand: { [weak viewModel] item in
+                viewModel?.copySkippedSyncItemInspectCommand(item)
+            },
+            dismissIssue: { [weak viewModel] presentation in
+                viewModel?.dismissSyncIssue(presentation)
+            }
+        ))
 
         let quickAccessView = QuickAccessView(
             viewModel: viewModel,

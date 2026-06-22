@@ -17,6 +17,7 @@ nonisolated enum DefaultsKey {
     static let syncInterval = "syncInterval"
     static let lastSyncTime = "lastSyncTime"
     static let cliPath = "cliPath"
+    static let selectedSettingsTab = "selectedSettingsTab"
     static let sshProxyEnabled = "sshProxyEnabled"
     static let sshUpstreamSocketPath = "sshUpstreamSocketPath"
     static let sshVaultFilter = "sshVaultFilter"

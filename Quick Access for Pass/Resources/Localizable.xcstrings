@@ -998,6 +998,33 @@
         }
       }
     },
+    "Copy Inspect Command" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat příkaz pro kontrolu"
+          }
+        }
+      }
+    },
+    "Copy inspect command for %@ in vault %@" : {
+      "comment" : "Accessibility label for copying a skipped sync item inspect command.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopírovat příkaz pro kontrolu položky %1$@ v trezoru %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Copy inspect command for %1$@ in vault %2$@"
+          }
+        }
+      }
+    },
     "Copy Note" : {
       "localizations" : {
         "cs" : {
@@ -1648,6 +1675,50 @@
         }
       }
     },
+    "item ID %@" : {
+      "comment" : "Skipped sync item ID in inspect command accessibility label.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID položky %@"
+          }
+        }
+      }
+    },
+    "Item ID: %@" : {
+      "comment" : "Skipped sync item ID.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID položky: %@"
+          }
+        }
+      }
+    },
+    "item index %lld" : {
+      "comment" : "Skipped sync item index in inspect command accessibility label.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "index položky %lld"
+          }
+        }
+      }
+    },
+    "Item index: %lld" : {
+      "comment" : "Skipped sync item index.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Index položky: %lld"
+          }
+        }
+      }
+    },
     "Job Title" : {
       "localizations" : {
         "cs" : {
@@ -1911,12 +1982,35 @@
         }
       }
     },
+    "Logging in with saved PAT…" : {
+      "comment" : "Footer status while recreating a Pass CLI session with a saved personal access token.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlašování pomocí uloženého PAT…"
+          }
+        }
+      }
+    },
     "Login" : {
+      "comment" : "Footer action title for starting Proton Pass CLI login.",
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Přihlášení"
+          }
+        }
+      }
+    },
+    "Login Required" : {
+      "comment" : "Title for a sync issue caused by a required Proton Pass CLI login.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyžaduje se přihlášení"
           }
         }
       }
@@ -1978,6 +2072,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nový profil"
+          }
+        }
+      }
+    },
+    "No current sync diagnostics" : {
+      "comment" : "Resolved sync diagnostics window status.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Žádná aktuální diagnostika synchronizace"
+          }
+        }
+      }
+    },
+    "No current sync errors" : {
+      "comment" : "Empty sync diagnostics window status.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Žádné aktuální chyby synchronizace"
           }
         }
       }
@@ -2362,6 +2478,17 @@
         }
       }
     },
+    "Personal Access Token Invalid" : {
+      "comment" : "Title for a sync issue caused by an invalid Proton Pass personal access token.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Osobní přístupový token je neplatný"
+          }
+        }
+      }
+    },
     "Personal access token is invalid, expired, or deleted. Replace it in Settings → Pass CLI or log in normally." : {
       "localizations" : {
         "cs" : {
@@ -2496,6 +2623,17 @@
         }
       }
     },
+    "Previous diagnostic" : {
+      "comment" : "Disclosure title for archived sync diagnostics after the current issue resolves.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Předchozí diagnostika"
+          }
+        }
+      }
+    },
     "Private Key" : {
       "localizations" : {
         "cs" : {
@@ -2512,6 +2650,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "kontrola selhala"
+          }
+        }
+      }
+    },
+    "Problem: %@" : {
+      "comment" : "Skipped sync item parse path.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Problém: %@"
           }
         }
       }
@@ -3149,7 +3298,19 @@
         }
       }
     },
+    "Show sync errors" : {
+      "comment" : "Footer action title for opening sync diagnostics.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zobrazit chyby synchronizace"
+          }
+        }
+      }
+    },
     "Skipped Sync Items" : {
+      "comment" : "Title for sync warning listing items skipped during sync.",
       "localizations" : {
         "cs" : {
           "stringUnit" : {
@@ -3179,6 +3340,17 @@
         }
       }
     },
+    "Some items could not be parsed, but the rest of your vault synced successfully." : {
+      "comment" : "Message for skipped sync items warning.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Některé položky se nepodařilo zpracovat, ale zbytek trezoru se úspěšně synchronizoval."
+          }
+        }
+      }
+    },
     "Sorry, there was a sync error." : {
       "comment" : "Friendly sync error message shown instead of a long technical sync failure.",
       "localizations" : {
@@ -3186,6 +3358,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Omlouváme se, při synchronizaci došlo k chybě."
+          }
+        }
+      }
+    },
+    "Sorry, there was a sync error. You can dismiss this and continue using cached items if they are available." : {
+      "comment" : "Message for a dismissible generic sync failure.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omlouváme se, došlo k chybě synchronizace. Tuto zprávu můžete zavřít a dál používat položky z mezipaměti, pokud jsou dostupné."
           }
         }
       }
@@ -3380,6 +3563,28 @@
         }
       }
     },
+    "Sync Error" : {
+      "comment" : "Title for a generic sync failure.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chyba synchronizace"
+          }
+        }
+      }
+    },
+    "Sync Errors" : {
+      "comment" : "Title for sync diagnostics window.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chyby synchronizace"
+          }
+        }
+      }
+    },
     "Synced %@" : {
       "comment" : "Footer status showing relative time since the last successful sync.",
       "localizations" : {
@@ -3461,22 +3666,44 @@
         }
       }
     },
+    "The diagnostics below are from the last sync issue shown in this window." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Níže uvedená diagnostika pochází z posledního problému se synchronizací zobrazeného v tomto okně."
+          }
+        }
+      }
+    },
+    "The diagnostics below are from the previous issue shown in this window." : {
+      "comment" : "Resolved sync diagnostics window subtitle explaining archived diagnostics.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Níže uvedená diagnostika pochází z předchozího problému zobrazeného v tomto okně."
+          }
+        }
+      }
+    },
+    "The latest sync has no diagnostics to show." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poslední synchronizace nemá žádnou diagnostiku k zobrazení."
+          }
+        }
+      }
+    },
     "The slug \"%@\" is reserved for internal health checks. Choose a different slug." : {
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Slug \"%@\" je rezervován pro interní kontroly. Zvolte jiný slug."
-          }
-        }
-      }
-    },
-    "These items could not be parsed, but the rest of your vault synced successfully." : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tyto položky se nepodařilo zpracovat, ale zbytek vašeho trezoru byl úspěšně synchronizován."
           }
         }
       }
@@ -3651,6 +3878,17 @@
         }
       }
     },
+    "Update PAT" : {
+      "comment" : "Button title for replacing an invalid Proton Pass personal access token.\nFooter action title for replacing an invalid Proton Pass personal access token.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktualizovat PAT"
+          }
+        }
+      }
+    },
     "upstream error" : {
       "localizations" : {
         "cs" : {
@@ -3701,6 +3939,17 @@
         }
       }
     },
+    "Vault: %@" : {
+      "comment" : "Skipped sync item vault name.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trezor: %@"
+          }
+        }
+      }
+    },
     "Version" : {
       "localizations" : {
         "cs" : {
@@ -3717,17 +3966,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verze %@ (%@)"
-          }
-        }
-      }
-    },
-    "View Skipped Items" : {
-      "comment" : "Footer action title for showing skipped sync item details.",
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zobrazit přeskočené položky"
           }
         }
       }

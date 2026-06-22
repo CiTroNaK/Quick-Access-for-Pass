@@ -5,6 +5,19 @@ struct QuickAccessFooter: View {
     let trailingItem: QuickAccessFooterItem?
     let performAction: @MainActor @Sendable (QuickAccessFooterActionIntent) -> Void
 
+    nonisolated static let prominentActionHeight: CGFloat = 24
+    nonisolated static let prominentActionHorizontalPadding: CGFloat = 10
+    nonisolated static let prominentActionVerticalPadding: CGFloat = 6.5
+    nonisolated static let standardVerticalPadding: CGFloat = 10
+
+    nonisolated static func verticalPadding(for trailingItem: QuickAccessFooterItem?) -> CGFloat {
+        if trailingItem?.footerActionPresentation.isProminent == true {
+            prominentActionVerticalPadding
+        } else {
+            standardVerticalPadding
+        }
+    }
+
     private var compactLeadingItems: [QuickAccessFooterItem] {
         let preserved = leadingItems.filter { !$0.collapsesWhenTight }
         return preserved.isEmpty ? Array(leadingItems.prefix(1)) : preserved
@@ -16,7 +29,7 @@ struct QuickAccessFooter: View {
             footerRow(compactLeadingItems, trailingItem: trailingItem)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.vertical, Self.verticalPadding(for: trailingItem))
     }
 
     @ViewBuilder
@@ -36,21 +49,12 @@ struct QuickAccessFooter: View {
     private func itemView(_ item: QuickAccessFooterItem) -> some View {
         switch item {
         case .action(let intent, let title, let shortcut):
-            Button {
-                performAction(intent)
-            } label: {
-                HStack(spacing: 6) {
-                    Text(title)
-                    if let shortcut, !shortcut.isEmpty {
-                        shortcutPill(shortcut, foreground: .tertiary)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .lineLimit(1)
-            .layoutPriority(0)
+            actionItemView(
+                intent: intent,
+                title: title,
+                shortcut: shortcut,
+                presentation: item.footerActionPresentation
+            )
 
         case .hint(let title, let shortcut, _):
             HStack(spacing: 6) {
@@ -81,6 +85,83 @@ struct QuickAccessFooter: View {
                     .lineLimit(1)
             }
             .layoutPriority(0)
+        }
+    }
+
+    private func actionItemView(
+        intent: QuickAccessFooterActionIntent,
+        title: String,
+        shortcut: String?,
+        presentation: QuickAccessFooterActionPresentation
+    ) -> some View {
+        let isProminent = presentation.isProminent
+
+        return Button {
+            performAction(intent)
+        } label: {
+            HStack(spacing: 6) {
+                if let symbolName = presentation.symbolName {
+                    Image(systemName: symbolName)
+                        .font(.caption.weight(.semibold))
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                if let shortcut, !shortcut.isEmpty {
+                    shortcutPill(shortcut, foreground: .tertiary)
+                }
+            }
+            .padding(.horizontal, isProminent ? Self.prominentActionHorizontalPadding : 0)
+            .frame(height: isProminent ? Self.prominentActionHeight : nil)
+        }
+        .buttonStyle(.plain)
+        .font(isProminent ? .caption.weight(.semibold) : .caption)
+        .foregroundStyle(foregroundStyle(for: presentation))
+        .background {
+            if isProminent {
+                Capsule(style: .continuous)
+                    .fill(backgroundColor(for: presentation))
+            }
+        }
+        .overlay {
+            if isProminent {
+                Capsule(style: .continuous)
+                    .stroke(strokeColor(for: presentation), lineWidth: 1)
+            }
+        }
+        .lineLimit(1)
+        .layoutPriority(isProminent ? 1 : 0)
+    }
+
+    private func foregroundStyle(for presentation: QuickAccessFooterActionPresentation) -> AnyShapeStyle {
+        switch presentation.tone {
+        case .secondary:
+            AnyShapeStyle(presentation.isProminent ? Color.primary : Color.secondary)
+        case .warning:
+            AnyShapeStyle(Color.orange)
+        case .error:
+            AnyShapeStyle(Color.red)
+        }
+    }
+
+    private func backgroundColor(for presentation: QuickAccessFooterActionPresentation) -> Color {
+        switch presentation.tone {
+        case .secondary:
+            Color.primary.opacity(0.10)
+        case .warning:
+            Color.orange.opacity(0.16)
+        case .error:
+            Color.red.opacity(0.14)
+        }
+    }
+
+    private func strokeColor(for presentation: QuickAccessFooterActionPresentation) -> Color {
+        switch presentation.tone {
+        case .secondary:
+            Color.primary.opacity(0.18)
+        case .warning:
+            Color.orange.opacity(0.55)
+        case .error:
+            Color.red.opacity(0.50)
         }
     }
 
