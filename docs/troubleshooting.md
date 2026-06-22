@@ -74,7 +74,19 @@ vault=Personal share_id=<share_id> index=7 item_id=item-7 \
 ```
 
 Use the command output to inspect the item, then fix the item in Proton Pass or
-with `pass-cli`.
+with `pass-cli`. If the item looks valid but Quick Access still skips it, share
+the sync error message and a redacted copy of the CLI JSON output with the
+Quick Access developer so the parser can be fixed. The **Copy & Report** button
+in the sync diagnostics window is the easiest way to start that report.
+
+Redact secrets, one-time codes, recovery codes, notes, URLs, usernames, email
+addresses, and any other private data before sharing.
+
+If editing the item does not help, another option is to recreate the item or
+create a duplicate in Proton Pass and check whether the new copy syncs. Be
+careful not to delete anything important: verify the replacement contains every
+field, note, attachment, passkey, and 2FA detail you still need before removing
+or archiving the original item.
 
 ### 1. Inspect the item from Quick Access
 
