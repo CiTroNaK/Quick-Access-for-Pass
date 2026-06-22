@@ -40,6 +40,7 @@ nonisolated enum SyncIssueWindowState: Equatable, Sendable {
 
 struct SyncIssueWindowView: View {
     nonisolated static let contentPadding: CGFloat = 20
+    nonisolated static let contentFrameAlignment = Alignment.topLeading
 
     nonisolated static let resolvedSubtitle = String(
         localized: "The diagnostics below are from the previous issue shown in this window.",
@@ -71,7 +72,13 @@ struct SyncIssueWindowView: View {
                 resolvedState(presentation)
             }
         }
-        .frame(minWidth: 520, idealWidth: 620, minHeight: 320, idealHeight: 420)
+        .frame(
+            minWidth: 520,
+            idealWidth: 620,
+            minHeight: 320,
+            idealHeight: 420,
+            alignment: Self.contentFrameAlignment
+        )
     }
 
     private var emptyState: some View {

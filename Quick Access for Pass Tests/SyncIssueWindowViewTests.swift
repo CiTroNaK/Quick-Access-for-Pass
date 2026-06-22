@@ -1,4 +1,5 @@
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import Quick_Access_for_Pass
 
@@ -31,6 +32,11 @@ struct SyncIssueWindowViewTests {
     @Test("resolved state uses outer padding")
     func resolvedStateUsesOuterPadding() {
         #expect(SyncIssueWindowView.contentPadding == CGFloat(20))
+    }
+
+    @Test("window content frame is top aligned")
+    func windowContentFrameIsTopAligned() {
+        #expect(SyncIssueWindowView.contentFrameAlignment == Alignment.topLeading)
     }
 
     @Test("resolved state labels previous diagnostics explicitly")
