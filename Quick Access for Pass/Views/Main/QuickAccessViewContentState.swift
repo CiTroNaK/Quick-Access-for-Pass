@@ -10,6 +10,12 @@ nonisolated struct QuickAccessViewContentInputs: Equatable, Sendable {
     let searchQuery: String
 }
 
+nonisolated enum QuickAccessViewContentLayout: Equatable, Sendable {
+    case contentOnly
+    case footerOnly
+    case contentWithFooter
+}
+
 nonisolated enum QuickAccessViewContentState: Equatable, Sendable {
     case locked
     case syncError
@@ -21,11 +27,20 @@ nonisolated enum QuickAccessViewContentState: Equatable, Sendable {
 
     static func resolve(_ inputs: QuickAccessViewContentInputs) -> QuickAccessViewContentState {
         if inputs.isLocked { return .locked }
-        if inputs.hasSyncError { return .syncError }
-        if inputs.hasSkippedItemDetails { return .skippedItemDetails }
         if inputs.hasDetailItem || inputs.hasItems { return .itemContent }
         if inputs.hasErrorMessage { return .errorMessage }
         if !inputs.searchQuery.isEmpty { return .noResults }
         return .shortcuts
+    }
+
+    var layout: QuickAccessViewContentLayout {
+        switch self {
+        case .shortcuts:
+            .footerOnly
+        case .noResults:
+            .contentWithFooter
+        case .locked, .syncError, .itemContent, .skippedItemDetails, .errorMessage:
+            .contentOnly
+        }
     }
 }

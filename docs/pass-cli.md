@@ -11,7 +11,16 @@ Signed releases include Proton's official macOS CLI binaries at these paths insi
 - `Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64`
 - `Quick Access for Pass.app/Contents/Helpers/pass-cli-x86_64`
 
+When the signed app is installed in `/Applications`, the full bundled CLI paths are:
+
+- `/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64`
+- `/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-x86_64`
+
 On first run, if no system CLI is installed, Quick Access uses the bundled helper automatically. You can start login from the notification when it appears, or manually from **Settings → Pass CLI → Log In to Proton Pass CLI…**. With the Quick Access panel open, press `⌘,` to open Settings.
+
+When Pass CLI login is required, Quick Access keeps the main panel usable and shows **Login** in the right sync-status area. Click **Login** to start the existing Proton Pass CLI login flow.
+
+For generic sync failures or skipped-item diagnostics, Quick Access shows **Show sync errors** in the same right sync-status area. That opens a separate diagnostics window with copy/report actions and skipped-item inspect commands.
 
 ## CLI selection order
 
@@ -74,4 +83,5 @@ The final app helpers are code-signed during packaging, so their bytes may diffe
 ## Related docs
 
 - [README](../README.md)
+- [Troubleshooting](troubleshooting.md)
 - [Security policy](../SECURITY.md)

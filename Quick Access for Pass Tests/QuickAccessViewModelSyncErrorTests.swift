@@ -44,6 +44,26 @@ struct QuickAccessViewModelSyncErrorTests {
         #expect(presentation.showsDismissAction == false)
     }
 
+    @Test("invalid PAT sync error stays out of diagnostics")
+    func invalidPATSyncErrorStaysOutOfDiagnostics() throws {
+        let vm = try makeViewModel()
+        vm.syncError = .invalidPAT(
+            userFacingMessage: "Personal access token is invalid, expired, or deleted. Replace it in Settings → Pass CLI or log in normally."
+        )
+
+        let presentation = try #require(vm.activeSyncIssuePresentation)
+
+        #expect(presentation.kind == .invalidPAT)
+        #expect(presentation.title == "Personal Access Token Invalid")
+        #expect(presentation.message == "Personal access token is invalid, expired, or deleted. Replace it in Settings → Pass CLI or log in normally.")
+        #expect(presentation.diagnosticReport == nil)
+        #expect(presentation.preview == .none)
+        #expect(presentation.showsLoginAction == false)
+        #expect(presentation.showsReportActions == false)
+        #expect(presentation.showsDismissAction == false)
+        #expect(vm.currentSyncDiagnosticsPresentation == nil)
+    }
+
     @Test("skipped items map to unified issue presentation")
     func skippedItemsMapToUnifiedIssuePresentation() throws {
         let vm = try makeViewModel()
@@ -68,6 +88,58 @@ struct QuickAccessViewModelSyncErrorTests {
         } else {
             Issue.record("Expected skipped-items preview")
         }
+    }
+
+    @Test("login required does not produce diagnostics window presentation")
+    func loginRequiredDoesNotProduceDiagnosticsWindowPresentation() throws {
+        let vm = try makeViewModel()
+        vm.syncError = .loginRequired()
+
+        #expect(vm.currentSyncDiagnosticsPresentation == nil)
+    }
+
+    @Test("generic sync error produces diagnostics window presentation")
+    func genericSyncErrorProducesDiagnosticsWindowPresentation() throws {
+        let vm = try makeViewModel()
+        vm.syncError = .genericFailure(diagnosticReport: "diagnostic")
+
+        let presentation = try #require(vm.currentSyncDiagnosticsPresentation)
+
+        #expect(presentation.kind == .genericFailure)
+        #expect(presentation.diagnosticReport == "diagnostic")
+    }
+
+    @Test("skipped items produce diagnostics window presentation without inline display flag")
+    func skippedItemsProduceDiagnosticsWindowPresentationWithoutInlineDisplayFlag() throws {
+        let vm = try makeViewModel()
+        let skippedItems = try #require(SyncSkippedItemsPresentation.make(
+            skippedItems: [makeSkippedItem()],
+            diagnosticFileURL: nil
+        ))
+        vm.skippedSyncItems = skippedItems
+        vm.isShowingSkippedSyncItems = false
+
+        let presentation = try #require(vm.currentSyncDiagnosticsPresentation)
+
+        #expect(presentation.kind == .skippedItems)
+        #expect(presentation.diagnosticReport == skippedItems.diagnosticReport)
+    }
+
+    @Test("explicit diagnostics report copy uses retained window presentation")
+    func explicitDiagnosticsReportCopyUsesRetainedWindowPresentation() throws {
+        var copiedText: String?
+        let vm = try makeViewModel(writeStringToPasteboard: { copiedText = $0 })
+        let skippedItems = try #require(SyncSkippedItemsPresentation.make(
+            skippedItems: [makeSkippedItem()],
+            diagnosticFileURL: nil
+        ))
+        let presentation = QuickAccessSyncIssuePresentation.skippedItems(skippedItems)
+        vm.skippedSyncItems = nil
+        vm.isShowingSkippedSyncItems = false
+
+        vm.copySyncIssueReport(presentation)
+
+        #expect(copiedText == skippedItems.diagnosticReport)
     }
 
     @Test("generic sync error takes presentation priority over skipped items")
@@ -113,6 +185,7 @@ struct QuickAccessViewModelSyncErrorTests {
             performLogin: {},
             copyReport: {},
             copyAndReport: {},
+            copySkippedItemCommand: { _ in },
             dismiss: {}
         )
 
@@ -216,6 +289,31 @@ struct QuickAccessViewModelSyncErrorTests {
         #expect(vm.searchQuery == "github")
     }
 
+    @Test("dismiss diagnostics presentation clears generic sync error")
+    func dismissDiagnosticsPresentationClearsGenericSyncError() throws {
+        let vm = try makeViewModel()
+        vm.syncError = .genericFailure(diagnosticReport: "generic diagnostic")
+        let presentation = try #require(vm.currentSyncDiagnosticsPresentation)
+
+        vm.dismissSyncIssue(presentation)
+
+        #expect(vm.syncError == nil)
+    }
+
+    @Test("dismiss diagnostics presentation clears skipped diagnostics")
+    func dismissDiagnosticsPresentationClearsSkippedDiagnostics() throws {
+        let vm = try makeViewModel()
+        let skippedItems = try #require(SyncSkippedItemsPresentation.make(skippedItems: [makeSkippedItem()], diagnosticFileURL: nil))
+        vm.skippedSyncItems = skippedItems
+        vm.showSkippedSyncItems()
+        let presentation = QuickAccessSyncIssuePresentation.skippedItems(skippedItems)
+
+        vm.dismissSyncIssue(presentation)
+
+        #expect(vm.skippedSyncItems == nil)
+        #expect(vm.isShowingSkippedSyncItems == false)
+    }
+
     @Test("dismiss sync issue hides skipped item details without deleting skipped summary")
     func dismissSyncIssueHidesSkippedItemDetailsWithoutDeletingSkippedSummary() throws {
         let vm = try makeViewModel()
@@ -293,6 +391,22 @@ struct QuickAccessViewModelSyncErrorTests {
         #expect(events == ["copy", "open"])
     }
 
+    @Test("copy skipped item inspect command copies ready-to-run CLI command")
+    func copySkippedItemInspectCommandCopiesReadyToRunCLICommand() throws {
+        var copiedText: String?
+        let vm = try makeViewModel(
+            cliService: PassCLIService(cliPath: "/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64"),
+            writeStringToPasteboard: { copiedText = $0 }
+        )
+
+        vm.copySkippedSyncItemInspectCommand(makeSkippedItem())
+
+        #expect(copiedText == [
+            "'/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64'",
+            "item view --share-id share-7 --item-id item-7 --output json",
+        ].joined(separator: " "))
+    }
+
     @Test("search hides skipped item details")
     func searchHidesSkippedItemDetails() throws {
         let vm = try makeViewModel()
@@ -308,6 +422,7 @@ struct QuickAccessViewModelSyncErrorTests {
         SkippedSyncItem(
             vaultId: "vault",
             vaultName: "Personal",
+            shareId: "share-7",
             itemIndex: 7,
             itemId: "item-7",
             codingPath: "items.Index 7.content",
@@ -316,13 +431,14 @@ struct QuickAccessViewModelSyncErrorTests {
     }
 
     private func makeViewModel(
+        cliService: PassCLIService = PassCLIService(),
         writeStringToPasteboard: @escaping PasteboardStringWriter = { _ in },
         openURL: @escaping URLOpener = { _ in true }
     ) throws -> QuickAccessViewModel {
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         return QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
-            cliService: PassCLIService(),
+            cliService: cliService,
             clipboardManager: ClipboardManager(autoClearSeconds: 0),
             onDismiss: {},
             writeStringToPasteboard: writeStringToPasteboard,

@@ -53,6 +53,7 @@ struct QuickAccessView: View {
     @Bindable var viewModel: QuickAccessViewModel
     let onDismiss: () -> Void
     let appDelegate: AppDelegate
+    @Environment(\.openSettings) private var openSettings
     @FocusState private var isSearchFocused: Bool
 
     private var hotkeyLabel: String {
@@ -82,11 +83,31 @@ struct QuickAccessView: View {
 
     private var hasEmptyState: Bool {
         switch contentState {
-        case .syncError, .skippedItemDetails, .errorMessage, .noResults:
+        case .errorMessage, .noResults:
             true
-        case .locked, .itemContent, .shortcuts:
+        case .locked, .syncError, .itemContent, .skippedItemDetails, .shortcuts:
             false
         }
+    }
+
+    var syncIssueTrailingItem: QuickAccessFooterItem? {
+        QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: viewModel.syncError,
+            hasSkippedItems: viewModel.skippedSyncItems != nil
+        )
+    }
+
+    private var emptyStateFooter: some View {
+        QuickAccessShortcutHints(
+            hotkeyLabel: hotkeyLabel,
+            isLoading: viewModel.isLoading,
+            hasItems: !viewModel.items.isEmpty,
+            searchQuery: viewModel.searchQuery,
+            syncProgress: viewModel.syncProgress,
+            hasSkippedItems: viewModel.skippedSyncItems != nil,
+            syncIssueTrailingItem: syncIssueTrailingItem,
+            performSyncIssueAction: { handleFooterAction($0) }
+        )
     }
 
     var body: some View {
@@ -121,18 +142,18 @@ struct QuickAccessView: View {
             if hasItemContent {
                 content
                     .frame(height: 330)
-            } else if hasEmptyState {
-                content
             } else {
-                QuickAccessShortcutHints(
-                    hotkeyLabel: hotkeyLabel,
-                    isLoading: viewModel.isLoading,
-                    hasItems: !viewModel.items.isEmpty,
-                    searchQuery: viewModel.searchQuery,
-                    syncProgress: viewModel.syncProgress,
-                    hasSkippedItems: viewModel.skippedSyncItems != nil,
-                    showSkippedItems: { viewModel.showSkippedSyncItems() }
-                )
+                switch contentState.layout {
+                case .footerOnly:
+                    emptyStateFooter
+                case .contentWithFooter:
+                    content
+                    Divider()
+                        .opacity(0.5)
+                    emptyStateFooter
+                case .contentOnly:
+                    content
+                }
             }
         }
         .frame(minWidth: 480, idealWidth: 580, maxWidth: 620)
@@ -141,9 +162,7 @@ struct QuickAccessView: View {
             await focusSearchField()
         }
         .onExitCommand {
-            if viewModel.isShowingSkippedSyncItems {
-                viewModel.hideSkippedSyncItems()
-            } else if viewModel.detailItem != nil {
+            if viewModel.detailItem != nil {
                 viewModel.hideDetail()
             } else if !viewModel.searchQuery.isEmpty {
                 appDelegate.recordActivity()
@@ -220,6 +239,23 @@ struct QuickAccessView: View {
             if !oldValue && newValue {
                 AccessibilityNotification.Announcement("Fetching…").post()
             }
+        }
+    }
+
+    @MainActor
+    func handleFooterAction(_ intent: QuickAccessFooterActionIntent) {
+        switch intent {
+        case .login:
+            viewModel.requestPassCLILogin()
+        case .updatePAT:
+            appDelegate.selectPassCLISettingsTab()
+            onDismiss()
+            NSApp.activate()
+            openSettings()
+        case .showSyncIssues, .showSkippedItems:
+            appDelegate.showSyncIssueWindow()
+        case .itemAction, .showDetail, .copyError, .dismissError:
+            return
         }
     }
 

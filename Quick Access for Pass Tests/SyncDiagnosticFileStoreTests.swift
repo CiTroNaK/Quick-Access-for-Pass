@@ -39,6 +39,7 @@ struct SyncDiagnosticFileStoreTests {
         SkippedSyncItem(
             vaultId: "vault",
             vaultName: "Personal",
+            shareId: "share-\(index)",
             itemIndex: index,
             itemId: "item-\(index)",
             codingPath: "items.Index \(index).content",

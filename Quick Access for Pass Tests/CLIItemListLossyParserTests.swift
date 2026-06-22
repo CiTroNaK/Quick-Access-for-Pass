@@ -30,7 +30,8 @@ struct CLIItemListLossyParserTests {
         let result = try CLIItemListLossyParser.parse(
             Data(json.utf8),
             vaultId: "vault",
-            vaultName: "Personal"
+            vaultName: "Personal",
+            shareId: "vault-share"
         )
 
         #expect(result.items.map(\.id) == ["good-1", "good-2"])
@@ -41,6 +42,7 @@ struct CLIItemListLossyParserTests {
         #expect(skipped.vaultName == "Personal")
         #expect(skipped.itemIndex == 1)
         #expect(skipped.itemId == "bad-1")
+        #expect(skipped.diagnosticSummary.contains("share_id=share"))
         #expect(skipped.reason.contains("expected String"))
         #expect(skipped.codingPath.contains("items.Index 1"))
     }
@@ -58,7 +60,8 @@ struct CLIItemListLossyParserTests {
         let result = try CLIItemListLossyParser.parse(
             Data(json.utf8),
             vaultId: "vault",
-            vaultName: "Personal"
+            vaultName: "Personal",
+            shareId: "vault-share"
         )
         let skipped = try #require(result.skippedItems.first)
         let summary = skipped.diagnosticSummary

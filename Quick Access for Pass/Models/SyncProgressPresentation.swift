@@ -4,6 +4,16 @@ nonisolated struct SyncProgressPresentation: Equatable, Sendable {
     let statusText: String
     let showsProgress: Bool
 
+    static func loggingInWithSavedPAT() -> SyncProgressPresentation {
+        SyncProgressPresentation(
+            statusText: String(
+                localized: "Logging in with saved PAT…",
+                comment: "Footer status while recreating a Pass CLI session with a saved personal access token."
+            ),
+            showsProgress: true
+        )
+    }
+
     static func vaultStarted(vaultName: String) -> SyncProgressPresentation {
         SyncProgressPresentation(
             statusText: String(

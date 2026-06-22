@@ -3,20 +3,14 @@ import SwiftUI
 extension QuickAccessView {
     @ViewBuilder
     var content: some View {
-        if let syncIssue = viewModel.activeSyncIssuePresentation {
-            QuickAccessSyncIssueView(
-                presentation: syncIssue,
-                performLogin: { viewModel.requestPassCLILogin() },
-                copyReport: { viewModel.copySyncIssueReport() },
-                copyAndReport: { viewModel.copyAndReportSyncIssue() },
-                dismiss: { viewModel.dismissSyncIssue() }
-            )
-        } else if let detailItem = viewModel.detailItem {
+        if let detailItem = viewModel.detailItem {
             VStack(spacing: 0) {
                 ItemDetailView(
                     item: detailItem,
                     viewModel: viewModel,
-                    onBack: { viewModel.hideDetail() }
+                    onBack: { viewModel.hideDetail() },
+                    syncIssueTrailingItem: syncIssueTrailingItem,
+                    performSyncIssueAction: { handleFooterAction($0) }
                 )
                 .frame(maxHeight: .infinity)
 
@@ -39,7 +33,11 @@ extension QuickAccessView {
                 )
                 Divider()
                     .opacity(0.5)
-                QuickAccessActionBar(viewModel: viewModel)
+                QuickAccessActionBar(
+                    viewModel: viewModel,
+                    syncIssueTrailingItem: syncIssueTrailingItem,
+                    performSyncIssueAction: { handleFooterAction($0) }
+                )
             }
         } else if let error = viewModel.errorMessage {
             QuickAccessEmptyStateView(message: error, secondaryMessage: nil, systemImage: nil)

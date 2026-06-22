@@ -14,7 +14,14 @@ extension AppDelegate {
     func setupCoordinators() {
         notificationRouter = UserNotificationRouter()
 
-        syncCoordinator = SyncCoordinator(cliService: cliService!, databaseManager: databaseManager!, viewModel: viewModel!)
+        syncCoordinator = SyncCoordinator(
+            cliService: cliService!,
+            databaseManager: databaseManager!,
+            viewModel: viewModel!,
+            onSyncIssueChanged: { [weak self] presentation in
+                self?.syncIssueDidChange(presentation)
+            }
+        )
         syncCoordinator?.start()
 
         if let cliService {
@@ -46,7 +53,11 @@ extension AppDelegate {
         }
     }
 
-    private func setupPassCLIAuthenticationCoordinators(cliService: PassCLIService) {
+    func setupPassCLIAuthenticationCoordinators(
+        cliService: PassCLIService,
+        notificationPoster: any PassCLILoginNotificationPosting = LivePassCLILoginNotificationPoster(),
+        requestsAuthorization: Bool = true
+    ) {
         let loginCoordinator = PassCLILoginCoordinator(
             cliService: cliService,
             healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
@@ -57,18 +68,18 @@ extension AppDelegate {
 
         let loginNotifier = PassCLILoginNotifier(
             notificationRouter: notificationRouter,
+            poster: notificationPoster,
             startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() },
             showLoginRequired: { [weak self] in
-                self?.viewModel?.errorMessage = nil
-                self?.viewModel?.syncProgress = nil
-                self?.viewModel?.syncError = .loginRequired()
+                self?.showLoginRequiredSyncIssue()
             },
             clearLoginRequired: { [weak self] in
-                guard self?.viewModel?.syncError == .loginRequired() else { return }
-                self?.viewModel?.syncError = nil
+                self?.clearLoginRequiredSyncIssue()
             }
         )
-        loginNotifier.requestAuthorizationIfNeeded()
+        if requestsAuthorization {
+            loginNotifier.requestAuthorizationIfNeeded()
+        }
         passCLILoginNotifier = loginNotifier
 
         setupPassCLIPATCoordinators(
@@ -100,6 +111,9 @@ extension AppDelegate {
                 await patLoginService?.loginWithSavedToken()
                     ?? .failed(String(localized: "Personal access token login is unavailable."))
             },
+            invalidPATHandler: { [weak self] message in
+                self?.showInvalidPATSyncIssue(userFacingMessage: message)
+            },
             isCurrentSessionPersonalAccessToken: { [weak self] in
                 self?.passCLIStatusStore.identity?.isPersonalAccessTokenSession == true
             },
@@ -115,6 +129,12 @@ extension AppDelegate {
             fallbackHandler: loginNotifier,
             patFailureHandler: { [weak loginNotifier] message in
                 loginNotifier?.handlePATLoginFailure(message)
+            },
+            invalidPATHandler: { [weak self] message in
+                self?.showInvalidPATSyncIssue(userFacingMessage: message)
+            },
+            autoLoginStartedHandler: { [weak self] in
+                self?.showPATAutoLoginSyncProgress()
             },
             browserLoginIsRunning: { [weak loginCoordinator] in
                 loginCoordinator?.state != .idle

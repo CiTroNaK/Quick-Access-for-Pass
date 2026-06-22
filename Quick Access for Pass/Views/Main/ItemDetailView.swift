@@ -4,6 +4,22 @@ struct ItemDetailView: View {
     let item: PassItem
     var viewModel: QuickAccessViewModel
     let onBack: () -> Void
+    let syncIssueTrailingItem: QuickAccessFooterItem?
+    let performSyncIssueAction: @MainActor @Sendable (QuickAccessFooterActionIntent) -> Void
+
+    init(
+        item: PassItem,
+        viewModel: QuickAccessViewModel,
+        onBack: @escaping () -> Void,
+        syncIssueTrailingItem: QuickAccessFooterItem? = nil,
+        performSyncIssueAction: @escaping @MainActor @Sendable (QuickAccessFooterActionIntent) -> Void = { _ in }
+    ) {
+        self.item = item
+        self.viewModel = viewModel
+        self.onBack = onBack
+        self.syncIssueTrailingItem = syncIssueTrailingItem
+        self.performSyncIssueAction = performSyncIssueAction
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AccessibilityFocusState private var focusedRowID: DetailRow.ID?
@@ -255,8 +271,15 @@ struct ItemDetailView: View {
     private var bottomBar: some View {
         QuickAccessFooter(
             leadingItems: QuickAccessFooterContent.detailItems(),
-            trailingItem: nil,
-            performAction: { _ in }
+            trailingItem: syncIssueTrailingItem,
+            performAction: { intent in
+                switch intent {
+                case .login, .updatePAT, .showSyncIssues, .showSkippedItems:
+                    performSyncIssueAction(intent)
+                case .itemAction, .showDetail, .copyError, .dismissError:
+                    return
+                }
+            }
         )
     }
 }

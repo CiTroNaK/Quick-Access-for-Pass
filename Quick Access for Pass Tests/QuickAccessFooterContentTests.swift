@@ -82,8 +82,21 @@ struct QuickAccessFooterContentTests {
             )
         )
         #expect(error == [
-            .status(text: "Bad CLI response", symbol: "exclamationmark.triangle.fill", tone: .error, showsProgress: false, collapsesWhenTight: false),
-            .action(intent: .copyError(details: "Error: Bad CLI response\nCLI path: /opt/homebrew/bin/pass-cli\nLast command: pass show foo"), title: "Copy Error", shortcut: nil),
+            .status(
+                text: "Bad CLI response",
+                symbol: "exclamationmark.triangle.fill",
+                tone: .error,
+                showsProgress: false,
+                collapsesWhenTight: false
+            ),
+            .hint(title: "Settings", shortcut: "⌘,", collapsesWhenTight: true),
+            .action(
+                intent: .copyError(
+                    details: "Error: Bad CLI response\nCLI path: /opt/homebrew/bin/pass-cli\nLast command: pass show foo"
+                ),
+                title: "Copy Error",
+                shortcut: nil
+            ),
             .action(intent: .dismissError, title: "Dismiss", shortcut: nil),
         ])
     }
@@ -183,20 +196,162 @@ struct QuickAccessFooterContentTests {
         ))
     }
 
-    @Test("empty footer offers skipped item details when skipped items exist")
-    func emptyFooterOffersSkippedItemDetails() {
-        let content = QuickAccessFooterContent.emptyStateContent(
-            hotkeyLabel: "⌥Space",
-            isSyncing: false,
-            syncProgress: .completedWithSkippedItems(3),
-            hasSkippedItems: true,
-            syncDescription: "just now"
+    @Test("sync issue trailing actions are visually prominent")
+    func syncIssueTrailingActionsAreVisuallyProminent() {
+        let loginItem = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .loginRequired(),
+            hasSkippedItems: false
+        )
+        let syncErrorsItem = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .genericFailure(diagnosticReport: "diagnostic"),
+            hasSkippedItems: false
+        )
+        let updatePATItem = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .invalidPAT(userFacingMessage: "Personal access token is invalid, expired, or deleted."),
+            hasSkippedItems: false
+        )
+        let normalItem = QuickAccessFooterItem.action(
+            intent: .itemAction(.copyPassword),
+            title: "Copy Password",
+            shortcut: "⌘P"
         )
 
-        #expect(content.leading.contains(.action(
-            intent: .showSkippedItems,
-            title: "View Skipped Items",
-            shortcut: nil
-        )))
+        #expect(loginItem?.isProminentFooterAction == true)
+        #expect(syncErrorsItem?.isProminentFooterAction == true)
+        #expect(updatePATItem?.isProminentFooterAction == true)
+        #expect(normalItem.isProminentFooterAction == false)
+    }
+
+    @Test("sync issue trailing item shows Login for login-required errors")
+    func syncIssueTrailingItemShowsLoginForLoginRequiredErrors() {
+        let item = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .loginRequired(),
+            hasSkippedItems: false
+        )
+
+        #expect(item == .action(intent: .login, title: "Login", shortcut: nil))
+    }
+
+    @Test("sync issue trailing item shows Update PAT for invalid personal access token")
+    func syncIssueTrailingItemShowsUpdatePATForInvalidPersonalAccessToken() {
+        let item = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .invalidPAT(userFacingMessage: "Personal access token is invalid, expired, or deleted."),
+            hasSkippedItems: true
+        )
+
+        #expect(item == .action(intent: .updatePAT, title: "Update PAT", shortcut: nil))
+    }
+
+    @Test("sync issue trailing item shows sync errors for generic failures")
+    func syncIssueTrailingItemShowsSyncErrorsForGenericFailures() {
+        let item = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .genericFailure(diagnosticReport: "diagnostic"),
+            hasSkippedItems: false
+        )
+
+        #expect(item == .action(intent: .showSyncIssues, title: "Show sync errors", shortcut: nil))
+    }
+
+    @Test("sync issue trailing item shows sync errors for skipped items")
+    func syncIssueTrailingItemShowsSyncErrorsForSkippedItems() {
+        let item = QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: nil,
+            hasSkippedItems: true
+        )
+
+        #expect(item == .action(intent: .showSyncIssues, title: "Show sync errors", shortcut: nil))
+    }
+
+    @Test("empty footer keeps left shortcuts while Login appears on right")
+    func emptyFooterKeepsLeftShortcutsWhileLoginAppearsOnRight() {
+        let content = QuickAccessFooterContent.emptyStateContent(
+            hotkeyLabel: "⇧⌥Space",
+            isSyncing: false,
+            syncIssueTrailingItem: .action(intent: .login, title: "Login", shortcut: nil),
+            syncDescription: "5m ago"
+        )
+
+        #expect(content.leading == [
+            .hint(title: "Show Quick Access", shortcut: "⇧⌥Space", collapsesWhenTight: true),
+            .hint(title: "Refresh", shortcut: "⌘R", collapsesWhenTight: true),
+            .hint(title: "Settings", shortcut: "⌘,", collapsesWhenTight: true),
+        ])
+        #expect(content.trailing == .action(intent: .login, title: "Login", shortcut: nil))
+    }
+
+    @Test("sync issue action overrides normal empty-state sync status on the right")
+    func syncIssueActionOverridesNormalEmptyStateSyncStatusOnTheRight() {
+        let content = QuickAccessFooterContent.emptyStateContent(
+            hotkeyLabel: "⇧⌥Space",
+            isSyncing: false,
+            syncIssueTrailingItem: .action(intent: .showSyncIssues, title: "Show sync errors", shortcut: nil),
+            syncDescription: "5m ago"
+        )
+
+        #expect(content.leading == [
+            .hint(title: "Show Quick Access", shortcut: "⇧⌥Space", collapsesWhenTight: true),
+            .hint(title: "Refresh", shortcut: "⌘R", collapsesWhenTight: true),
+            .hint(title: "Settings", shortcut: "⌘,", collapsesWhenTight: true),
+        ])
+        #expect(content.trailing == .action(intent: .showSyncIssues, title: "Show sync errors", shortcut: nil))
+    }
+
+    @Test("skipped items do not add a legacy left-side footer action")
+    func skippedItemsDoNotAddLegacyLeftSideFooterAction() {
+        let content = QuickAccessFooterContent.emptyStateContent(
+            hotkeyLabel: "⇧⌥Space",
+            isSyncing: false,
+            hasSkippedItems: true,
+            syncDescription: "5m ago"
+        )
+
+        #expect(content.leading == [
+            .hint(title: "Show Quick Access", shortcut: "⇧⌥Space", collapsesWhenTight: true),
+            .hint(title: "Refresh", shortcut: "⌘R", collapsesWhenTight: true),
+            .hint(title: "Settings", shortcut: "⌘,", collapsesWhenTight: true),
+        ])
+    }
+
+    @Test("sync issue trailing actions carry action-specific warning presentation")
+    func syncIssueTrailingActionsCarryActionSpecificWarningPresentation() throws {
+        let loginItem = try #require(QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .loginRequired(),
+            hasSkippedItems: false
+        ))
+        let updatePATItem = try #require(QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .invalidPAT(userFacingMessage: "Personal access token is invalid, expired, or deleted."),
+            hasSkippedItems: false
+        ))
+        let syncErrorsItem = try #require(QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: .genericFailure(diagnosticReport: "diagnostic"),
+            hasSkippedItems: false
+        ))
+        let skippedItemsItem = try #require(QuickAccessFooterContent.syncIssueTrailingItem(
+            syncError: nil,
+            hasSkippedItems: true
+        ))
+
+        #expect(loginItem.footerActionPresentation == .prominent(symbolName: "lock.open.fill", tone: .warning))
+        #expect(updatePATItem.footerActionPresentation == .prominent(symbolName: "key.fill", tone: .warning))
+        #expect(syncErrorsItem.footerActionPresentation == .prominent(symbolName: "exclamationmark.triangle.fill", tone: .error))
+        #expect(skippedItemsItem.footerActionPresentation == .prominent(symbolName: "exclamationmark.triangle.fill", tone: .error))
+    }
+
+    @Test("ordinary footer actions use plain fallback presentation")
+    func ordinaryFooterActionsUsePlainFallbackPresentation() {
+        let item = QuickAccessFooterItem.action(
+            intent: .itemAction(.copyPassword),
+            title: "Copy Password",
+            shortcut: "⌘P"
+        )
+
+        #expect(item.footerActionPresentation == .plain)
+        #expect(item.isProminentFooterAction == false)
+    }
+
+    @Test("prominent footer action metrics stay compact")
+    func prominentFooterActionMetricsStayCompact() {
+        #expect(QuickAccessFooter.prominentActionHeight == 24)
+        #expect(QuickAccessFooter.prominentActionHorizontalPadding == 10)
     }
 }

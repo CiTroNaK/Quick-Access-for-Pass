@@ -29,13 +29,14 @@ struct SettingsView: View {
     @AppStorage(DefaultsKey.copyTotpModifiers) var copyTotpModifiers: Int = 1572864
     @AppStorage(DefaultsKey.showLargeTypeKeyCode) var showLargeTypeKeyCode: Int = defaultShowLargeTypeKeyCode
     @AppStorage(DefaultsKey.showLargeTypeModifiers) var showLargeTypeModifiers: Int = defaultShowLargeTypeModifiers
+    @AppStorage(DefaultsKey.selectedSettingsTab) private var selectedTab: SettingsTab = .general
 
     var body: some View {
-        TabView {
-            Tab("General", systemImage: "gearshape") {
+        TabView(selection: $selectedTab) {
+            Tab("General", systemImage: "gearshape", value: SettingsTab.general) {
                 GeneralSettingsTab(hotkeyCode: $hotkeyCode, hotkeyModifiers: $hotkeyModifiers)
             }
-            Tab("Shortcuts", systemImage: "command") {
+            Tab("Shortcuts", systemImage: "command", value: SettingsTab.shortcuts) {
                 ShortcutsSettingsTab(
                     copyUsernameKeyCode: $copyUsernameKeyCode,
                     copyUsernameModifiers: $copyUsernameModifiers,
@@ -47,7 +48,7 @@ struct SettingsView: View {
                     showLargeTypeModifiers: $showLargeTypeModifiers
                 )
             }
-            Tab("Security", systemImage: "lock.shield") {
+            Tab("Security", systemImage: "lock.shield", value: SettingsTab.security) {
                 SecuritySettingsTab(
                     clipboardClearTimeout: $clipboardClearTimeout,
                     searchClearTimeout: $searchClearTimeout,
@@ -69,23 +70,23 @@ struct SettingsView: View {
                     }
                 )
             }
-            Tab("Pass CLI", systemImage: "terminal") {
+            Tab("Pass CLI", systemImage: "terminal", value: SettingsTab.passCLI) {
                 PassCLISettingsTab(
                     syncInterval: $syncInterval,
                     lastSyncTime: $lastSyncTime,
                     cliPath: $cliPath
                 )
             }
-            Tab("SSH", systemImage: "lock.shield.fill") {
+            Tab("SSH", systemImage: "lock.shield.fill", value: SettingsTab.ssh) {
                 SSHSettingsTab(
                     sshProxyEnabled: $sshProxyEnabled,
                     sshUpstreamSocketPath: $sshUpstreamSocketPath
                 )
             }
-            Tab("Run", systemImage: "play.circle") {
+            Tab("Run", systemImage: "play.circle", value: SettingsTab.run) {
                 RunSettingsTab(runProxyEnabled: $runProxyEnabled)
             }
-            Tab("About", systemImage: "info.circle") {
+            Tab("About", systemImage: "info.circle", value: SettingsTab.about) {
                 AboutSettingsTab()
             }
         }

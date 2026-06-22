@@ -5,13 +5,37 @@ nonisolated enum QuickAccessFooterActionIntent: Equatable, Sendable {
     case itemAction(ItemAction)
     case showDetail
     case showSkippedItems
+    case showSyncIssues
+    case login
+    case updatePAT
     case copyError(details: String)
     case dismissError
 }
 
 nonisolated enum QuickAccessFooterTone: Equatable, Sendable {
     case secondary
+    case warning
     case error
+}
+
+nonisolated struct QuickAccessFooterActionPresentation: Equatable, Sendable {
+    let symbolName: String?
+    let tone: QuickAccessFooterTone
+    let isProminent: Bool
+
+    static let plain = QuickAccessFooterActionPresentation(
+        symbolName: nil,
+        tone: .secondary,
+        isProminent: false
+    )
+
+    static func prominent(symbolName: String, tone: QuickAccessFooterTone) -> QuickAccessFooterActionPresentation {
+        QuickAccessFooterActionPresentation(
+            symbolName: symbolName,
+            tone: tone,
+            isProminent: true
+        )
+    }
 }
 
 nonisolated enum QuickAccessFooterItem: Equatable, Identifiable, Sendable {
@@ -38,6 +62,28 @@ nonisolated enum QuickAccessFooterItem: Equatable, Identifiable, Sendable {
             collapsesWhenTight
         }
     }
+
+    var footerActionPresentation: QuickAccessFooterActionPresentation {
+        switch self {
+        case .action(let intent, _, _):
+            switch intent {
+            case .login:
+                .prominent(symbolName: "lock.open.fill", tone: .warning)
+            case .updatePAT:
+                .prominent(symbolName: "key.fill", tone: .warning)
+            case .showSyncIssues:
+                .prominent(symbolName: "exclamationmark.triangle.fill", tone: .error)
+            case .itemAction, .showDetail, .showSkippedItems, .copyError, .dismissError:
+                .plain
+            }
+        case .hint, .status:
+            .plain
+        }
+    }
+
+    var isProminentFooterAction: Bool {
+        footerActionPresentation.isProminent
+    }
 }
 
 nonisolated struct QuickAccessFooterActionDescriptor: Equatable, Sendable {
@@ -62,24 +108,20 @@ enum QuickAccessFooterContent {
         isSyncing: Bool,
         syncProgress: SyncProgressPresentation? = nil,
         hasSkippedItems: Bool = false,
+        syncIssueTrailingItem: QuickAccessFooterItem? = nil,
         syncStatusText: String? = nil,
         syncDescription: String?
     ) -> QuickAccessFooterContentModel {
-        var leading: [QuickAccessFooterItem] = [
+        let leading: [QuickAccessFooterItem] = [
             .hint(title: showQuickAccessTitle(), shortcut: hotkeyLabel, collapsesWhenTight: true),
             .hint(title: refreshTitle(), shortcut: "⌘R", collapsesWhenTight: true),
             .hint(title: settingsTitle(), shortcut: "⌘,", collapsesWhenTight: true),
         ]
-        if hasSkippedItems {
-            leading.append(.action(
-                intent: .showSkippedItems,
-                title: viewSkippedItemsTitle(),
-                shortcut: nil
-            ))
-        }
 
         let trailing: QuickAccessFooterItem?
-        if let syncProgress {
+        if let syncIssueTrailingItem {
+            trailing = syncIssueTrailingItem
+        } else if let syncProgress {
             trailing = .status(
                 text: syncProgress.statusText,
                 symbol: nil,
@@ -121,6 +163,7 @@ enum QuickAccessFooterContent {
         isSyncing: Bool,
         syncProgress: SyncProgressPresentation? = nil,
         hasSkippedItems: Bool = false,
+        syncIssueTrailingItem: QuickAccessFooterItem? = nil,
         syncStatusText: String? = nil,
         syncDescription: String?
     ) -> [QuickAccessFooterItem] {
@@ -129,6 +172,7 @@ enum QuickAccessFooterContent {
             isSyncing: isSyncing,
             syncProgress: syncProgress,
             hasSkippedItems: hasSkippedItems,
+            syncIssueTrailingItem: syncIssueTrailingItem,
             syncStatusText: syncStatusText,
             syncDescription: syncDescription
         )
@@ -164,6 +208,7 @@ enum QuickAccessFooterContent {
                     showsProgress: false,
                     collapsesWhenTight: false
                 ),
+                .hint(title: settingsTitle(), shortcut: "⌘,", collapsesWhenTight: true),
                 .action(intent: .copyError(details: errorContext.copyDetails), title: String(localized: "Copy Error"), shortcut: nil),
                 .action(intent: .dismissError, title: String(localized: "Dismiss"), shortcut: nil),
             ]
@@ -195,7 +240,41 @@ enum QuickAccessFooterContent {
     }
 
     static func viewSkippedItemsTitle() -> String {
-        String(localized: "View Skipped Items", comment: "Footer action title for showing skipped sync item details.")
+        showSyncErrorsTitle()
+    }
+
+    static func syncIssueTrailingItem(
+        syncError: SyncErrorPresentation?,
+        hasSkippedItems: Bool
+    ) -> QuickAccessFooterItem? {
+        if let syncError {
+            switch syncError.action {
+            case .login:
+                return .action(intent: .login, title: loginTitle(), shortcut: nil)
+            case .updatePAT:
+                return .action(intent: .updatePAT, title: updatePATTitle(), shortcut: nil)
+            case .copyAndReport:
+                return .action(intent: .showSyncIssues, title: showSyncErrorsTitle(), shortcut: nil)
+            }
+        }
+
+        if hasSkippedItems {
+            return .action(intent: .showSyncIssues, title: showSyncErrorsTitle(), shortcut: nil)
+        }
+
+        return nil
+    }
+
+    static func loginTitle() -> String {
+        String(localized: "Login", comment: "Footer action title for starting Proton Pass CLI login.")
+    }
+
+    static func updatePATTitle() -> String {
+        String(localized: "Update PAT", comment: "Footer action title for replacing an invalid Proton Pass personal access token.")
+    }
+
+    static func showSyncErrorsTitle() -> String {
+        String(localized: "Show sync errors", comment: "Footer action title for opening sync diagnostics.")
     }
 
     @MainActor

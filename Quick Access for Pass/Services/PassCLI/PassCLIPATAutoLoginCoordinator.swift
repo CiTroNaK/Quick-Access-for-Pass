@@ -6,6 +6,8 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
     private let loginWithSavedToken: @MainActor @Sendable () async -> PassCLIPATLoginResult
     private let fallbackHandler: any PassCLIHealthTransitionHandling
     private let patFailureHandler: @MainActor @Sendable (String) -> Void
+    private let invalidPATHandler: @MainActor @Sendable (String) -> Void
+    private let autoLoginStartedHandler: @MainActor @Sendable () -> Void
     private let browserLoginIsRunning: @MainActor @Sendable () -> Bool
 
     private var attemptedInCurrentLoggedOutEpisode = false
@@ -16,12 +18,16 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
         loginWithSavedToken: @escaping @MainActor @Sendable () async -> PassCLIPATLoginResult,
         fallbackHandler: any PassCLIHealthTransitionHandling,
         patFailureHandler: @escaping @MainActor @Sendable (String) -> Void,
+        invalidPATHandler: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        autoLoginStartedHandler: @escaping @MainActor @Sendable () -> Void = {},
         browserLoginIsRunning: @escaping @MainActor @Sendable () -> Bool
     ) {
         self.credentialStore = credentialStore
         self.loginWithSavedToken = loginWithSavedToken
         self.fallbackHandler = fallbackHandler
         self.patFailureHandler = patFailureHandler
+        self.invalidPATHandler = invalidPATHandler
+        self.autoLoginStartedHandler = autoLoginStartedHandler
         self.browserLoginIsRunning = browserLoginIsRunning
     }
 
@@ -59,6 +65,7 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
             }
 
             self.attemptedInCurrentLoggedOutEpisode = true
+            self.autoLoginStartedHandler()
             let result = await self.loginWithSavedToken()
             switch result {
             case .succeeded:
@@ -67,8 +74,12 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
                 self.fallbackHandler.handleCLIHealthTransition(to: .notLoggedIn)
             case .notInstalled:
                 self.fallbackHandler.handleCLIHealthTransition(to: .notInstalled)
-            case .timeout, .invalidToken, .failed, .healthStillNotOK:
+            case .invalidToken:
                 self.patFailureHandler(result.userFacingMessage)
+                self.invalidPATHandler(result.userFacingMessage)
+            case .timeout, .failed, .healthStillNotOK:
+                self.patFailureHandler(result.userFacingMessage)
+                self.fallbackHandler.handleCLIHealthTransition(to: .notLoggedIn)
             }
         }
     }

@@ -3,6 +3,7 @@ import Foundation
 nonisolated struct QuickAccessSyncIssuePresentation: Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case loginRequired
+        case invalidPAT
         case genericFailure
         case skippedItems
     }
@@ -35,6 +36,20 @@ nonisolated struct QuickAccessSyncIssuePresentation: Equatable, Sendable {
                 diagnosticReport: nil,
                 preview: .none,
                 showsLoginAction: true,
+                showsReportActions: false,
+                showsDismissAction: false
+            )
+        case .updatePAT:
+            QuickAccessSyncIssuePresentation(
+                kind: .invalidPAT,
+                title: String(
+                    localized: "Personal Access Token Invalid",
+                    comment: "Title for a sync issue caused by an invalid Proton Pass personal access token."
+                ),
+                message: presentation.visibleMessage,
+                diagnosticReport: nil,
+                preview: .none,
+                showsLoginAction: false,
                 showsReportActions: false,
                 showsDismissAction: false
             )
