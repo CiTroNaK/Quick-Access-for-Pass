@@ -61,10 +61,14 @@ looks like:
 
 ```bash
 "$PASS_CLI" item view \
-  --share-id "<share_id>" \
-  --item-id "item-7" \
+  --share-id="<share_id>" \
+  --item-id="item-7" \
   --output json
 ```
+
+The `=` form is intentional: some Proton Pass IDs can begin with `-`, and
+binding option values with `--share-id=...` / `--item-id=...` prevents
+`pass-cli` from interpreting those IDs as new command-line flags.
 
 The copied report still includes technical summaries for support, for example:
 
@@ -104,8 +108,8 @@ If you need to build the command yourself, prefer `share_id` plus `item_id`:
 
 ```bash
 "$PASS_CLI" item view \
-  --share-id "<share_id>" \
-  --item-id "item-7" \
+  --share-id="<share_id>" \
+  --item-id="item-7" \
   --output json
 ```
 
@@ -114,7 +118,7 @@ inspect the reported `index`:
 
 ```bash
 "$PASS_CLI" item list \
-  --share-id "<share_id>" \
+  --share-id="<share_id>" \
   --output json > /tmp/pass-items.json
 jq '.items[7]' /tmp/pass-items.json
 ```
@@ -134,7 +138,7 @@ Access. For fields that Proton Pass CLI can update, you can also use:
 ```bash
 "$PASS_CLI" item update \
   --vault-name "Personal" \
-  --item-id "item-7" \
+  --item-id="item-7" \
   --field "title=Corrected title"
 ```
 
