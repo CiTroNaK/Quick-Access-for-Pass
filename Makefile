@@ -8,6 +8,7 @@ BUNDLED_PASS_CLI_DIR=$(BUILD_DIR)/bundled-pass-cli
 .PHONY: build install clean
 
 build:
+	rm -rf "$(BUILT_APP)/Contents/Helpers/ProtonPassCLI"
 	xcodebuild -scheme "$(SCHEME)" -configuration Release -derivedDataPath "$(BUILD_DIR)" build
 
 install: build

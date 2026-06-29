@@ -6,17 +6,16 @@ If you manage apps with Homebrew, you can install Quick Access that way and fetc
 
 ## Bundled CLI fallback
 
-Signed releases include Proton's official macOS CLI binaries at these paths inside the app bundle:
+Signed releases include Proton's official macOS CLI binaries in versioned helper directories inside the app bundle:
 
-- `Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64`
-- `Quick Access for Pass.app/Contents/Helpers/pass-cli-x86_64`
+- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64`
+- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-x86_64`
+- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-arm64`
+- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-x86_64`
 
-When the signed app is installed in `/Applications`, the full bundled CLI paths are:
+The newest bundled version is the recommended version and the Auto fallback. Older bundled versions remain selectable so users can roll back temporarily if a newer CLI causes a problem.
 
-- `/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64`
-- `/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-x86_64`
-
-On first run, if no system CLI is installed, Quick Access uses the bundled helper automatically. You can start login from the notification when it appears, or manually from **Settings → Pass CLI → Log In to Proton Pass CLI…**. With the Quick Access panel open, press `⌘,` to open Settings.
+On first run, if no installed CLI is discovered, Quick Access uses the bundled helper automatically. You can start login from the notification when it appears, or manually from **Settings → Pass CLI → Log In to Proton Pass CLI…**. With the Quick Access panel open, press `⌘,` to open Settings.
 
 When Pass CLI login is required, Quick Access keeps the main panel usable and shows **Login** in the right sync-status area. Click **Login** to start the existing Proton Pass CLI login flow.
 
@@ -24,20 +23,29 @@ For generic sync failures or skipped-item diagnostics, Quick Access shows **Show
 
 ## CLI selection order
 
-Quick Access chooses the CLI executable in this order:
+Quick Access chooses the CLI executable from the selected **Pass CLI source**:
 
-1. A custom path from **Settings → Pass CLI**, if set
-2. `/opt/homebrew/bin/pass-cli`
-3. `/usr/local/bin/pass-cli`
-4. `~/.local/bin/pass-cli`
-5. `pass-cli` found on `PATH`
-6. The bundled CLI fallback included in signed app releases
+1. **Auto (recommended)** — installed candidates first, then `bundled:latest`
+2. **Installed path** — the selected discovered path; if it disappears, Quick Access falls back through Auto
+3. **Bundled latest** — the newest bundled CLI included in the app
+4. **Bundled version** — the selected pinned bundled version; if missing after an app update, Quick Access falls back to bundled latest
+5. **Custom path** — the exact path entered by the user; no fallback is attempted
 
-A custom path is authoritative. If you enter one, Quick Access uses exactly that executable and does not fall back to a system or bundled CLI if the custom path fails. Clear the field to return to auto-detection and bundled fallback.
+Installed candidates are discovered from `/opt/homebrew/bin/pass-cli`, `/usr/local/bin/pass-cli`, `~/.local/bin/pass-cli`, and `pass-cli` found on `PATH`.
+
+A custom path is authoritative. If you enter one, Quick Access uses exactly that executable and does not fall back to an installed or bundled CLI if the custom path fails. Clear the field to return to auto-detection and bundled fallback.
 
 ## Updating the CLI
 
-The bundled CLI updates only when Quick Access updates. If you want to track Proton Pass CLI releases independently, install `pass-cli` yourself and leave the custom path empty so the system install wins.
+The bundled CLI updates only when Quick Access updates. If you want to track Proton Pass CLI releases independently, install `pass-cli` yourself and leave **Pass CLI source** set to **Auto (recommended)** so the installed CLI wins.
+
+## Recommended version warning
+
+Quick Access treats the newest bundled CLI as the recommended version. If the active installed, custom, or pinned bundled CLI reports a version older than the newest bundled version, Quick Access shows a warning in Settings, marks the menu-bar icon with a warning badge, and sends one startup notification.
+
+The warning is advisory. Quick Access does not switch CLIs automatically because doing so could hide version-specific bugs or change the session unexpectedly.
+
+If the latest bundled CLI causes problems, select an older bundled version in **Settings → Pass CLI** and open a GitHub issue with the failure details so it can be investigated.
 
 ## Personal access token support
 
@@ -49,21 +57,23 @@ PAT expiration is managed by Proton Pass. Quick Access cannot discover the expir
 
 ## Provenance
 
-The bundled CLI is not a fork. Quick Access vendors Proton's release binaries under `ThirdParty/ProtonPassCLI/<version>/`, verifies their SHA256 checksums during release preparation, copies them into `Contents/Helpers`, and signs the copied helpers so macOS will run them inside the signed app.
+The bundled CLI is not a fork. Quick Access vendors Proton's release binaries under `ThirdParty/ProtonPassCLI/<version>/`, verifies their SHA256 checksums during release preparation, copies them into `Contents/Resources/ProtonPassCLI/<version>/`, and signs the copied helpers so macOS will run them inside the signed app.
 
-For the current bundled Proton Pass CLI `2.1.4`:
+Current bundled Proton Pass CLI assets:
 
-| Architecture | Upstream asset | SHA256 |
-| --- | --- | --- |
-| Apple Silicon | `pass-cli-macos-aarch64` | `8b579bf452c346da57349a5e72c3839c466e064179b9383f481eefbfa8a65a44` |
-| Intel | `pass-cli-macos-x86_64` | `ee0f41d3a1c26022e3f99aff6f2280ec3e0f0e1c443c2c58652c26d3456dc235` |
+| Version | Architecture | Upstream asset | SHA256 |
+| --- | --- | --- | --- |
+| 2.2.1 | Apple Silicon | `pass-cli-macos-aarch64` | `fafd72f20c45cb816793f48d8623ce6eb9d06478431923767d36776fde8b450e` |
+| 2.2.1 | Intel | `pass-cli-macos-x86_64` | `f65a64a61e90baea7ba256d9b14720168f0440f5b3d630d16d27df35b455479a` |
+| 2.1.4 | Apple Silicon | `pass-cli-macos-aarch64` | `8b579bf452c346da57349a5e72c3839c466e064179b9383f481eefbfa8a65a44` |
+| 2.1.4 | Intel | `pass-cli-macos-x86_64` | `ee0f41d3a1c26022e3f99aff6f2280ec3e0f0e1c443c2c58652c26d3456dc235` |
 
 ## Verifying vendored CLI files
 
 You can verify the vendored files match Proton's release assets:
 
 ```bash
-VERSION=2.1.4
+VERSION=2.2.1
 curl -L -o /tmp/pass-cli-macos-aarch64 \
   "https://github.com/protonpass/pass-cli/releases/download/$VERSION/pass-cli-macos-aarch64"
 curl -L -o /tmp/pass-cli-macos-x86_64 \

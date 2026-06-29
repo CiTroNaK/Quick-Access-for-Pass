@@ -28,6 +28,35 @@
         }
       }
     },
+    "/path/to/pass-cli" : {
+      "shouldTranslate" : false
+    },
+    "%@ — %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ — %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "%@ — version unknown" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — verze neznámá"
+          }
+        }
+      }
+    },
     "%@ copied" : {
       "localizations" : {
         "cs" : {
@@ -126,6 +155,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@: OK%2$@"
+          }
+        }
+      }
+    },
+    "%@: update recommended" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: doporučuje se aktualizace"
           }
         }
       }
@@ -633,22 +672,22 @@
         }
       }
     },
+    "Auto (recommended)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automaticky (doporučeno)"
+          }
+        }
+      }
+    },
     "Auto-clear clipboard" : {
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Automaticky vymazat schránku"
-          }
-        }
-      }
-    },
-    "auto-detect" : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "automaticky"
           }
         }
       }
@@ -680,6 +719,68 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blokované"
+          }
+        }
+      }
+    },
+    "Bundled %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přibalená %@"
+          }
+        }
+      }
+    },
+    "Bundled %@ (pin this version)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přibalená %@ (připnout tuto verzi)"
+          }
+        }
+      }
+    },
+    "Bundled latest (%@)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přibalená nejnovější (%@)"
+          }
+        }
+      }
+    },
+    "Bundled: pass-cli %@ (%@)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přibalené: pass-cli %1$@ (%2$@)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Bundled: pass-cli %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "Bundled: pass-cli %@ (latest, %@)" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přibalené: pass-cli %1$@ (nejnovější, %2$@)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Bundled: pass-cli %1$@ (latest, %2$@)"
           }
         }
       }
@@ -764,6 +865,16 @@
         }
       }
     },
+    "Choose Auto, an installed pass-cli, a bundled pass-cli version, or Custom path…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyberte automatickou volbu, nainstalovaný pass-cli, přibalenou verzi pass-cli nebo vlastní cestu…"
+          }
+        }
+      }
+    },
     "City" : {
       "localizations" : {
         "cs" : {
@@ -780,6 +891,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vymazat hledání při zavření"
+          }
+        }
+      }
+    },
+    "Clear this field to use auto-detection and bundled fallback. No fallback is attempted while a custom path is set." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vymažte toto pole, chcete-li použít automatické zjištění a přibalenou záložní verzi. Když je nastavena vlastní cesta, žádný fallback se nezkouší."
           }
         }
       }
@@ -1181,6 +1302,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vlastní"
+          }
+        }
+      }
+    },
+    "Custom path" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní cesta"
+          }
+        }
+      }
+    },
+    "Custom path…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní cesta…"
+          }
+        }
+      }
+    },
+    "Custom paths are used exactly and do not fall back if missing" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní cesty se používají přesně a při chybějícím souboru se nepoužije náhradní volba"
+          }
+        }
+      }
+    },
+    "Custom: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní: %@"
           }
         }
       }
@@ -1638,6 +1799,16 @@
         }
       }
     },
+    "If the latest bundled CLI causes problems, select an older bundled version and open a GitHub issue." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokud nejnovější přibalené CLI způsobuje potíže, vyberte starší přibalenou verzi a otevřete issue na GitHubu."
+          }
+        }
+      }
+    },
     "In %@" : {
       "comment" : "Item detail subtitle showing which vault contains the selected item.",
       "localizations" : {
@@ -1655,12 +1826,42 @@
         }
       }
     },
+    "Included with Quick Access for Pass. Updates with the app. Choose Bundled latest for app-managed updates, or pin this version for rollback/debugging." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Součást Quick Access for Pass. Aktualizuje se spolu s aplikací. Zvolte Přibalená nejnovější pro aktualizace spravované aplikací, nebo tuto verzi připněte pro návrat zpět či ladění."
+          }
+        }
+      }
+    },
     "Instagram" : {
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Instagram"
+          }
+        }
+      }
+    },
+    "Install Proton Pass CLI or leave the path empty to use the bundled fallback in signed releases." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nainstalujte Proton Pass CLI, nebo ponechte cestu prázdnou, aby se v podepsaných vydáních použila přibalená záložní verze."
+          }
+        }
+      }
+    },
+    "Installed: %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nainstalováno: %@"
           }
         }
       }
@@ -2148,6 +2349,16 @@
         }
       }
     },
+    "Not found" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenalezeno"
+          }
+        }
+      }
+    },
     "Not logged in" : {
       "localizations" : {
         "cs" : {
@@ -2338,6 +2549,26 @@
         }
       }
     },
+    "Pass CLI source" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zdroj Pass CLI"
+          }
+        }
+      }
+    },
+    "Pass CLI update recommended" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doporučuje se aktualizace Pass CLI"
+          }
+        }
+      }
+    },
     "pass-cli command failed: %@" : {
       "localizations" : {
         "cs" : {
@@ -2414,16 +2645,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "pass-cli nepřihlášeno"
-          }
-        }
-      }
-    },
-    "pass-cli path" : {
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cesta k pass-cli"
           }
         }
       }
@@ -2821,6 +3042,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ukončit"
+          }
+        }
+      }
+    },
+    "Recommended Pass CLI version is %@. If the latest bundled CLI causes problems, select an older bundled version and open a GitHub issue so it can be investigated." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doporučená verze Pass CLI je %@. Pokud nejnovější přibalené CLI způsobuje potíže, vyberte starší přibalenou verzi a otevřete issue na GitHubu, aby šel problém prošetřit."
+          }
+        }
+      }
+    },
+    "Recommended Pass CLI version warning. %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upozornění na doporučenou verzi Pass CLI. %@"
           }
         }
       }
@@ -3232,6 +3473,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vybrat aplikaci"
+          }
+        }
+      }
+    },
+    "Selected bundled %@ missing; using bundled %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vybraná přibalená verze %1$@ chybí; používá se přibalená verze %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Selected bundled %1$@ missing; using bundled %2$@"
+          }
+        }
+      }
+    },
+    "Selected installed path missing (%@); using %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vybraná nainstalovaná cesta chybí (%1$@); používá se %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Selected installed path missing (%1$@); using %2$@"
+          }
+        }
+      }
+    },
+    "Selected installed path missing (%@); using bundled %@" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vybraná nainstalovaná cesta chybí (%1$@); používá se přibalená verze %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Selected installed path missing (%1$@); using bundled %2$@"
           }
         }
       }
@@ -3666,17 +3955,6 @@
         }
       }
     },
-    "The diagnostics below are from the last sync issue shown in this window." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Níže uvedená diagnostika pochází z posledního problému se synchronizací zobrazeného v tomto okně."
-          }
-        }
-      }
-    },
     "The diagnostics below are from the previous issue shown in this window." : {
       "comment" : "Resolved sync diagnostics window subtitle explaining archived diagnostics.",
       "localizations" : {
@@ -3925,6 +4203,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Uživatelské jméno zkopírováno"
+          }
+        }
+      }
+    },
+    "Using your installed Proton Pass CLI. Clear or change the path field to alter discovery." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Používá se váš nainstalovaný Proton Pass CLI. Vymažte nebo změňte pole cesty, chcete-li upravit zjišťování."
           }
         }
       }

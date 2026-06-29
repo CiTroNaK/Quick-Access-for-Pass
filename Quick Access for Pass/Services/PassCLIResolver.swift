@@ -13,15 +13,26 @@ nonisolated enum PassCLIArchitecture: String, Sendable, Equatable {
     }
 }
 
+nonisolated enum PassCLIResolutionFallback: Sendable, Equatable {
+    case missingInstalled(path: String)
+    case missingBundled(version: String)
+}
+
 nonisolated enum PassCLISelection: Sendable, Equatable {
     case custom(path: String)
-    case system(path: String)
-    case bundled(path: String, architecture: PassCLIArchitecture)
+    case installed(path: String, fallbackReason: PassCLIResolutionFallback?)
+    case bundled(
+        path: String,
+        version: String,
+        architecture: PassCLIArchitecture,
+        requested: BundledPassCLISelection,
+        fallbackReason: PassCLIResolutionFallback?
+    )
     case unresolved(command: String)
 
     var path: String {
         switch self {
-        case .custom(let path), .system(let path), .bundled(let path, _):
+        case .custom(let path), .installed(let path, _), .bundled(let path, _, _, _, _):
             path
         case .unresolved(let command):
             command
@@ -32,10 +43,15 @@ nonisolated enum PassCLISelection: Sendable, Equatable {
         switch self {
         case .custom(let path):
             "Custom: \(path)"
-        case .system(let path):
-            "System: \(path)"
-        case .bundled(_, let architecture):
-            "Bundled: pass-cli (\(architecture.rawValue))"
+        case .installed(let path, _):
+            "Installed: \(path)"
+        case .bundled(_, let version, let architecture, let requested, _):
+            switch requested {
+            case .latest:
+                "Bundled: pass-cli \(version) (latest, \(architecture.rawValue))"
+            case .version:
+                "Bundled: pass-cli \(version) (\(architecture.rawValue))"
+            }
         case .unresolved:
             "Not found"
         }
@@ -49,6 +65,14 @@ nonisolated enum PassCLISelection: Sendable, Equatable {
     var isBundled: Bool {
         if case .bundled = self { return true }
         return false
+    }
+
+    var fallbackReason: PassCLIResolutionFallback? {
+        switch self {
+        case .installed(_, let reason): return reason
+        case .bundled(_, _, _, _, let reason): return reason
+        case .custom, .unresolved: return nil
+        }
     }
 }
 
@@ -90,57 +114,80 @@ nonisolated struct LiveWhichResolver: WhichResolving {
 
 nonisolated struct PassCLIResolver: Sendable {
     private let fileSystem: any ExecutableFileChecking
-    private let which: any WhichResolving
-    private let bundleURL: URL
-    private let architecture: PassCLIArchitecture
+    private let discovery: PassCLIDiscovery
 
     init(
         fileSystem: any ExecutableFileChecking = LiveExecutableFileSystem(),
         which: any WhichResolving = LiveWhichResolver(),
         bundleURL: URL = Bundle.main.bundleURL,
-        architecture: PassCLIArchitecture = .current
+        architecture: PassCLIArchitecture = .current,
+        manifest: PassCLIBundledManifest = .load()
     ) {
         self.fileSystem = fileSystem
-        self.which = which
-        self.bundleURL = bundleURL
-        self.architecture = architecture
+        self.discovery = PassCLIDiscovery(
+            fileSystem: fileSystem,
+            which: which,
+            bundleURL: bundleURL,
+            architecture: architecture,
+            manifest: manifest
+        )
+    }
+
+    var latestBundledVersion: PassCLIVersion? {
+        discovery.latestBundledCandidate()?.version
+    }
+
+    func resolve(preference: PassCLISelectionPreference, customPath: String?) -> PassCLISelection {
+        switch preference {
+        case .custom:
+            let path = customPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return path.isEmpty ? .unresolved(command: "pass-cli") : .custom(path: path)
+        case .installed(let path):
+            if fileSystem.isExecutableFile(atPath: path) {
+                return .installed(path: path, fallbackReason: nil)
+            }
+            return resolveAuto(fallbackReason: .missingInstalled(path: path))
+        case .bundled(let requested):
+            if let bundled = discovery.resolveBundled(requested) {
+                return .bundled(
+                    path: bundled.path,
+                    version: bundled.version.description,
+                    architecture: bundled.architecture,
+                    requested: requested,
+                    fallbackReason: nil
+                )
+            }
+            return resolveAuto(fallbackReason: .missingBundled(version: requested.rawValue))
+        case .auto:
+            return resolveAuto(fallbackReason: nil)
+        }
     }
 
     func resolve(customPath: String?) -> PassCLISelection {
-        if let customPath = customPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !customPath.isEmpty {
-            return .custom(path: customPath)
-        }
-
-        for path in systemCandidates where fileSystem.isExecutableFile(atPath: path) {
-            return .system(path: path)
-        }
-
-        if let path = which.find("pass-cli"), fileSystem.isExecutableFile(atPath: path) {
-            return .system(path: path)
-        }
-
-        let bundledPath = bundledHelperPath(for: architecture)
-        if fileSystem.isExecutableFile(atPath: bundledPath) {
-            return .bundled(path: bundledPath, architecture: architecture)
-        }
-
-        return .unresolved(command: "pass-cli")
+        let preference: PassCLISelectionPreference = {
+            let trimmed = customPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? .auto : .custom
+        }()
+        return resolve(preference: preference, customPath: customPath)
     }
 
-    private var systemCandidates: [String] {
-        [
-            "/opt/homebrew/bin/pass-cli",
-            "/usr/local/bin/pass-cli",
-            NSString(string: "~/.local/bin/pass-cli").expandingTildeInPath
-        ]
+    private func resolveAuto(fallbackReason: PassCLIResolutionFallback?) -> PassCLISelection {
+        for path in discovery.installedCandidatePaths() {
+            return .installed(path: path, fallbackReason: fallbackReason)
+        }
+        return resolveLatestBundled(fallbackReason: fallbackReason)
     }
 
-    private func bundledHelperPath(for architecture: PassCLIArchitecture) -> String {
-        bundleURL
-            .appendingPathComponent("Contents")
-            .appendingPathComponent("Helpers")
-            .appendingPathComponent("pass-cli-\(architecture.rawValue)")
-            .path
+    private func resolveLatestBundled(fallbackReason: PassCLIResolutionFallback?) -> PassCLISelection {
+        guard let bundled = discovery.latestBundledCandidate() else {
+            return .unresolved(command: "pass-cli")
+        }
+        return .bundled(
+            path: bundled.path,
+            version: bundled.version.description,
+            architecture: bundled.architecture,
+            requested: .latest,
+            fallbackReason: fallbackReason
+        )
     }
 }

@@ -119,7 +119,7 @@ Read the setup guide: [Run Proxy and qa-run](docs/run-proxy.md)
 
 ## Settings
 
-Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI path, security preferences, and optional SSH/Run proxy settings.
+Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI source/version, security preferences, and optional SSH/Run proxy settings.
 
 <table>
   <tr>
@@ -128,7 +128,7 @@ Most behavior is configurable in Settings: launch at login, global hotkey, short
   </tr>
   <tr>
     <td align="center"><img src="docs/images/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, and auto-lock options" width="340"><br><sub>Security: clipboard handling, search clearing, auto-lock</sub></td>
-    <td align="center"><img src="docs/images/settings-cli.png" alt="Pass CLI settings with refresh interval, sync status, and CLI path" width="340"><br><sub>Pass CLI: sync cadence, status, and CLI path</sub></td>
+    <td align="center"><img src="docs/images/settings-cli.png" alt="Pass CLI settings with refresh interval, sync status, and CLI source/version" width="340"><br><sub>Pass CLI: sync cadence, status, and source/version</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/images/settings-ssh.png" alt="SSH settings with proxy enablement, socket paths, and filtering options" width="340"><br><sub>SSH: proxy enablement, socket paths, filtering, remembered decisions</sub></td>

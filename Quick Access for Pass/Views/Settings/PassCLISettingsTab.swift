@@ -4,6 +4,7 @@ struct PassCLISettingsTab: View {
     @Binding var syncInterval: Double
     @Binding var lastSyncTime: Double
     @Binding var cliPath: String
+    @Binding var passCLISelection: String
     @Environment(PassCLIStatusStore.self) private var statusStore
     @Environment(\.passCLIPATSettingsModel) private var patSettingsModel
     @State private var patInput = ""
@@ -28,10 +29,23 @@ struct PassCLISettingsTab: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                SettingsLayout.settingsRow(label: "pass-cli path") {
-                    TextField("auto-detect", text: $cliPath)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 180)
+                SettingsLayout.settingsRow(label: "Pass CLI source") {
+                    Picker("Pass CLI source", selection: $passCLISelection) {
+                        ForEach(statusStore.sourceOptions) { option in
+                            Text(option.label).tag(option.preference.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 260)
+                    .accessibilityHint("Choose Auto, an installed pass-cli, a bundled pass-cli version, or Custom path…")
+                }
+                if selectedPreference == .custom {
+                    SettingsLayout.settingsRow(label: "Custom path") {
+                        TextField("/path/to/pass-cli", text: $cliPath)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 260)
+                            .accessibilityHint("Custom paths are used exactly and do not fall back if missing")
+                    }
                 }
                 SettingsLayout.settingsRow(label: "CLI source") {
                     Text(cliSourceText)
@@ -62,6 +76,24 @@ struct PassCLISettingsTab: View {
                     Text(statusStore.version ?? "—")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                }
+                if let warning = statusStore.recommendedVersionWarning {
+                    SettingsLayout.settingsRow {
+                        let accessibilityLabel = String(
+                            localized: "Recommended Pass CLI version warning. \(warning.message)"
+                        )
+                        Label(warning.message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .multilineTextAlignment(.trailing)
+                            .lineLimit(nil)
+                            .frame(maxWidth: 320, alignment: .trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .help(String(
+                                localized: "If the latest bundled CLI causes problems, select an older bundled version and open a GitHub issue."
+                            ))
+                            .accessibilityLabel(Text(accessibilityLabel))
+                    }
                 }
                 if let tokenName = statusStore.identity?.personalAccessTokenName {
                     SettingsLayout.settingsRow(label: "Token name") {
@@ -109,6 +141,7 @@ struct PassCLISettingsTab: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
+            await statusStore.refreshSourceOptions()
             await patSettingsModel?.refreshSavedTokenState()
         }
         .onDisappear {
@@ -117,38 +150,64 @@ struct PassCLISettingsTab: View {
         }
     }
 
-    private var cliSourceText: String {
+}
+
+private extension PassCLISettingsTab {
+    var selectedPreference: PassCLISelectionPreference {
+        PassCLISelectionPreference.resolved(rawValue: passCLISelection, legacyCustomPath: cliPath)
+    }
+
+    var cliSourceText: String {
         switch statusStore.selection {
         case .custom(let path):
-            "Custom: \(path)"
-        case .system(let path):
-            "System: \(path)"
-        case .bundled(_, let architecture):
-            if let version = statusStore.version {
-                "Bundled: pass-cli \(version) (\(architecture.rawValue))"
-            } else {
-                "Bundled: pass-cli (\(architecture.rawValue))"
+            return String(localized: "Custom: \(path)")
+        case .installed(let path, let fallbackReason):
+            if case .missingInstalled(let missingPath) = fallbackReason {
+                return String(localized: "Selected installed path missing (\(missingPath)); using \(path)")
+            }
+            return String(localized: "Installed: \(path)")
+        case .bundled(_, let version, let architecture, let requested, let fallbackReason):
+            if let fallbackReason {
+                switch fallbackReason {
+                case .missingInstalled(let path):
+                    return String(localized: "Selected installed path missing (\(path)); using bundled \(version)")
+                case .missingBundled(let missingVersion):
+                    return String(localized: "Selected bundled \(missingVersion) missing; using bundled \(version)")
+                }
+            }
+            switch requested {
+            case .latest:
+                return String(localized: "Bundled: pass-cli \(version) (latest, \(architecture.rawValue))")
+            case .version:
+                return String(localized: "Bundled: pass-cli \(version) (\(architecture.rawValue))")
             }
         case .unresolved:
-            "Not found"
+            return String(localized: "Not found")
         }
     }
 
-    private var cliSourceHelpText: String {
+    var cliSourceHelpText: String {
         switch statusStore.selection {
         case .custom:
-            "Clear this field to use auto-detection and bundled fallback. No fallback is attempted while a custom path is set."
-        case .system:
-            "Using your installed Proton Pass CLI. Clear or change the path field to alter discovery."
+            String(
+                localized: "Clear this field to use auto-detection and bundled fallback. No fallback is attempted while a custom path is set."
+            )
+        case .installed:
+            String(localized: "Using your installed Proton Pass CLI. Clear or change the path field to alter discovery.")
         case .bundled:
-            "Included with Quick Access for Pass. Updates with the app."
+            String(
+                localized: """
+                Included with Quick Access for Pass. Updates with the app. \
+                Choose Bundled latest for app-managed updates, or pin this version for rollback/debugging.
+                """
+            )
         case .unresolved:
-            "Install Proton Pass CLI or leave the path empty to use the bundled fallback in signed releases."
+            String(localized: "Install Proton Pass CLI or leave the path empty to use the bundled fallback in signed releases.")
         }
     }
 
     @ViewBuilder
-    private var personalAccessTokenControls: some View {
+    var personalAccessTokenControls: some View {
         VStack(alignment: .trailing, spacing: 8) {
             if let patSettingsModel {
                 if patSettingsModel.hasSavedToken && !isReplacingPAT {
