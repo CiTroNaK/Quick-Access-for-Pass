@@ -16,15 +16,19 @@ nonisolated struct SkippedSyncItem: Equatable, Sendable {
 
     func inspectCommand(cliSelection: PassCLISelection) -> String {
         let executable = Self.shellEscape(cliSelection.path)
-        let escapedShareId = Self.shellEscape(shareId)
+        let shareIdOption = Self.shellOption("--share-id", value: shareId)
         if let itemId, !itemId.isEmpty {
-            return "\(executable) item view --share-id \(escapedShareId) --item-id \(Self.shellEscape(itemId)) --output json"
+            return "\(executable) item view \(shareIdOption) \(Self.shellOption("--item-id", value: itemId)) --output json"
         }
 
         return """
         # Item ID was not available. Inspect zero-based index \(itemIndex) in the returned items array.
-        \(executable) item list --share-id \(escapedShareId) --output json
+        \(executable) item list \(shareIdOption) --output json
         """
+    }
+
+    private static func shellOption(_ name: String, value: String) -> String {
+        "\(name)=\(shellEscape(value))"
     }
 
     private static func shellEscape(_ value: String) -> String {

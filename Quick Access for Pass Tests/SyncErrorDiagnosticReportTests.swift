@@ -150,7 +150,24 @@ struct SyncErrorDiagnosticReportTests {
             architecture: .arm64
         ))
 
-        #expect(command == "'/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64' item view --share-id 'share with spaces' --item-id item-7 --output json")
+        #expect(command == "'/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64' item view --share-id='share with spaces' --item-id=item-7 --output json")
+    }
+
+    @Test("skipped item inspect command binds hyphen-prefixed IDs as option values")
+    func skippedItemInspectCommandBindsHyphenPrefixedIDsAsOptionValues() {
+        let skipped = SkippedSyncItem(
+            vaultId: "vault",
+            vaultName: "Personal",
+            shareId: "-U0ojjze9edasueOpK0ll7llD2mIXKdS4cfL5DGhXSRm8f9soW9qKkhiXXXXXXX==",
+            itemIndex: 7,
+            itemId: "-item-7",
+            codingPath: "items.Index 7.content",
+            reason: "expected String"
+        )
+
+        let command = skipped.inspectCommand(cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"))
+
+        #expect(command == "/opt/homebrew/bin/pass-cli item view --share-id=-U0ojjze9edasueOpK0ll7llD2mIXKdS4cfL5DGhXSRm8f9soW9qKkhiXXXXXXX== --item-id=-item-7 --output json")
     }
 
     @Test("skipped item inspect command falls back to item list when item ID is missing")
@@ -168,7 +185,7 @@ struct SyncErrorDiagnosticReportTests {
         let command = skipped.inspectCommand(cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"))
 
         #expect(command.contains("# Item ID was not available. Inspect zero-based index 7 in the returned items array."))
-        #expect(command.contains("/opt/homebrew/bin/pass-cli item list --share-id share-7 --output json"))
+        #expect(command.contains("/opt/homebrew/bin/pass-cli item list --share-id=share-7 --output json"))
     }
 
     @Test("sync coordinator helper can build generic presentation from an error")
