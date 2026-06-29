@@ -20,29 +20,34 @@ out_dir = pathlib.Path(sys.argv[2])
 root_dir = pathlib.Path(sys.argv[3])
 manifest = json.loads(manifest_path.read_text())
 vendored_relative_dir = pathlib.Path("ThirdParty/ProtonPassCLI")
-vendored_dir = root_dir / vendored_relative_dir / manifest["version"]
 
-assets = manifest["assets"]
-for key in ("macos-aarch64", "macos-x86_64"):
-    asset = assets[key]
-    source_path = vendored_dir / asset["outputName"]
-    expected_sha = asset["sha256"]
-    output_path = out_dir / asset["outputName"]
-    tmp_path = output_path.with_suffix(".copy")
+for version_entry in manifest["versions"]:
+    version = version_entry["version"]
+    vendored_dir = root_dir / vendored_relative_dir / version
+    version_out_dir = out_dir / version
+    version_out_dir.mkdir(parents=True, exist_ok=True)
+    assets = version_entry["assets"]
 
-    if not source_path.is_file():
-        raise SystemExit(f"Missing vendored Proton Pass CLI asset: {source_path}")
+    for key in ("macos-aarch64", "macos-x86_64"):
+        asset = assets[key]
+        source_path = vendored_dir / asset["outputName"]
+        expected_sha = asset["sha256"]
+        output_path = version_out_dir / asset["outputName"]
+        tmp_path = output_path.with_suffix(".copy")
 
-    actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
-    if actual_sha != expected_sha:
-        raise SystemExit(
-            f"Checksum mismatch for {source_path}\nexpected: {expected_sha}\nactual:   {actual_sha}"
-        )
+        if not source_path.is_file():
+            raise SystemExit(f"Missing vendored Proton Pass CLI asset: {source_path}")
 
-    print(f"Copying {source_path}")
-    shutil.copy2(source_path, tmp_path)
-    tmp_path.replace(output_path)
-    mode = output_path.stat().st_mode
-    output_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    print(f"Prepared {output_path} ({actual_sha})")
+        actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        if actual_sha != expected_sha:
+            raise SystemExit(
+                f"Checksum mismatch for {source_path}\nexpected: {expected_sha}\nactual:   {actual_sha}"
+            )
+
+        print(f"Copying {source_path}")
+        shutil.copy2(source_path, tmp_path)
+        tmp_path.replace(output_path)
+        mode = output_path.stat().st_mode
+        output_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        print(f"Prepared {output_path} ({actual_sha})")
 PY

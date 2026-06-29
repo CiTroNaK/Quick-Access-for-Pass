@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage(DefaultsKey.lastSyncTime) var lastSyncTime: Double = 0
     @AppStorage(DefaultsKey.syncInterval) var syncInterval: Double = 300
     @AppStorage(DefaultsKey.cliPath) var cliPath: String = ""
+    @AppStorage(DefaultsKey.passCLISelection) var passCLISelection: String = PassCLISelectionPreference.auto.rawValue
     @AppStorage(DefaultsKey.sshProxyEnabled) var sshProxyEnabled: Bool = false
     @AppStorage(DefaultsKey.sshUpstreamSocketPath) var sshUpstreamSocketPath: String = ""
     @AppStorage(DefaultsKey.runProxyEnabled) var runProxyEnabled: Bool = false
@@ -74,7 +75,8 @@ struct SettingsView: View {
                 PassCLISettingsTab(
                     syncInterval: $syncInterval,
                     lastSyncTime: $lastSyncTime,
-                    cliPath: $cliPath
+                    cliPath: $cliPath,
+                    passCLISelection: $passCLISelection
                 )
             }
             Tab("SSH", systemImage: "lock.shield.fill", value: SettingsTab.ssh) {

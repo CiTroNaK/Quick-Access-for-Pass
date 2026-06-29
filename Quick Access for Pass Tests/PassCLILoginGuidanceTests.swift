@@ -6,7 +6,7 @@ import Testing
 struct PassCLILoginGuidanceTests {
     @Test("bundled CLI guidance uses app login and omits terminal fallback")
     func bundledGuidanceOmitsTerminalFallback() {
-        let selection = PassCLISelection.bundled(path: "/App/Contents/Helpers/pass-cli-arm64", architecture: .arm64)
+        let selection = PassCLISelection.bundled(path: "/App/Contents/Helpers/pass-cli-arm64", version: "2.2.1", architecture: .arm64, requested: .latest, fallbackReason: nil)
 
         let message = selection.loginRequiredMessage
 
@@ -26,9 +26,9 @@ struct PassCLILoginGuidanceTests {
         #expect(message.contains("Settings → Pass CLI"))
     }
 
-    @Test("system CLI guidance includes terminal fallback")
-    func systemGuidanceIncludesTerminalFallback() {
-        let selection = PassCLISelection.system(path: "/opt/homebrew/bin/pass-cli")
+    @Test("installed CLI guidance includes terminal fallback")
+    func installedGuidanceIncludesTerminalFallback() {
+        let selection = PassCLISelection.installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil)
 
         let message = selection.loginRequiredMessage
 
@@ -50,8 +50,8 @@ struct PassCLILoginGuidanceTests {
 
     @Test("SSH guidance preserves SSH context and follows fallback policy")
     func sshGuidancePreservesContext() {
-        let bundled = PassCLISelection.bundled(path: "/App/Contents/Helpers/pass-cli-arm64", architecture: .arm64)
-        let system = PassCLISelection.system(path: "/opt/homebrew/bin/pass-cli")
+        let bundled = PassCLISelection.bundled(path: "/App/Contents/Helpers/pass-cli-arm64", version: "2.2.1", architecture: .arm64, requested: .latest, fallbackReason: nil)
+        let system = PassCLISelection.installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil)
 
         #expect(bundled.sshLoginRequiredMessage == String(localized: "SSH agent requires Pass CLI login. Open Settings → Pass CLI to log in."))
         #expect(!bundled.sshLoginRequiredMessage.contains("pass-cli login"))

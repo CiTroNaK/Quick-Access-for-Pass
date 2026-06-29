@@ -18,12 +18,16 @@ nonisolated enum MenuBarHealthAggregator {
     static func aggregate(
         sshHealth: ProxyHealthState,
         runHealth: ProxyHealthState,
-        cliHealth: PassCLIHealth
+        cliHealth: PassCLIHealth,
+        cliRecommendedVersionWarning: Bool = false
     ) -> MenuBarStatus {
         var errorServices: [String] = []
         var degradedServices: [String] = []
 
         classifyCLI(cliHealth, errors: &errorServices, degraded: &degradedServices)
+        if cliHealth == .ok, cliRecommendedVersionWarning {
+            degradedServices.append("Pass CLI")
+        }
         classifyProxy(sshHealth, name: "SSH Agent", errors: &errorServices, degraded: &degradedServices)
         classifyProxy(runHealth, name: "Run Proxy", errors: &errorServices, degraded: &degradedServices)
 

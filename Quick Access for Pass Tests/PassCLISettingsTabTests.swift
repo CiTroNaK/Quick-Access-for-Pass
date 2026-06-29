@@ -23,8 +23,26 @@ struct PassCLISettingsTabTests {
         let source = try settingsSource()
 
         #expect(source.contains("Custom:"))
-        #expect(source.contains("System:"))
+        #expect(source.contains("Installed:"))
         #expect(source.contains("Bundled:"))
+    }
+
+    @Test("settings source exposes Pass CLI source picker copy")
+    func sourceContainsSourcePickerCopy() throws {
+        let source = try settingsSource()
+
+        #expect(source.contains("Pass CLI source"))
+        #expect(source.contains("Custom path…"))
+        #expect(source.contains("Bundled latest"))
+        #expect(source.contains("pin this version"))
+    }
+
+    @Test("settings source includes recommended version warning guidance")
+    func sourceContainsRecommendedVersionWarningGuidance() throws {
+        let source = try settingsSource()
+
+        #expect(source.contains("Recommended Pass CLI version"))
+        #expect(source.contains("open a GitHub issue"))
     }
 
     private func settingsSource() throws -> String {

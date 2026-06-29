@@ -81,6 +81,7 @@ extension AppDelegate {
             loginNotifier.requestAuthorizationIfNeeded()
         }
         passCLILoginNotifier = loginNotifier
+        passCLIRecommendedVersionNotifier = PassCLIRecommendedVersionNotifier()
 
         setupPassCLIPATCoordinators(
             cliService: cliService,
@@ -159,6 +160,9 @@ extension AppDelegate {
     func runLaunchTimeSanityCheck() {
         Task { [weak self] in
             await self?.healthCoordinator?.start()
+            self?.passCLIRecommendedVersionNotifier?.postStartupWarningIfNeeded(
+                self?.passCLIStatusStore.recommendedVersionWarning
+            )
         }
     }
 

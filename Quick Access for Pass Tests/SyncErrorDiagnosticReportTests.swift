@@ -95,7 +95,7 @@ struct SyncErrorDiagnosticReportTests {
         )
         let report = SyncErrorDiagnosticReport.make(
             error: CLIError.timeout,
-            cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"),
+            cliSelection: .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil),
             skippedItems: [skipped],
             diagnosticFileURL: URL(fileURLWithPath: "/Users/alice/Library/Caches/SyncDiagnostics/report.txt"),
             date: Date(timeIntervalSince1970: 0)
@@ -147,7 +147,10 @@ struct SyncErrorDiagnosticReportTests {
 
         let command = skipped.inspectCommand(cliSelection: .bundled(
             path: "/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64",
-            architecture: .arm64
+            version: "2.2.1",
+            architecture: .arm64,
+            requested: .latest,
+            fallbackReason: nil
         ))
 
         #expect(command == "'/Applications/Quick Access for Pass.app/Contents/Helpers/pass-cli-arm64' item view --share-id='share with spaces' --item-id=item-7 --output json")
@@ -165,7 +168,7 @@ struct SyncErrorDiagnosticReportTests {
             reason: "expected String"
         )
 
-        let command = skipped.inspectCommand(cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"))
+        let command = skipped.inspectCommand(cliSelection: .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil))
 
         #expect(command == "/opt/homebrew/bin/pass-cli item view --share-id=-U0ojjze9edasueOpK0ll7llD2mIXKdS4cfL5DGhXSRm8f9soW9qKkhiXXXXXXX== --item-id=-item-7 --output json")
     }
@@ -182,7 +185,7 @@ struct SyncErrorDiagnosticReportTests {
             reason: "expected String"
         )
 
-        let command = skipped.inspectCommand(cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"))
+        let command = skipped.inspectCommand(cliSelection: .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil))
 
         #expect(command.contains("# Item ID was not available. Inspect zero-based index 7 in the returned items array."))
         #expect(command.contains("/opt/homebrew/bin/pass-cli item list --share-id=share-7 --output json"))
@@ -192,7 +195,7 @@ struct SyncErrorDiagnosticReportTests {
     func genericPresentationFromError() {
         let presentation = SyncCoordinator.syncErrorPresentation(
             for: CLIError.parseError("expected String at items.Index 289.content"),
-            cliSelection: .bundled(path: "/app/pass-cli", architecture: .arm64)
+            cliSelection: .bundled(path: "/app/pass-cli", version: "2.2.1", architecture: .arm64, requested: .latest, fallbackReason: nil)
         )
 
         #expect(presentation.visibleMessage == "Sorry, there was a sync error.")
@@ -214,7 +217,7 @@ struct SyncErrorDiagnosticReportTests {
         )
         let presentation = SyncCoordinator.syncErrorPresentation(
             for: CLIError.commandFailed("database write failed"),
-            cliSelection: .system(path: "/opt/homebrew/bin/pass-cli"),
+            cliSelection: .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil),
             skippedItems: [skipped],
             diagnosticFileURL: URL(fileURLWithPath: "/Users/alice/Library/Caches/SyncDiagnostics/report.txt")
         )
@@ -231,7 +234,7 @@ struct SyncErrorDiagnosticReportTests {
     func loginPresentationFromAuthError() {
         let presentation = SyncCoordinator.syncErrorPresentation(
             for: CLIError.notLoggedIn,
-            cliSelection: .system(path: "/opt/homebrew/bin/pass-cli")
+            cliSelection: .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil)
         )
 
         #expect(presentation.visibleMessage == "Please log in to Proton Pass CLI.")

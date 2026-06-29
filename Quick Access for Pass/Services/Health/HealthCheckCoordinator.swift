@@ -138,6 +138,12 @@ final class HealthCheckCoordinator {
         cliStore.health = outcome.health
         cliStore.identity = outcome.identity
         cliStore.version = outcome.version
+        let latestBundledVersion = cliService.latestBundledVersion ?? cliStore.latestBundledVersion
+        cliStore.latestBundledVersion = latestBundledVersion
+        cliStore.recommendedVersionWarning = Self.recommendedVersionWarning(
+            activeVersionString: outcome.version,
+            latestBundledVersion: latestBundledVersion
+        )
 
         guard !Task.isCancelled else { return }
         guard previous != outcome.health else { return }
@@ -149,6 +155,21 @@ final class HealthCheckCoordinator {
     func refreshPassCLI() async -> PassCLIHealth {
         await tickCLI()
         return cliStore.health
+    }
+
+    private static func recommendedVersionWarning(
+        activeVersionString: String?,
+        latestBundledVersion: PassCLIVersion?
+    ) -> PassCLIRecommendedVersionWarning? {
+        guard let activeVersion = PassCLIVersion(activeVersionString),
+              let latestBundledVersion,
+              activeVersion < latestBundledVersion else {
+            return nil
+        }
+        return PassCLIRecommendedVersionWarning(
+            activeVersion: activeVersion,
+            recommendedVersion: latestBundledVersion
+        )
     }
 
     /// Executes one Run probe tick body. Gated on CLI health and proxy liveness.

@@ -92,7 +92,7 @@ struct PassCLIServiceTests {
         let didChange = service.updateCLISelection(customPath: "")
 
         #expect(didChange)
-        #expect(service.cliSelection == .system(path: "/opt/homebrew/bin/pass-cli"))
+        #expect(service.cliSelection == .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil))
         #expect(service.cliPath == "/opt/homebrew/bin/pass-cli")
     }
 
@@ -109,7 +109,50 @@ struct PassCLIServiceTests {
         let didChange = service.updateCLISelection(customPath: nil)
 
         #expect(didChange == false)
-        #expect(service.cliSelection == .system(path: "/opt/homebrew/bin/pass-cli"))
+        #expect(service.cliSelection == .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil))
+    }
+
+    @Test("service initializes from typed selection preference")
+    func serviceInitializesFromTypedSelectionPreference() {
+        let resolver = PassCLIResolver(
+            fileSystem: StubExecutableFileSystem(executablePaths: [
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+            ]),
+            which: StubWhichResolver(path: nil),
+            bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
+            architecture: .arm64,
+            manifest: .init(versions: [.init(version: "2.2.1")])
+        )
+
+        let service = PassCLIService(
+            preference: .bundled(.latest),
+            customPath: nil,
+            resolver: resolver
+        )
+
+        #expect(service.cliSelection.path.hasSuffix("/ProtonPassCLI/2.2.1/pass-cli-arm64"))
+    }
+
+    @Test("updating selection preference invalidates show secrets cache when path changes")
+    func updateSelectionPreferenceInvalidatesCapabilityCache() async throws {
+        let runner = RecordingPassCLIRunner(versionOutputByPath: [
+            "/new/pass-cli": "Proton Pass CLI 2.1.0\n",
+            "/old/pass-cli": "Proton Pass CLI 2.0.2\n"
+        ])
+        let resolver = PassCLIResolver(
+            fileSystem: StubExecutableFileSystem(executablePaths: ["/new/pass-cli", "/old/pass-cli"]),
+            which: StubWhichResolver(path: nil),
+            bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
+            architecture: .arm64,
+            manifest: .init(versions: [])
+        )
+        let service = PassCLIService(preference: .installed(path: "/new/pass-cli"), customPath: nil, resolver: resolver, runner: runner)
+
+        _ = try await service.listItems(shareId: "share-1")
+        service.updateCLISelection(preference: .installed(path: "/old/pass-cli"), customPath: nil)
+        _ = try await service.listItems(shareId: "share-2")
+
+        #expect(await runner.invocationCount(forCommand: "--version") == 2)
     }
 
     @Test("listItems includes show-secrets for CLI 2.0.3 and newer")

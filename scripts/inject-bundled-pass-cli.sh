@@ -44,21 +44,35 @@ APP_PATH="$1"
 PREPARED_DIR="$2"
 SIGN_IDENTITY="$(select_signing_identity)"
 HELPERS_DIR="$APP_PATH/Contents/Helpers"
+RESOURCES_DIR="$APP_PATH/Contents/Resources"
+CLI_RESOURCES_DIR="$RESOURCES_DIR/ProtonPassCLI"
 APP_ENTITLEMENTS_PATH="$(mktemp)"
 trap 'rm -f "$APP_ENTITLEMENTS_PATH"' EXIT
 
 codesign -d --entitlements :- "$APP_PATH" >"$APP_ENTITLEMENTS_PATH" 2>/dev/null
 
-mkdir -p "$HELPERS_DIR"
+mkdir -p "$HELPERS_DIR" "$CLI_RESOURCES_DIR"
+rm -rf "$HELPERS_DIR/ProtonPassCLI" "$CLI_RESOURCES_DIR"
+mkdir -p "$CLI_RESOURCES_DIR"
 
-install -m 755 "$PREPARED_DIR/pass-cli-arm64" "$HELPERS_DIR/pass-cli-arm64"
-install -m 755 "$PREPARED_DIR/pass-cli-x86_64" "$HELPERS_DIR/pass-cli-x86_64"
+while IFS= read -r -d '' source_file; do
+	version="$(basename "$(dirname "$source_file")")"
+	name="$(basename "$source_file")"
+	target_dir="$CLI_RESOURCES_DIR/$version"
+	mkdir -p "$target_dir"
+	install -m 755 "$source_file" "$target_dir/$name"
 
-file "$HELPERS_DIR/pass-cli-arm64" | grep -q "arm64"
-file "$HELPERS_DIR/pass-cli-x86_64" | grep -q "x86_64"
+	case "$name" in
+	pass-cli-arm64) file "$target_dir/$name" | grep -q "arm64" ;;
+	pass-cli-x86_64) file "$target_dir/$name" | grep -q "x86_64" ;;
+	*)
+		echo "Unexpected helper name: $name" >&2
+		exit 65
+		;;
+	esac
 
-codesign --force --options runtime --timestamp --generate-entitlement-der --sign "$SIGN_IDENTITY" "$HELPERS_DIR/pass-cli-arm64"
-codesign --force --options runtime --timestamp --generate-entitlement-der --sign "$SIGN_IDENTITY" "$HELPERS_DIR/pass-cli-x86_64"
+	codesign --force --options runtime --timestamp --generate-entitlement-der --sign "$SIGN_IDENTITY" "$target_dir/$name"
+done < <(find "$PREPARED_DIR" -mindepth 2 -maxdepth 2 -type f \( -name 'pass-cli-arm64' -o -name 'pass-cli-x86_64' \) -print0 | sort -z)
 
 codesign \
 	--force \
@@ -69,12 +83,14 @@ codesign \
 	--sign "$SIGN_IDENTITY" \
 	"$APP_PATH"
 
-codesign --verify --strict --verbose=4 "$HELPERS_DIR/pass-cli-arm64"
-codesign --verify --strict --verbose=4 "$HELPERS_DIR/pass-cli-x86_64"
+while IFS= read -r -d '' helper; do
+	codesign --verify --strict --verbose=4 "$helper"
+done < <(find "$CLI_RESOURCES_DIR" -type f \( -name 'pass-cli-arm64' -o -name 'pass-cli-x86_64' \) -print0 | sort -z)
 codesign --verify --deep --strict --verbose=4 "$APP_PATH"
 
+LATEST_VERSION="$(find "$CLI_RESOURCES_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort -V | tail -n 1)"
 if [[ "$(uname -m)" == "arm64" ]]; then
-	"$HELPERS_DIR/pass-cli-arm64" --version
+	"$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-arm64" --version
 else
-	"$HELPERS_DIR/pass-cli-x86_64" --version
+	"$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-x86_64" --version
 fi

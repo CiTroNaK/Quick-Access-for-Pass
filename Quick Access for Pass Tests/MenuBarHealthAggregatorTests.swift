@@ -37,6 +37,17 @@ struct MenuBarHealthAggregatorTests {
         #expect(result == .degraded(services: ["Pass CLI"]))
     }
 
+    @Test("recommended Pass CLI version warning degrades menu bar status")
+    func recommendedVersionWarningDegradesMenuBarStatus() {
+        let result = MenuBarHealthAggregator.aggregate(
+            sshHealth: .disabled,
+            runHealth: .disabled,
+            cliHealth: .ok,
+            cliRecommendedVersionWarning: true
+        )
+        #expect(result == .degraded(services: ["Pass CLI"]))
+    }
+
     // MARK: - CLI error
 
     @Test("CLI notInstalled returns error")
@@ -55,6 +66,17 @@ struct MenuBarHealthAggregatorTests {
             sshHealth: .disabled,
             runHealth: .disabled,
             cliHealth: .failed(reason: "connection reset")
+        )
+        #expect(result == .error(services: ["Pass CLI"]))
+    }
+
+    @Test("Pass CLI error still wins over recommended version warning")
+    func cliErrorWinsOverRecommendedVersionWarning() {
+        let result = MenuBarHealthAggregator.aggregate(
+            sshHealth: .disabled,
+            runHealth: .disabled,
+            cliHealth: .failed(reason: "boom"),
+            cliRecommendedVersionWarning: true
         )
         #expect(result == .error(services: ["Pass CLI"]))
     }

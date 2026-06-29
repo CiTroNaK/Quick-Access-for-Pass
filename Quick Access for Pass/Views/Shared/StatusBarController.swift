@@ -50,6 +50,7 @@ final class StatusBarController: NSObject {
             _ = healthStore.sshHealth
             _ = healthStore.runHealth
             _ = passCLIStatusStore.health
+            _ = passCLIStatusStore.recommendedVersionWarning
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.updateIcon()
@@ -62,7 +63,8 @@ final class StatusBarController: NSObject {
         let status = MenuBarHealthAggregator.aggregate(
             sshHealth: healthStore.sshHealth,
             runHealth: healthStore.runHealth,
-            cliHealth: passCLIStatusStore.health
+            cliHealth: passCLIStatusStore.health,
+            cliRecommendedVersionWarning: passCLIStatusStore.recommendedVersionWarning != nil
         )
         guard status != currentStatus else { return }
         let oldStatus = currentStatus
@@ -176,7 +178,12 @@ final class StatusBarController: NSObject {
         let menu = NSMenu()
 
         // Status rows
-        addStatusItem(to: menu, label: String(localized: "Pass CLI"), health: passCLIStatusStore.health)
+        addStatusItem(
+            to: menu,
+            label: String(localized: "Pass CLI"),
+            health: passCLIStatusStore.health,
+            recommendedVersionWarning: passCLIStatusStore.recommendedVersionWarning
+        )
 
         if healthStore.sshHealth != .disabled {
             addStatusItem(to: menu, label: String(localized: "SSH Agent"), proxyHealth: healthStore.sshHealth)
@@ -218,10 +225,18 @@ final class StatusBarController: NSObject {
 
     // MARK: - Menu Status Items
 
-    private func addStatusItem(to menu: NSMenu, label: String, health: PassCLIHealth) {
+    private func addStatusItem(
+        to menu: NSMenu,
+        label: String,
+        health: PassCLIHealth,
+        recommendedVersionWarning: PassCLIRecommendedVersionWarning?
+    ) {
         let text: String
         let color: NSColor
         switch health {
+        case .ok where recommendedVersionWarning != nil:
+            text = String(localized: "\(label): update recommended")
+            color = .systemOrange
         case .ok:
             text = String(localized: "\(label): Connected")
             color = .systemGreen

@@ -34,18 +34,6 @@ nonisolated enum CLIError: Error, LocalizedError {
     }
 }
 
-nonisolated private struct PassCLIVersion: Comparable, Sendable {
-    let major: Int
-    let minor: Int
-    let patch: Int
-
-    static func < (lhs: PassCLIVersion, rhs: PassCLIVersion) -> Bool {
-        if lhs.major != rhs.major { return lhs.major < rhs.major }
-        if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
-        return lhs.patch < rhs.patch
-    }
-}
-
 actor PassCLIService {
     private static let minimumShowSecretsVersion = PassCLIVersion(major: 2, minor: 0, patch: 3)
 
@@ -64,14 +52,27 @@ actor PassCLIService {
         cliSelection.path
     }
 
+    nonisolated var latestBundledVersion: PassCLIVersion? {
+        resolver.latestBundledVersion
+    }
+
     @discardableResult
-    nonisolated func updateCLISelection(customPath: String?) -> Bool {
-        let resolved = resolver.resolve(customPath: customPath)
+    nonisolated func updateCLISelection(preference: PassCLISelectionPreference, customPath: String?) -> Bool {
+        let resolved = resolver.resolve(preference: preference, customPath: customPath)
         return selectionStore.withLock { selection in
             guard selection != resolved else { return false }
             selection = resolved
             return true
         }
+    }
+
+    @discardableResult
+    nonisolated func updateCLISelection(customPath: String?) -> Bool {
+        let preference: PassCLISelectionPreference = {
+            let path = customPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return path.isEmpty ? .auto : .custom
+        }()
+        return updateCLISelection(preference: preference, customPath: customPath)
     }
 
     nonisolated func updateCLIPath(_ path: String) {
@@ -80,10 +81,17 @@ actor PassCLIService {
 
     init(
         cliPath: String? = nil,
+        preference: PassCLISelectionPreference? = nil,
+        customPath: String? = nil,
         resolver: PassCLIResolver = PassCLIResolver(),
         runner: any CLIRunning = LiveCLIRunner()
     ) {
-        let resolved = resolver.resolve(customPath: cliPath)
+        let resolvedPreference = preference ?? {
+            let path = cliPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return path.isEmpty ? .auto : .custom
+        }()
+        let resolvedCustomPath = customPath ?? cliPath
+        let resolved = resolver.resolve(preference: resolvedPreference, customPath: resolvedCustomPath)
         self.selectionStore = OSAllocatedUnfairLock(initialState: resolved)
         self.resolver = resolver
         self.runner = runner
@@ -195,10 +203,8 @@ actor PassCLIService {
                     arguments: ["--version"],
                     timeout: timeoutSeconds
                 )
-                guard let output = String(bytes: data, encoding: .utf8) else {
-                    return false
-                }
-                return Self.parseVersion(from: output).map { $0 >= Self.minimumShowSecretsVersion } ?? false
+                let output = String(bytes: data, encoding: .utf8)
+                return PassCLIVersion(output).map { $0 >= Self.minimumShowSecretsVersion } ?? false
             } catch {
                 return false
             }
@@ -213,15 +219,6 @@ actor PassCLIService {
             supportsShowSecretsTask = nil
         }
         return supported
-    }
-
-    private static func parseVersion(from output: String) -> PassCLIVersion? {
-        guard let range = output.range(of: #"\d+\.\d+\.\d+"#, options: .regularExpression) else {
-            return nil
-        }
-        let components = output[range].split(separator: ".").compactMap { Int($0) }
-        guard components.count == 3 else { return nil }
-        return PassCLIVersion(major: components[0], minor: components[1], patch: components[2])
     }
 
     // MARK: - Process Execution

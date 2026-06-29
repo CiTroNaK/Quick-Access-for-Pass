@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var notificationRouter: UserNotificationRouter?
     @ObservationIgnored var passCLILoginCoordinator: PassCLILoginCoordinator?
     @ObservationIgnored var passCLILoginNotifier: PassCLILoginNotifier?
+    @ObservationIgnored var passCLIRecommendedVersionNotifier: PassCLIRecommendedVersionNotifier?
     @ObservationIgnored var passCLIPATCredentialStore: KeychainPassCLIPATCredentialStore?
     @ObservationIgnored var passCLIPATLoginService: PassCLIPATLoginService?
     @ObservationIgnored var passCLIPATAutoLoginCoordinator: PassCLIPATAutoLoginCoordinator?
@@ -161,9 +162,17 @@ private extension AppDelegate {
         let rawClipboardTimeout = UserDefaults.standard.double(forKey: DefaultsKey.clipboardClearTimeout)
         let clipboardTimeout = rawClipboardTimeout > 0 ? rawClipboardTimeout : 30
         let cliPathOverride = UserDefaults.standard.string(forKey: DefaultsKey.cliPath)
+        let selectionRaw = UserDefaults.standard.string(forKey: DefaultsKey.passCLISelection)
+        let selectionPreference = PassCLISelectionPreference.resolved(
+            rawValue: selectionRaw,
+            legacyCustomPath: cliPathOverride
+        )
 
         databaseManager = try Self.openDatabase(path: dbPath, passphrase: passphrase)
-        cliService = PassCLIService(cliPath: cliPathOverride?.isEmpty == false ? cliPathOverride : nil)
+        cliService = PassCLIService(
+            preference: selectionPreference,
+            customPath: cliPathOverride?.isEmpty == false ? cliPathOverride : nil
+        )
         searchService = SearchService(databaseManager: databaseManager!)
         clipboardManager = ClipboardManager(autoClearSeconds: clipboardTimeout)
     }
@@ -342,24 +351,32 @@ private extension AppDelegate {
             Task { @MainActor in
                 self?.reloadHotkey()
                 self?.syncCoordinator?.reloadTimerIfNeeded()
-                let cliPathChanged = self?.applyCLIPathOverride() ?? false
+                let cliSelectionChanged = self?.applyCLISelectionPreference() ?? false
                 await self?.sshCoordinator?.reconcile()
                 await self?.runCoordinator?.reconcile()
-                if cliPathChanged {
+                if cliSelectionChanged {
                     await self?.healthCoordinator?.refreshAll()
                 }
             }
         }
     }
 
-    /// Pushes the current `DefaultsKey.cliPath` into `cliService`, returning
+    /// Pushes the current Pass CLI source preference into `cliService`, returning
     /// true iff the resolved path changed. Sequencing matters: coordinators
     /// and the health probe must observe the new value, so this runs before
     /// reconcile() + refreshAll() in the UserDefaults change observer.
-    func applyCLIPathOverride() -> Bool {
+    func applyCLISelectionPreference() -> Bool {
         guard let cliService else { return false }
-        let override = UserDefaults.standard.string(forKey: DefaultsKey.cliPath)
-        return cliService.updateCLISelection(customPath: override)
+        let customPath = UserDefaults.standard.string(forKey: DefaultsKey.cliPath)
+        let rawSelection = UserDefaults.standard.string(forKey: DefaultsKey.passCLISelection)
+        let preference = PassCLISelectionPreference.resolved(
+            rawValue: rawSelection,
+            legacyCustomPath: customPath
+        )
+        return cliService.updateCLISelection(
+            preference: preference,
+            customPath: customPath?.isEmpty == false ? customPath : nil
+        )
     }
 
     func reloadHotkey() {
