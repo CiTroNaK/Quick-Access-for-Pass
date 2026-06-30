@@ -23,7 +23,7 @@ nonisolated struct SkippedSyncItem: Equatable, Sendable {
 
         return """
         # Item ID was not available. Inspect zero-based index \(itemIndex) in the returned items array.
-        \(executable) item list \(shareIdOption) --output json
+        \(executable) item list \(shareIdOption) --filter-state=active --output json
         """
     }
 

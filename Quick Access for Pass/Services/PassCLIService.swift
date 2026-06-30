@@ -115,7 +115,7 @@ actor PassCLIService {
 
     func listItemsForSync(vault: CLIVault, progress: SyncProgressHandler? = nil) async throws -> CLIItemListParseResult {
         await progress?(.vaultStarted(vaultName: vault.name))
-        var arguments = ["item", "list", "--share-id=\(vault.shareId)", "--output", "json"]
+        var arguments = ["item", "list", "--share-id=\(vault.shareId)", "--filter-state=active", "--output", "json"]
         if await supportsShowSecrets() {
             arguments.append("--show-secrets")
         }
