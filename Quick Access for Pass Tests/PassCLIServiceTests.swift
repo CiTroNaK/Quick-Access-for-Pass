@@ -184,6 +184,26 @@ struct PassCLIServiceTests {
         #expect(itemListArguments == ["item", "list", "--share-id=share-1", "--output", "json"])
     }
 
+    @Test("listItemsForSync asks pass-cli for active items only")
+    func listItemsForSyncFiltersActiveItemsAtCLI() async throws {
+        let runner = RecordingPassCLIRunner(versionOutput: "Proton Pass CLI 2.1.0 (47f0458)\n")
+        let service = PassCLIService(cliPath: "/fake/pass-cli", runner: runner)
+        let vault = CLIVault(name: "Personal", vaultId: "vault-1", shareId: "share-1")
+
+        _ = try await service.listItemsForSync(vault: vault)
+
+        let itemListArguments = try #require(await runner.arguments(forCommand: "item", "list"))
+        #expect(itemListArguments == [
+            "item",
+            "list",
+            "--share-id=share-1",
+            "--filter-state=active",
+            "--output",
+            "json",
+            "--show-secrets"
+        ])
+    }
+
     @Test("listItems omits show-secrets when CLI version cannot be parsed")
     func listItemsOmitsShowSecretsForUnparsableCLIVersion() async throws {
         let runner = RecordingPassCLIRunner(versionOutput: "Proton Pass CLI development build\n")

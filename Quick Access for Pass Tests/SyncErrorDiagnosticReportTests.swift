@@ -188,7 +188,7 @@ struct SyncErrorDiagnosticReportTests {
         let command = skipped.inspectCommand(cliSelection: .installed(path: "/opt/homebrew/bin/pass-cli", fallbackReason: nil))
 
         #expect(command.contains("# Item ID was not available. Inspect zero-based index 7 in the returned items array."))
-        #expect(command.contains("/opt/homebrew/bin/pass-cli item list --share-id=share-7 --output json"))
+        #expect(command.contains("/opt/homebrew/bin/pass-cli item list --share-id=share-7 --filter-state=active --output json"))
     }
 
     @Test("sync coordinator helper can build generic presentation from an error")
