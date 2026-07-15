@@ -512,6 +512,16 @@
         }
       }
     },
+    "Alias email is unavailable because this pass-cli version does not expose it." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail aliasu není k dispozici, protože ho tato verze pass-cli nezpřístupňuje."
+          }
+        }
+      }
+    },
     "All locally cached items will be deleted and re-fetched from Proton Pass. Usage counts will be reset." : {
       "localizations" : {
         "cs" : {

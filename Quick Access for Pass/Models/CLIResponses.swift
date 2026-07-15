@@ -134,10 +134,27 @@ nonisolated enum CLIExtraFieldContent: Codable, Sendable {
 
 // MARK: - Tagged Enum for Item Type Content
 
+nonisolated struct CLIAliasContent: Codable, Sendable {
+    let email: String
+
+    enum CodingKeys: String, CodingKey {
+        case email
+    }
+
+    init(email: String = "") {
+        self.email = email
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
+    }
+}
+
 nonisolated enum CLIItemTypeContent: Codable, Sendable {
     case login(CLILoginContent)
     case note
-    case alias
+    case alias(CLIAliasContent)
     case creditCard(CLICreditCardContent)
     case identity(CLIIdentityContent)
     case sshKey(CLISshKeyContent)
@@ -159,7 +176,7 @@ nonisolated enum CLIItemTypeContent: Codable, Sendable {
         } else if container.contains(.Note) {
             self = .note
         } else if container.contains(.Alias) {
-            self = .alias
+            self = .alias(try container.decodeIfPresent(CLIAliasContent.self, forKey: .Alias) ?? CLIAliasContent())
         } else if container.contains(.CreditCard) {
             self = .creditCard(try container.decode(CLICreditCardContent.self, forKey: .CreditCard))
         } else if container.contains(.Identity) {
@@ -184,7 +201,12 @@ nonisolated enum CLIItemTypeContent: Codable, Sendable {
         switch self {
         case .login(let v): try container.encode(v, forKey: .Login)
         case .note: try container.encodeNil(forKey: .Note)
-        case .alias: try container.encodeNil(forKey: .Alias)
+        case .alias(let alias):
+            if alias.email.isEmpty {
+                try container.encodeNil(forKey: .Alias)
+            } else {
+                try container.encode(alias, forKey: .Alias)
+            }
         case .creditCard(let v): try container.encode(v, forKey: .CreditCard)
         case .identity(let v): try container.encode(v, forKey: .Identity)
         case .sshKey(let v): try container.encode(v, forKey: .SshKey)

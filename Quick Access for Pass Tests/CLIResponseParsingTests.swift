@@ -32,6 +32,7 @@ struct ItemTypeTests {
 }
 
 @Suite("CLI Response Parsing Tests")
+// swiftlint:disable type_body_length
 struct CLIResponseParsingTests {
     @Test("parse vault list response")
     func parseVaultList() throws {
@@ -192,10 +193,60 @@ struct CLIResponseParsingTests {
         """.data(using: .utf8)!
 
         let response = try JSONDecoder().decode(CLIItemListResponse.self, from: json)
-        guard case .alias = response.items[0].content.content else {
+        guard case .alias(let alias) = response.items[0].content.content else {
             Issue.record("Expected alias type")
             return
         }
+        #expect(alias.email.isEmpty)
+    }
+
+    @Test("parse alias item with email")
+    func parseAliasItemWithEmail() throws {
+        let json = """
+        {
+          "items": [{
+            "id": "item4",
+            "share_id": "share1",
+            "vault_id": "vault1",
+            "content": {
+              "title": "Shopping Alias",
+              "note": "",
+              "item_uuid": "uuid4",
+              "content": {"Alias": {"email": "shopping@example.com"}},
+              "extra_fields": []
+            },
+            "state": "Active",
+            "flags": [],
+            "create_time": "2025-08-22T17:53:41",
+            "modify_time": "2025-08-22T17:53:41"
+          }]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(CLIItemListResponse.self, from: json)
+        guard case .alias(let alias) = response.items[0].content.content else {
+            Issue.record("Expected alias type")
+            return
+        }
+        #expect(alias.email == "shopping@example.com")
+    }
+
+    @Test("encode alias content")
+    func encodeAliasContent() throws {
+        let emptyData = try JSONEncoder().encode(CLIItemTypeContent.alias(CLIAliasContent()))
+        let emptyObject = try #require(
+            JSONSerialization.jsonObject(with: emptyData) as? [String: Any]
+        )
+        #expect(emptyObject["Alias"] is NSNull)
+
+        let populatedData = try JSONEncoder().encode(
+            CLIItemTypeContent.alias(CLIAliasContent(email: "shopping@example.com"))
+        )
+        let populatedObject = try #require(
+            JSONSerialization.jsonObject(with: populatedData) as? [String: Any]
+        )
+        let aliasObject = try #require(populatedObject["Alias"] as? [String: String])
+        #expect(aliasObject["email"] == "shopping@example.com")
     }
 
     @Test("parse identity item")
@@ -382,3 +433,4 @@ struct CLIResponseParsingTests {
         #expect(response.items[0].state == "Trashed")
     }
 }
+// swiftlint:enable type_body_length

@@ -1,6 +1,17 @@
 import AppKit
 import Foundation
 
+private enum SecretCopyError: LocalizedError {
+    case aliasEmailUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .aliasEmailUnavailable:
+            String(localized: "Alias email is unavailable because this pass-cli version does not expose it.")
+        }
+    }
+}
+
 @MainActor
 extension QuickAccessViewModel {
     func handleAction(_ action: ItemAction, for item: PassItem) {
@@ -151,8 +162,12 @@ extension QuickAccessViewModel {
             clipboardManager.copy(detail.content.note, label: String(localized: "Note copied"))
         case .identity(let identity):
             clipboardManager.copy(identity.email, label: String(localized: "Email copied"))
-        case .alias:
-            clipboardManager.copy(item.title, label: String(localized: "Alias copied"))
+        case .alias(let alias):
+            let aliasEmail = alias.email.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !aliasEmail.isEmpty else {
+                throw SecretCopyError.aliasEmailUnavailable
+            }
+            clipboardManager.copy(aliasEmail, label: String(localized: "Alias copied"))
         case .sshKey(let key):
             clipboardManager.copy(key.publicKey, label: String(localized: "Public key copied"))
         case .wifi(let wifi):

@@ -278,6 +278,65 @@ struct QuickAccessViewModelActionTests {
         #expect(vm.isActionLoading == false)
     }
 
+    @Test("alias copy uses the trimmed email returned by item view")
+    @MainActor func copyAliasUsesTrimmedFetchedEmail() async throws {
+        let runner = try AliasSecretActionRunner(aliasEmail: "  shopping@example.com  ")
+        let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
+        let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
+        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let vm = QuickAccessViewModel(
+            searchService: SearchService(databaseManager: db),
+            cliService: cliService,
+            clipboardManager: clipboard,
+            onDismiss: {}
+        )
+        let item = PassItem(
+            id: "alias1", vaultId: "s1",
+            title: "Alias title", itemType: .alias, subtitle: "",
+            url: nil, hasTOTP: false, state: "Active",
+            createTime: Date(), modifyTime: Date(),
+            useCount: 0, lastUsedAt: nil
+        )
+
+        vm.handleAction(.copyPrimary, for: item)
+        await vm.inFlightCopy?.value
+
+        #expect(clipboard.lastCopiedValue == "shopping@example.com")
+    }
+
+    @Test(
+        "alias copy fails when pass-cli does not return a usable email",
+        arguments: [Optional<String>.none, "", "   "]
+    )
+    @MainActor func copyAliasFailsWithoutUsableFetchedEmail(aliasEmail: String?) async throws {
+        let runner = try AliasSecretActionRunner(aliasEmail: aliasEmail)
+        let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
+        let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
+        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        var dismissed = false
+        let vm = QuickAccessViewModel(
+            searchService: SearchService(databaseManager: db),
+            cliService: cliService,
+            clipboardManager: clipboard,
+            onDismiss: { dismissed = true }
+        )
+        let item = PassItem(
+            id: "alias1", vaultId: "s1",
+            title: "Alias title", itemType: .alias, subtitle: "",
+            url: nil, hasTOTP: false, state: "Active",
+            createTime: Date(), modifyTime: Date(),
+            useCount: 0, lastUsedAt: nil
+        )
+
+        vm.handleAction(.copyPrimary, for: item)
+        await vm.inFlightCopy?.value
+
+        #expect(clipboard.lastCopiedValue == nil)
+        #expect(vm.errorMessage == "Failed: Alias email is unavailable because this pass-cli version does not expose it.")
+        #expect(dismissed == false)
+        #expect(vm.isActionLoading == false)
+    }
+
     @Test("openURL with no URL does not dismiss")
     @MainActor func openURLWithoutURLDoesNotDismiss() throws {
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
@@ -301,6 +360,37 @@ struct QuickAccessViewModelActionTests {
         #expect(tracker.called == false)
         #expect(vm.isActionLoading == false)
         #expect(vm.errorMessage == nil)
+    }
+}
+
+private actor AliasSecretActionRunner: CLIRunning {
+    private let response: Data
+
+    init(aliasEmail: String?) throws {
+        let aliasContent: String
+        if let aliasEmail {
+            let data = try JSONEncoder().encode(aliasEmail)
+            guard let encodedEmail = String(bytes: data, encoding: .utf8) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Invalid alias email JSON"))
+            }
+            aliasContent = "{\"email\":" + encodedEmail + "}"
+        } else {
+            aliasContent = "null"
+        }
+        response = Data("""
+        {"item":{"id":"alias1","share_id":"s1","vault_id":"v1",
+        "content":{"title":"Fetched Alias","note":"","item_uuid":"u-alias",
+        "content":{"Alias":\(aliasContent)},"extra_fields":[]},"state":"Active","flags":[],
+        "create_time":"2025-01-01T00:00:00","modify_time":"2025-01-01T00:00:00"}}
+        """.utf8)
+    }
+
+    func run(
+        executablePath: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) async throws -> Data {
+        response
     }
 }
 
