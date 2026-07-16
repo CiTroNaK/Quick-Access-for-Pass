@@ -9,7 +9,7 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/opt/homebrew/bin/pass-cli",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: "/usr/bin/pass-cli",
             architecture: .arm64
@@ -26,7 +26,7 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/opt/homebrew/bin/pass-cli",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: nil,
             architecture: .arm64
@@ -42,7 +42,7 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/usr/local/bin/pass-cli",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: nil,
             architecture: .arm64
@@ -60,7 +60,7 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 localPath,
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: nil,
             architecture: .arm64
@@ -76,7 +76,7 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/usr/bin/pass-cli",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: "/usr/bin/pass-cli",
             architecture: .arm64
@@ -90,7 +90,7 @@ struct PassCLIResolverTests {
     @Test("arm64 bundled fallback is selected when no system CLI exists")
     func arm64BundledFallback() {
         let resolver = makeResolver(
-            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"],
+            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"],
             whichPath: nil,
             architecture: .arm64
         )
@@ -98,8 +98,8 @@ struct PassCLIResolverTests {
         let selection = resolver.resolve(customPath: nil)
 
         #expect(selection == .bundled(
-            path: "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64",
-            version: "2.2.1",
+            path: "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64",
+            version: "2.2.3",
             architecture: .arm64,
             requested: .latest,
             fallbackReason: nil
@@ -109,7 +109,7 @@ struct PassCLIResolverTests {
     @Test("x86_64 bundled fallback is selected for x86_64 process architecture")
     func x86BundledFallback() {
         let resolver = makeResolver(
-            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-x86_64"],
+            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-x86_64"],
             whichPath: nil,
             architecture: .x8664
         )
@@ -117,8 +117,8 @@ struct PassCLIResolverTests {
         let selection = resolver.resolve(customPath: nil)
 
         #expect(selection == .bundled(
-            path: "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-x86_64",
-            version: "2.2.1",
+            path: "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-x86_64",
+            version: "2.2.3",
             architecture: .x8664,
             requested: .latest,
             fallbackReason: nil
@@ -140,11 +140,11 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/opt/homebrew/bin/pass-cli",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: nil,
             architecture: .arm64,
-            manifest: .init(versions: [.init(version: "2.2.1")])
+            manifest: .init(versions: [.init(version: "2.2.3")])
         )
 
         let selection = resolver.resolve(preference: .auto, customPath: nil)
@@ -155,17 +155,17 @@ struct PassCLIResolverTests {
     @Test("installed selection falls back to auto when selected path is missing")
     func missingInstalledSelectionFallsBackToAuto() {
         let resolver = makeResolver(
-            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"],
+            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"],
             whichPath: nil,
             architecture: .arm64,
-            manifest: .init(versions: [.init(version: "2.2.1")])
+            manifest: .init(versions: [.init(version: "2.2.3")])
         )
 
         let selection = resolver.resolve(preference: .installed(path: "/missing/pass-cli"), customPath: nil)
 
         #expect(selection == .bundled(
-            path: "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64",
-            version: "2.2.1",
+            path: "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64",
+            version: "2.2.3",
             architecture: .arm64,
             requested: .latest,
             fallbackReason: .missingInstalled(path: "/missing/pass-cli")
@@ -177,16 +177,16 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-arm64",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: nil,
             architecture: .arm64,
-            manifest: .init(versions: [.init(version: "2.1.4"), .init(version: "2.2.1")])
+            manifest: .init(versions: [.init(version: "2.1.4"), .init(version: "2.2.3")])
         )
 
         let selection = resolver.resolve(preference: .bundled(.latest), customPath: nil)
 
-        #expect(selection.path.hasSuffix("/ProtonPassCLI/2.2.1/pass-cli-arm64"))
+        #expect(selection.path.hasSuffix("/ProtonPassCLI/2.2.3/pass-cli-arm64"))
     }
 
     @Test("missing exact bundled version falls back through auto")
@@ -194,11 +194,11 @@ struct PassCLIResolverTests {
         let resolver = makeResolver(
             executablePaths: [
                 "/opt/homebrew/bin/pass-cli",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ],
             whichPath: nil,
             architecture: .arm64,
-            manifest: .init(versions: [.init(version: "2.2.1")])
+            manifest: .init(versions: [.init(version: "2.2.3")])
         )
 
         let selection = resolver.resolve(preference: .bundled(.version("2.1.4")), customPath: nil)
@@ -212,10 +212,10 @@ struct PassCLIResolverTests {
     @Test("custom selection is authoritative and does not fallback")
     func customSelectionIsAuthoritative() {
         let resolver = makeResolver(
-            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"],
+            executablePaths: ["/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"],
             whichPath: nil,
             architecture: .arm64,
-            manifest: .init(versions: [.init(version: "2.2.1")])
+            manifest: .init(versions: [.init(version: "2.2.3")])
         )
 
         let selection = resolver.resolve(preference: .custom, customPath: "/missing/custom-pass-cli")
@@ -227,7 +227,7 @@ struct PassCLIResolverTests {
         executablePaths: Set<String>,
         whichPath: String?,
         architecture: PassCLIArchitecture,
-        manifest: PassCLIBundledManifest = .init(versions: [.init(version: "2.2.1")])
+        manifest: PassCLIBundledManifest = .init(versions: [.init(version: "2.2.3")])
     ) -> PassCLIResolver {
         PassCLIResolver(
             fileSystem: StubExecutableFileSystem(executablePaths: executablePaths),

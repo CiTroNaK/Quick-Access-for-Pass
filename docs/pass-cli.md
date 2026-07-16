@@ -8,8 +8,8 @@ If you manage apps with Homebrew, you can install Quick Access that way and fetc
 
 Signed releases include Proton's official macOS CLI binaries in versioned helper directories inside the app bundle:
 
-- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64`
-- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-x86_64`
+- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64`
+- `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-x86_64`
 - `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-arm64`
 - `Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-x86_64`
 
@@ -63,8 +63,8 @@ Current bundled Proton Pass CLI assets:
 
 | Version | Architecture | Upstream asset | SHA256 |
 | --- | --- | --- | --- |
-| 2.2.1 | Apple Silicon | `pass-cli-macos-aarch64` | `fafd72f20c45cb816793f48d8623ce6eb9d06478431923767d36776fde8b450e` |
-| 2.2.1 | Intel | `pass-cli-macos-x86_64` | `f65a64a61e90baea7ba256d9b14720168f0440f5b3d630d16d27df35b455479a` |
+| 2.2.3 | Apple Silicon | `pass-cli-macos-aarch64` | `8318e5af39d899780214ec62c6d1c2cfdc7628bb2036dba8f72af74c9a63c732` |
+| 2.2.3 | Intel | `pass-cli-macos-x86_64` | `2babdfaf4badf1c428d66acd784377e5a9312c8a35b1fb6dea19e7eb051ae839` |
 | 2.1.4 | Apple Silicon | `pass-cli-macos-aarch64` | `8b579bf452c346da57349a5e72c3839c466e064179b9383f481eefbfa8a65a44` |
 | 2.1.4 | Intel | `pass-cli-macos-x86_64` | `ee0f41d3a1c26022e3f99aff6f2280ec3e0f0e1c443c2c58652c26d3456dc235` |
 
@@ -73,7 +73,7 @@ Current bundled Proton Pass CLI assets:
 You can verify the vendored files match Proton's release assets:
 
 ```bash
-VERSION=2.2.1
+VERSION=2.2.3
 curl -L -o /tmp/pass-cli-macos-aarch64 \
   "https://github.com/protonpass/pass-cli/releases/download/$VERSION/pass-cli-macos-aarch64"
 curl -L -o /tmp/pass-cli-macos-x86_64 \
