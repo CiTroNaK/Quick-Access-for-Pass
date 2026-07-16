@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -141,8 +141,10 @@ jobs:
 
       - name: Verify bundled Proton Pass CLI helpers
         run: |
-          "build/export/$APP_NAME/Contents/Helpers/pass-cli-arm64" --version
-          "build/export/$APP_NAME/Contents/Helpers/pass-cli-x86_64" --version
+          CLI_RESOURCES_DIR="build/export/$APP_NAME/Contents/Resources/ProtonPassCLI"
+          LATEST_VERSION="$(find "$CLI_RESOURCES_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort -V | tail -n 1)"
+          "$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-arm64" --version
+          "$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-x86_64" --version
 
       - name: Notarize app
         env:

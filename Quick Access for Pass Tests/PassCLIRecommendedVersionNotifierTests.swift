@@ -19,14 +19,14 @@ struct PassCLIRecommendedVersionNotifierTests {
         let notifier = PassCLIRecommendedVersionNotifier(poster: poster)
         let warning = PassCLIRecommendedVersionWarning(
             activeVersion: PassCLIVersion(major: 2, minor: 1, patch: 4),
-            recommendedVersion: PassCLIVersion(major: 2, minor: 2, patch: 1)
+            recommendedVersion: PassCLIVersion(major: 2, minor: 2, patch: 3)
         )
 
         notifier.postStartupWarningIfNeeded(warning)
         notifier.postStartupWarningIfNeeded(warning)
 
         #expect(poster.messages.count == 1)
-        #expect(poster.messages.first?.body.contains("2.2.1") == true)
+        #expect(poster.messages.first?.body.contains("2.2.3") == true)
         #expect(poster.messages.first?.body.contains("GitHub issue") == true)
     }
 

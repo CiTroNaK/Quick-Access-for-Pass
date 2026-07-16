@@ -116,12 +116,12 @@ struct PassCLIServiceTests {
     func serviceInitializesFromTypedSelectionPreference() {
         let resolver = PassCLIResolver(
             fileSystem: StubExecutableFileSystem(executablePaths: [
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.1/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
             ]),
             which: StubWhichResolver(path: nil),
             bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
             architecture: .arm64,
-            manifest: .init(versions: [.init(version: "2.2.1")])
+            manifest: .init(versions: [.init(version: "2.2.3")])
         )
 
         let service = PassCLIService(
@@ -130,7 +130,7 @@ struct PassCLIServiceTests {
             resolver: resolver
         )
 
-        #expect(service.cliSelection.path.hasSuffix("/ProtonPassCLI/2.2.1/pass-cli-arm64"))
+        #expect(service.cliSelection.path.hasSuffix("/ProtonPassCLI/2.2.3/pass-cli-arm64"))
     }
 
     @Test("updating selection preference invalidates show secrets cache when path changes")

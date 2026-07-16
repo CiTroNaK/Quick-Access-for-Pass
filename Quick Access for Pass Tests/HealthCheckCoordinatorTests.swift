@@ -83,12 +83,12 @@ struct HealthCheckCoordinatorTests {
         let h = makeHarness()
         h.cliService.updateCLISelection(preference: .bundled(.version("2.1.4")), customPath: nil)
         h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .ok, identity: nil, version: "2.1.4")
-        h.cliStore.latestBundledVersion = PassCLIVersion(major: 2, minor: 2, patch: 1)
+        h.cliStore.latestBundledVersion = PassCLIVersion(major: 2, minor: 2, patch: 3)
 
         await h.coordinator.tickCLI()
 
         #expect(h.cliStore.recommendedVersionWarning?.activeVersion.description == "2.1.4")
-        #expect(h.cliStore.recommendedVersionWarning?.recommendedVersion.description == "2.2.1")
+        #expect(h.cliStore.recommendedVersionWarning?.recommendedVersion.description == "2.2.3")
     }
 
     @Test("cliTick clears recommended version warning when active CLI is equal to latest bundled")
@@ -96,10 +96,10 @@ struct HealthCheckCoordinatorTests {
         let h = makeHarness()
         h.cliStore.recommendedVersionWarning = .init(
             activeVersion: PassCLIVersion(major: 2, minor: 1, patch: 4),
-            recommendedVersion: PassCLIVersion(major: 2, minor: 2, patch: 1)
+            recommendedVersion: PassCLIVersion(major: 2, minor: 2, patch: 3)
         )
-        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .ok, identity: nil, version: "2.2.1")
-        h.cliStore.latestBundledVersion = PassCLIVersion(major: 2, minor: 2, patch: 1)
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .ok, identity: nil, version: "2.2.3")
+        h.cliStore.latestBundledVersion = PassCLIVersion(major: 2, minor: 2, patch: 3)
 
         await h.coordinator.tickCLI()
 
