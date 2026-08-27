@@ -41,60 +41,54 @@ nonisolated enum PassCLIHealth: Sendable, Equatable {
     case failed(reason: String)
 }
 
-/// On-demand pass-cli login health check. Runs a cheap login-gated command and classifies
-/// the result. NOT called from the periodic tick — only at app launch, wake from sleep,
-/// and when the Settings window becomes key. Uses `pass-cli test` — the purpose-built
-/// connectivity probe with no side effects.
+/// Authenticated CLI health and identity decoded from the same command response.
+nonisolated struct PassCLIAuthenticatedProbeOutcome: Sendable, Equatable {
+    let health: PassCLIHealth
+    let identity: PassCLIIdentity?
+}
+
+/// Runs and classifies Pass CLI health and metadata probes.
 nonisolated enum PassCLISanityCheck {
     static let timeoutSeconds: TimeInterval = 5
 
-    static func checkLoginStatus(cliPath: String, runner: CLIRunning) async -> PassCLIHealth {
-        do {
-            _ = try await runner.run(
-                executablePath: cliPath,
-                arguments: ["test"],
-                timeout: timeoutSeconds
-            )
-            return .ok
-        } catch CLIError.notInstalled {
-            return .notInstalled
-        } catch let error as CLIError {
-            if error.isAuthError {
-                return .notLoggedIn
-            }
-            return .failed(reason: Self.sanitize(error.localizedDescription))
-        } catch {
-            return .failed(reason: Self.sanitize(error.localizedDescription))
-        }
-    }
-
-    /// Strips ANSI escape codes and truncates to a reasonable length for UI display.
-    private static func sanitize(_ text: String) -> String {
-        let stripped = text.replacingOccurrences(
-            of: "\\x1B\\[[0-9;]*[a-zA-Z]|\\[\\d+m",
-            with: "",
-            options: .regularExpression
-        )
-        let trimmed = stripped.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.count > 120 {
-            return String(trimmed.prefix(120)) + "..."
-        }
-        return trimmed
-    }
-
-    /// Returns the current account identity from `pass-cli info --output json`,
-    /// or nil on any failure. Cosmetic only — never blocks or fails health signaling.
-    static func fetchIdentity(cliPath: String, runner: CLIRunning) async -> PassCLIIdentity? {
+    /// Checks authenticated CLI health and returns identity metadata from the same response.
+    static func checkAuthenticatedHealth(
+        cliPath: String,
+        runner: CLIRunning
+    ) async -> PassCLIAuthenticatedProbeOutcome {
         do {
             let data = try await runner.run(
                 executablePath: cliPath,
                 arguments: ["info", "--output", "json"],
                 timeout: timeoutSeconds
             )
-            return try JSONDecoder().decode(PassCLIIdentity.self, from: data)
+            return PassCLIAuthenticatedProbeOutcome(
+                health: .ok,
+                identity: try? JSONDecoder().decode(PassCLIIdentity.self, from: data)
+            )
+        } catch CLIError.notInstalled {
+            return PassCLIAuthenticatedProbeOutcome(health: .notInstalled, identity: nil)
+        } catch let error as CLIError {
+            let health: PassCLIHealth = if error.isAuthError {
+                .notLoggedIn
+            } else {
+                .failed(reason: Self.failureReason(for: error))
+            }
+            return PassCLIAuthenticatedProbeOutcome(health: health, identity: nil)
         } catch {
-            return nil
+            return PassCLIAuthenticatedProbeOutcome(
+                health: .failed(reason: Self.failureReason(for: error)),
+                identity: nil
+            )
         }
+    }
+
+    /// Returns a fixed, non-sensitive reason suitable for user-visible and public-log surfaces.
+    private static func failureReason(for error: Error) -> String {
+        if case CLIError.timeout = error {
+            return String(localized: "Pass CLI health check timed out")
+        }
+        return String(localized: "Pass CLI health check failed")
     }
 
     /// Returns the CLI version string from `pass-cli --version`, trimmed and stripped

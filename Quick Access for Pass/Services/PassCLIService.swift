@@ -35,8 +35,6 @@ nonisolated enum CLIError: Error, LocalizedError {
 }
 
 actor PassCLIService {
-    private static let minimumShowSecretsVersion = PassCLIVersion(major: 2, minor: 0, patch: 3)
-
     private nonisolated let selectionStore: OSAllocatedUnfairLock<PassCLISelection>
     private let resolver: PassCLIResolver
     private let timeoutSeconds: Double = 300
@@ -204,7 +202,7 @@ actor PassCLIService {
                     timeout: timeoutSeconds
                 )
                 let output = String(bytes: data, encoding: .utf8)
-                return PassCLIVersion(output).map { $0 >= Self.minimumShowSecretsVersion } ?? false
+                return PassCLICapabilities(rawVersionString: output).supportsShowSecrets
             } catch {
                 return false
             }

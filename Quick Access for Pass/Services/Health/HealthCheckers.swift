@@ -11,7 +11,7 @@ nonisolated struct PassCLIProbeOutcome: Sendable, Equatable {
     let version: String?
 }
 
-/// Probes pass-cli login state and (on `.ok`) fetches identity and version.
+/// Probes authenticated Pass CLI health and identity while fetching version metadata independently.
 /// Sole source of CLI-derived data for `HealthCheckCoordinator.tickCLI()`.
 protocol PassCLIHealthChecking: Sendable {
     func check(cliPath: String) async -> PassCLIProbeOutcome
@@ -40,21 +40,19 @@ nonisolated struct LivePassCLIHealthChecker: PassCLIHealthChecking {
     }
 
     func check(cliPath: String) async -> PassCLIProbeOutcome {
-        let health = await PassCLISanityCheck.checkLoginStatus(
-            cliPath: cliPath, runner: runner
-        )
-        guard health == .ok else {
-            return PassCLIProbeOutcome(health: health, identity: nil, version: nil)
-        }
-        async let fetchedIdentity = PassCLISanityCheck.fetchIdentity(
-            cliPath: cliPath, runner: runner
+        async let authenticatedProbe = PassCLISanityCheck.checkAuthenticatedHealth(
+            cliPath: cliPath,
+            runner: runner
         )
         async let fetchedVersion = PassCLISanityCheck.fetchVersion(
-            cliPath: cliPath, runner: runner
+            cliPath: cliPath,
+            runner: runner
         )
+
+        let authenticatedOutcome = await authenticatedProbe
         return PassCLIProbeOutcome(
-            health: health,
-            identity: await fetchedIdentity,
+            health: authenticatedOutcome.health,
+            identity: authenticatedOutcome.identity,
             version: await fetchedVersion
         )
     }

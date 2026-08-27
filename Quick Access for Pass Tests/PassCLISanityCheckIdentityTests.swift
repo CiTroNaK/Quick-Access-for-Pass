@@ -1,19 +1,23 @@
-import Testing
 import Foundation
+import Testing
 @testable import Quick_Access_for_Pass
 
 struct PassCLISanityCheckIdentityTests {
-
     private struct FakeRunner: CLIRunning {
         let behavior: @Sendable (_ args: [String]) async throws -> Data
-        func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
+
+        func run(
+            executablePath: String,
+            arguments: [String],
+            timeout: TimeInterval
+        ) async throws -> Data {
             try await behavior(arguments)
         }
     }
 
-    // MARK: fetchIdentity
+    // MARK: Authenticated health identity
 
-    @Test func fetchIdentityDecodesValidJSON() async {
+    @Test func authenticatedHealthDecodesValidIdentityJSON() async {
         let json = """
         {
           "release_track": "stable",
@@ -26,7 +30,14 @@ struct PassCLISanityCheckIdentityTests {
             #expect(args == ["info", "--output", "json"])
             return Data(json.utf8)
         }
-        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
+
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(
+            cliPath: "/fake/pass-cli",
+            runner: runner
+        )
+        let identity = outcome.identity
+
+        #expect(outcome.health == .ok)
         #expect(identity?.username == "johndoe")
         #expect(identity?.email == "john@example.com")
         #expect(identity?.releaseTrack == "stable")
@@ -35,7 +46,7 @@ struct PassCLISanityCheckIdentityTests {
         #expect(identity?.isPersonalAccessTokenSession == false)
     }
 
-    @Test func fetchIdentityDecodesPATOnlyIdentityJSON() async {
+    @Test func authenticatedHealthDecodesPATOnlyIdentityJSON() async {
         let json = """
         {
           "username": "Personal Access Token"
@@ -45,7 +56,14 @@ struct PassCLISanityCheckIdentityTests {
             #expect(args == ["info", "--output", "json"])
             return Data(json.utf8)
         }
-        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
+
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(
+            cliPath: "/fake/pass-cli",
+            runner: runner
+        )
+        let identity = outcome.identity
+
+        #expect(outcome.health == .ok)
         #expect(identity?.username == "Personal Access Token")
         #expect(identity?.email == nil)
         #expect(identity?.releaseTrack == nil)
@@ -53,7 +71,7 @@ struct PassCLISanityCheckIdentityTests {
         #expect(identity?.displayName == "Personal Access Token")
     }
 
-    @Test func fetchIdentityDecodesPATNameJSON() async {
+    @Test func authenticatedHealthDecodesPATNameJSON() async {
         let json = """
         {
           "release_track": "stable",
@@ -65,7 +83,14 @@ struct PassCLISanityCheckIdentityTests {
             #expect(args == ["info", "--output", "json"])
             return Data(json.utf8)
         }
-        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
+
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(
+            cliPath: "/fake/pass-cli",
+            runner: runner
+        )
+        let identity = outcome.identity
+
+        #expect(outcome.health == .ok)
         #expect(identity?.username == nil)
         #expect(identity?.email == nil)
         #expect(identity?.releaseTrack == "stable")
@@ -74,19 +99,29 @@ struct PassCLISanityCheckIdentityTests {
         #expect(identity?.isPersonalAccessTokenSession == true)
     }
 
-    @Test func fetchIdentityReturnsNilOnInvalidJSON() async {
+    @Test func authenticatedHealthKeepsOkStatusOnInvalidJSON() async {
         let runner = FakeRunner { _ in Data("not json".utf8) }
-        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
-        #expect(identity == nil)
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(
+            cliPath: "/fake/pass-cli",
+            runner: runner
+        )
+
+        #expect(outcome.health == .ok)
+        #expect(outcome.identity == nil)
     }
 
-    @Test func fetchIdentityReturnsNilOnRunnerError() async {
+    @Test func authenticatedHealthReturnsNotInstalledOnRunnerError() async {
         let runner = FakeRunner { _ in throw CLIError.notInstalled }
-        let identity = await PassCLISanityCheck.fetchIdentity(cliPath: "/fake/pass-cli", runner: runner)
-        #expect(identity == nil)
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(
+            cliPath: "/fake/pass-cli",
+            runner: runner
+        )
+
+        #expect(outcome.health == .notInstalled)
+        #expect(outcome.identity == nil)
     }
 
-    // MARK: fetchVersion
+    // MARK: Version
 
     @Test func fetchVersionStripsPrefixAndWhitespace() async {
         let runner = FakeRunner { args in

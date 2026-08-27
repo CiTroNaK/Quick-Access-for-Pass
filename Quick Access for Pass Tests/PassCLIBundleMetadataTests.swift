@@ -20,6 +20,33 @@ struct PassCLIBundleMetadataTests {
     }
 
     @Test
+    func productionManifestPinsPassCLI233Assets() throws {
+        let manifestData = try Data(contentsOf: repositoryRoot
+            .appendingPathComponent("Quick Access for Pass/Resources/proton-pass-cli.json"))
+        let manifest = try JSONDecoder().decode(Manifest.self, from: manifestData)
+        let version = try #require(manifest.versions.first { $0.version == "2.3.3" })
+
+        #expect(version.releaseURL == "https://github.com/protonpass/pass-cli/releases/tag/2.3.3")
+        #expect(version.sourceURL == "https://github.com/protonpass/pass-cli/tree/2.3.3")
+        #expect(
+            version.assets["macos-aarch64"]?.url
+                == "https://github.com/protonpass/pass-cli/releases/download/2.3.3/pass-cli-macos-aarch64"
+        )
+        #expect(
+            version.assets["macos-aarch64"]?.sha256
+                == "3281587ac9c50ae2f1604ba75e9d1d39b6debb221b65a6cc56f64d626ede3dbc"
+        )
+        #expect(
+            version.assets["macos-x86_64"]?.url
+                == "https://github.com/protonpass/pass-cli/releases/download/2.3.3/pass-cli-macos-x86_64"
+        )
+        #expect(
+            version.assets["macos-x86_64"]?.sha256
+                == "275f6159f63d152ecdd9d4e2969ef515291619005e0d30ab762daee26081621c"
+        )
+    }
+
+    @Test
     func licenseNoticeCoversEveryBundledVersionAndAsset() throws {
         let manifestData = try Data(contentsOf: repositoryRoot
             .appendingPathComponent("Quick Access for Pass/Resources/proton-pass-cli.json"))

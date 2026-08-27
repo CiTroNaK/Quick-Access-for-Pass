@@ -29,7 +29,7 @@ struct PassCLIDiscoveryTests {
         #expect(candidates.map(\.displayVersion) == ["2.2.1", "2.2.1"])
     }
 
-    @Test("production manifest ships 2.2.3 and retains 2.1.4")
+    @Test("production manifest ships 2.3.3 and retains rollback versions")
     func productionManifestVersions() {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -41,7 +41,7 @@ struct PassCLIDiscoveryTests {
 
         let manifest = PassCLIBundledManifest.load(from: manifestURL)
 
-        #expect(manifest.versions.map(\.version) == ["2.1.4", "2.2.3"])
+        #expect(manifest.versions.map(\.version) == ["2.1.4", "2.2.3", "2.3.3"])
     }
 
     @Test("discovers bundled versions newest first for current architecture")
@@ -49,20 +49,22 @@ struct PassCLIDiscoveryTests {
         let discovery = PassCLIDiscovery(
             fileSystem: StubExecutableFileSystem(executablePaths: [
                 "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-arm64",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64",
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.3.3/pass-cli-arm64"
             ]),
             which: StubWhichResolver(path: nil),
             bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
             architecture: .arm64,
             manifest: .init(versions: [
                 .init(version: "2.1.4"),
-                .init(version: "2.2.3")
+                .init(version: "2.2.3"),
+                .init(version: "2.3.3")
             ])
         )
 
         let bundled = discovery.bundledCandidates()
 
-        #expect(bundled.map(\.version.description) == ["2.2.3", "2.1.4"])
+        #expect(bundled.map(\.version.description) == ["2.3.3", "2.2.3", "2.1.4"])
         #expect(bundled.first?.isLatest == true)
     }
 
@@ -71,18 +73,21 @@ struct PassCLIDiscoveryTests {
         let discovery = PassCLIDiscovery(
             fileSystem: StubExecutableFileSystem(executablePaths: [
                 "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.1.4/pass-cli-arm64",
-                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64"
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.2.3/pass-cli-arm64",
+                "/Applications/Quick Access for Pass.app/Contents/Resources/ProtonPassCLI/2.3.3/pass-cli-arm64"
             ]),
             which: StubWhichResolver(path: nil),
             bundleURL: URL(fileURLWithPath: "/Applications/Quick Access for Pass.app"),
             architecture: .arm64,
             manifest: .init(versions: [
                 .init(version: "2.1.4"),
-                .init(version: "2.2.3")
+                .init(version: "2.2.3"),
+                .init(version: "2.3.3")
             ])
         )
 
-        #expect(discovery.resolveBundled(.latest)?.version.description == "2.2.3")
+        #expect(discovery.resolveBundled(.latest)?.version.description == "2.3.3")
+        #expect(discovery.resolveBundled(.version("2.2.3"))?.version.description == "2.2.3")
         #expect(discovery.resolveBundled(.version("2.1.4"))?.version.description == "2.1.4")
         #expect(discovery.resolveBundled(.version("9.9.9")) == nil)
     }
