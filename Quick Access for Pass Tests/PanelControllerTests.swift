@@ -52,4 +52,38 @@ struct PanelControllerTests {
 
         #expect(hideCount == 1)
     }
+
+    @Test("Ordinary hide restores the previous application")
+    func ordinaryHideRestoresPreviousApplication() {
+        let previousApplication = NSRunningApplication.current
+        var activatedProcessIdentifiers: [pid_t] = []
+        let controller = PanelController(
+            frontmostApplication: { previousApplication },
+            activateApplication: { activatedProcessIdentifiers.append($0.processIdentifier) }
+        )
+        controller.show()
+
+        controller.hide()
+
+        #expect(activatedProcessIdentifiers == [previousApplication.processIdentifier])
+    }
+
+    @Test(
+        "Window transition defers previous-application restoration",
+        .bug("https://github.com/CiTroNaK/Quick-Access-for-Pass/issues/18")
+    )
+    func windowTransitionDefersPreviousApplicationRestoration() {
+        let previousApplication = NSRunningApplication.current
+        var activatedProcessIdentifiers: [pid_t] = []
+        let controller = PanelController(
+            frontmostApplication: { previousApplication },
+            activateApplication: { activatedProcessIdentifiers.append($0.processIdentifier) }
+        )
+        controller.show()
+
+        let deferredApplication = controller.hideForWindowTransition()
+
+        #expect(deferredApplication?.processIdentifier == previousApplication.processIdentifier)
+        #expect(activatedProcessIdentifiers.isEmpty)
+    }
 }

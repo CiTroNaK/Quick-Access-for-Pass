@@ -7,6 +7,8 @@ private let defaultShowLargeTypeKeyCode = 36
 private let defaultShowLargeTypeModifiers = Int(NSEvent.ModifierFlags.shift.rawValue)
 
 struct SettingsView: View {
+    let onWindowAvailable: @MainActor (NSWindow) -> Void
+
     @AppStorage(DefaultsKey.clipboardClearTimeout) var clipboardClearTimeout: Double = 30
     @AppStorage(DefaultsKey.concealFromClipboardManagers) var concealFromClipboardManagers: Bool = true
     @AppStorage(DefaultsKey.searchClearTimeout) var searchClearTimeout: Double = 60
@@ -94,7 +96,7 @@ struct SettingsView: View {
         }
         .frame(width: 480)
         .background {
-            SettingsWindowTitleSetter()
+            SettingsWindowObserver(onWindowAvailable: onWindowAvailable)
         }
     }
 }

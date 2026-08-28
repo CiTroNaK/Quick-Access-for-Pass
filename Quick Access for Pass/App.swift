@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var panelController: PanelController?
     @ObservationIgnored private var largeTypeWindowController: LargeTypeWindowController?
     @ObservationIgnored var syncIssueWindowController: SyncIssueWindowController?
+    @ObservationIgnored var settingsWindowCoordinator = SettingsWindowCoordinator()
     @ObservationIgnored private var statusBarController: StatusBarController?
     @ObservationIgnored private var hotkeyManager: HotkeyManager?
     @ObservationIgnored var viewModel: QuickAccessViewModel?
@@ -332,11 +333,7 @@ private extension AppDelegate {
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
             Task { @MainActor in
-                guard let pc = self?.panelController,
-                      pc.isVisible,
-                      !pc.isShowingTransition,
-                      !pc.isOwnWindow(window) else { return }
-                pc.hide()
+                self?.handleWindowDidBecomeKey(window)
             }
         }
     }

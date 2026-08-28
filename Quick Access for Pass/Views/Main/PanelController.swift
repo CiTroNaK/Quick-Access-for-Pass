@@ -103,6 +103,8 @@ final class PanelController {
     private var eventMonitor: Any?
     private var keyMonitor: Any?
     private var previousApp: NSRunningApplication?
+    private let frontmostApplication: () -> NSRunningApplication?
+    private let activateApplication: (NSRunningApplication) -> Void
     private var ownedAuxiliaryWindows: [ObjectIdentifier: WeakWindowBox] = [:]
     /// Brief guard to ignore spurious `didBecomeKeyNotification` during `show()`.
     private(set) var isShowingTransition = false
@@ -125,8 +127,17 @@ final class PanelController {
     /// Return `true` to consume the event, `false` to pass it through.
     var onKeyDown: ((UInt16, NSEvent.ModifierFlags) -> Bool)?
 
-    init() {
+    init(
+        frontmostApplication: @escaping () -> NSRunningApplication? = {
+            NSWorkspace.shared.frontmostApplication
+        },
+        activateApplication: @escaping (NSRunningApplication) -> Void = { application in
+            application.activate()
+        }
+    ) {
         self.panel = QuickAccessPanel()
+        self.frontmostApplication = frontmostApplication
+        self.activateApplication = activateApplication
     }
 
     func registerOwnedWindow(_ window: NSWindow) {
@@ -151,7 +162,7 @@ final class PanelController {
     }
 
     func show() {
-        previousApp = NSWorkspace.shared.frontmostApplication
+        previousApp = frontmostApplication()
         isShowingTransition = true
         panel.centerOnScreen()
         panel.makeKeyAndOrderFront(nil)
@@ -189,7 +200,22 @@ final class PanelController {
     }
 
     func hide(ignoringBlock: Bool = false) {
-        if !ignoringBlock, shouldBlockHide?() == true { return }
+        hide(ignoringBlock: ignoringBlock, restoringPreviousApplication: true)
+    }
+
+    /// Hides the panel while deferring restoration of the previously active application.
+    ///
+    /// - Returns: The application that should regain focus after the destination window closes.
+    func hideForWindowTransition() -> NSRunningApplication? {
+        hide(ignoringBlock: false, restoringPreviousApplication: false)
+    }
+
+    @discardableResult
+    private func hide(
+        ignoringBlock: Bool,
+        restoringPreviousApplication: Bool
+    ) -> NSRunningApplication? {
+        if !ignoringBlock, shouldBlockHide?() == true { return nil }
         isShowingTransition = false
         onHideAuxiliary?()
         ownedAuxiliaryWindows.removeAll()
@@ -202,9 +228,13 @@ final class PanelController {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
         }
-        previousApp?.activate()
+        let applicationToRestore = previousApp
+        if restoringPreviousApplication, let applicationToRestore {
+            activateApplication(applicationToRestore)
+        }
         previousApp = nil
         onHide?()
+        return applicationToRestore
     }
 
     private func purgeReleasedOwnedWindows() {
