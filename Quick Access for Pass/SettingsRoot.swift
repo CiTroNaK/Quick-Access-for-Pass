@@ -4,7 +4,9 @@ struct SettingsRoot: View {
     let appDelegate: AppDelegate
 
     var body: some View {
-        SettingsView()
+        SettingsView(onWindowAvailable: { window in
+            appDelegate.settingsWindowCoordinator.observeSettingsWindow(window)
+        })
             .environment(appDelegate.healthStore)
             .environment(appDelegate.passCLIStatusStore)
             .environment(\.databaseManager, appDelegate.databaseManager)

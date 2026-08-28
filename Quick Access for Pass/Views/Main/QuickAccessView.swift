@@ -217,14 +217,6 @@ struct QuickAccessView: View {
             NotificationCenter.default.post(name: .refreshRequested, object: nil)
             return .handled
         }
-        .onKeyPress(keys: [","]) { keyPress in
-            guard keyPress.modifiers.contains(.command) else { return .ignored }
-            appDelegate.recordActivity()
-            onDismiss()
-            NSApp.activate()
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            return .handled
-        }
         .onChange(of: viewModel.errorMessage) { _, newValue in
             if let error = newValue {
                 AccessibilityNotification.Announcement(error).post()
@@ -249,14 +241,18 @@ struct QuickAccessView: View {
             viewModel.requestPassCLILogin()
         case .updatePAT:
             appDelegate.selectPassCLISettingsTab()
-            onDismiss()
-            NSApp.activate()
-            openSettings()
+            presentSettings()
         case .showSyncIssues, .showSkippedItems:
             appDelegate.showSyncIssueWindow()
         case .itemAction, .showDetail, .copyError, .dismissError:
             return
         }
+    }
+
+    @MainActor
+    private func presentSettings() {
+        appDelegate.prepareToOpenSettings()
+        openSettings()
     }
 
     @MainActor
