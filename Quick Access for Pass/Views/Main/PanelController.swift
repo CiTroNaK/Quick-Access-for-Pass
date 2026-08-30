@@ -199,6 +199,13 @@ final class PanelController {
         }
     }
 
+    /// Reclaims keyboard focus after transient system UI while preserving the panel session.
+    func reclaimKeyboardFocus() {
+        guard panel.isVisible else { return }
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
     func hide(ignoringBlock: Bool = false) {
         hide(ignoringBlock: ignoringBlock, restoringPreviousApplication: true)
     }

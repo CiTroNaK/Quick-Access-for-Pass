@@ -49,6 +49,55 @@ extension View {
     }
 }
 
+@MainActor
+enum SearchFocusRetrier {
+    static func focus(
+        for timeout: Duration = .seconds(3),
+        whileEligible isEligible: () -> Bool,
+        isPanelKey: () -> Bool,
+        reclaimPanel: () -> Void,
+        isFocused: () -> Bool,
+        requestFocus: () -> Void,
+        waitForRetry: () async -> Bool = waitForRetry
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        await run(
+            whileEligible: { clock.now < deadline && isEligible() },
+            attempt: {
+                if isFocused() { return true }
+                guard isPanelKey() else {
+                    reclaimPanel()
+                    return false
+                }
+                requestFocus()
+                return isFocused()
+            },
+            waitForRetry: waitForRetry
+        )
+    }
+
+    static func run(
+        whileEligible isEligible: () -> Bool,
+        attempt: () -> Bool,
+        waitForRetry: () async -> Bool
+    ) async {
+        while isEligible() {
+            if attempt() { return }
+            guard isEligible(), await waitForRetry() else { return }
+        }
+    }
+
+    private static func waitForRetry() async -> Bool {
+        do {
+            try await Task.sleep(for: .milliseconds(50))
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
 struct QuickAccessView: View {
     @Bindable var viewModel: QuickAccessViewModel
     let onDismiss: () -> Void
@@ -119,11 +168,13 @@ struct QuickAccessView: View {
                 Divider()
                     .opacity(0.5)
                 LockedView(
-                    onUnlockSuccess: { appDelegate.resetAuthTimestamp() },
+                    onUnlockSuccess: { appDelegate.completePanelUnlock() },
+                    onUnlockCancelled: { appDelegate.cancelPanelUnlock() },
+                    beginUnlock: { appDelegate.beginPanelUnlock() },
+                    endUnlock: { appDelegate.endPanelUnlock($0) },
                     keychainService: keychainService,
                     pendingContext: appDelegate.pendingLockContext,
-                    autoUnlockToken: appDelegate.autoUnlockToken,
-                    onUnlockPhaseChange: { appDelegate.isUnlockInFlight = $0 }
+                    autoUnlockToken: appDelegate.autoUnlockToken
                 )
                 .frame(height: 330)
             }
@@ -259,8 +310,20 @@ struct QuickAccessView: View {
     private func focusSearchField() async {
         isSearchFocused = false
         await Task.yield()
-        guard !Task.isCancelled, !appDelegate.isLocked else { return }
-        isSearchFocused = true
+
+        await SearchFocusRetrier.focus(
+            whileEligible: {
+                !Task.isCancelled
+                    && !appDelegate.isLocked
+                    && appDelegate.panelController?.isVisible == true
+            },
+            isPanelKey: {
+                appDelegate.panelController?.windowForPresentation.isKeyWindow == true
+            },
+            reclaimPanel: { appDelegate.panelController?.reclaimKeyboardFocus() },
+            isFocused: { isSearchFocused },
+            requestFocus: { isSearchFocused = true }
+        )
     }
 
     private var searchField: some View {

@@ -19,12 +19,50 @@ extension AppDelegate {
         lastActivityAt = Date()
     }
 
+    /// Starts the locked panel's single active LocalAuthentication request.
+    /// Returns nil when another request already owns the authentication phase.
+    func beginPanelUnlock() -> UUID? {
+        guard panelUnlockAttemptID == nil else { return nil }
+        let attemptID = UUID()
+        panelUnlockAttemptID = attemptID
+        isUnlockInFlight = true
+        return attemptID
+    }
+
+    /// Ends the matching panel authentication request. Stale completions are
+    /// ignored so they cannot unblock a hide while another request is active.
+    func endPanelUnlock(_ attemptID: UUID) {
+        guard panelUnlockAttemptID == attemptID else { return }
+        panelUnlockAttemptID = nil
+        isUnlockInFlight = false
+        hidePanelAfterLockWaitIfNeeded()
+    }
+
+    /// Denies every proxy waiter attached to a canceled panel authentication.
+    /// A system-created panel remains marked for dismissal until the active
+    /// LocalAuthentication sheet ends and no longer blocks `hide()`.
+    func cancelPanelUnlock() {
+        resolveUnlockWaiters(returning: false)
+        hidePanelAfterLockWaitIfNeeded()
+    }
+
+    /// Completes authentication initiated by the locked Quick Access panel.
+    func completePanelUnlock() {
+        let shouldReclaimPanelFocus = panelController?.isVisible == true
+            && !panelShownForLockWait
+        resetAuthTimestamp()
+        if shouldReclaimPanelFocus {
+            panelController?.reclaimKeyboardFocus()
+            requestSearchFocusIfNeeded()
+        }
+    }
+
     func resetAuthTimestamp() {
         let now = Date()
         lastAuthenticatedAt = now
         lastActivityAt = now
         isForceLocked = false
-        resumeUnlockWaiters()
+        resolveUnlockWaiters(returning: true)
         hidePanelAfterLockWaitIfNeeded()
     }
 
@@ -51,15 +89,21 @@ extension AppDelegate {
     }
 
     /// If the panel was opened by `showPanelAndWaitForUnlock` (not by
-    /// user action), dismiss it on the next run loop. Deferring past
-    /// the current stack lets `LockedView.unlock()`'s `defer` clear
-    /// `isUnlockInFlight` first, so `PanelController.shouldBlockHide`
-    /// no longer blocks the hide.
+    /// user action), dismiss it after every attached waiter completes.
+    /// Deferring past the current stack lets `LockedView.unlock()`'s
+    /// `defer` clear `isUnlockInFlight` first, so
+    /// `PanelController.shouldBlockHide` no longer blocks the hide.
     private func hidePanelAfterLockWaitIfNeeded() {
-        guard panelShownForLockWait else { return }
-        panelShownForLockWait = false
+        guard panelShownForLockWait, pendingUnlockWaiters.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.panelController?.hide()
+            guard let self,
+                  self.panelShownForLockWait,
+                  self.pendingUnlockWaiters.isEmpty
+            else { return }
+            self.panelController?.hide()
+            if self.panelController?.isVisible != true {
+                self.panelShownForLockWait = false
+            }
         }
     }
 
@@ -144,15 +188,17 @@ extension AppDelegate {
     func showPanelAndWaitForUnlock(timeoutSeconds: TimeInterval = 30) async -> Bool {
         let token = UUID()
         panelPresentationNonce = token
-        if panelController?.isVisible != true {
+        if panelController?.isVisible == true {
+            panelController?.reclaimKeyboardFocus()
+        } else {
             panelShownForLockWait = true
+            panelController?.show()
         }
-        panelController?.show()
 
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             pendingUnlockWaiters[token] = cont
             Task { @MainActor in
-                try? await Task.sleep(for: .seconds(timeoutSeconds))
+                await self.waitForUnlockTimeout(timeoutSeconds)
                 if let waiter = pendingUnlockWaiters.removeValue(forKey: token) {
                     waiter.resume(returning: false)
                     self.hidePanelAfterLockWaitIfNeeded()
@@ -161,13 +207,13 @@ extension AppDelegate {
         }
     }
 
-    func resumeUnlockWaiters() {
+    private func resolveUnlockWaiters(returning result: Bool) {
         // Copy before clearing so resume calls cannot observe the
         // half-drained dict.
         let waiters = pendingUnlockWaiters
         pendingUnlockWaiters.removeAll()
         for (_, cont) in waiters {
-            cont.resume(returning: true)
+            cont.resume(returning: result)
         }
     }
 }
