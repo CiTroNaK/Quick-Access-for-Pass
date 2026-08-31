@@ -2,21 +2,62 @@ import SwiftUI
 @preconcurrency import LocalAuthentication
 
 struct LockedView: View {
+    typealias PolicyEvaluator = (LAContext, LAPolicy, String) async throws -> Bool
+
     let onUnlockSuccess: () -> Void
+    let onUnlockCancelled: () -> Void
+    let beginUnlock: () -> UUID?
+    let endUnlock: (UUID) -> Void
     let keychainService: any BiometricAuthorizing
     let pendingContext: PendingLockContext?
     let autoUnlockToken: UUID?
-    let onUnlockPhaseChange: (Bool) -> Void
+    private let evaluatePolicy: PolicyEvaluator
 
     @State private var errorMessage: String?
     @State private var isBiometryLockedOut = false
     @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 48
+
+    init(
+        onUnlockSuccess: @escaping () -> Void,
+        onUnlockCancelled: @escaping () -> Void,
+        beginUnlock: @escaping () -> UUID?,
+        endUnlock: @escaping (UUID) -> Void,
+        keychainService: any BiometricAuthorizing,
+        pendingContext: PendingLockContext?,
+        autoUnlockToken: UUID?,
+        evaluatePolicy: @escaping PolicyEvaluator = { context, policy, reason in
+            try await context.evaluatePolicy(policy, localizedReason: reason)
+        }
+    ) {
+        self.onUnlockSuccess = onUnlockSuccess
+        self.onUnlockCancelled = onUnlockCancelled
+        self.beginUnlock = beginUnlock
+        self.endUnlock = endUnlock
+        self.keychainService = keychainService
+        self.pendingContext = pendingContext
+        self.autoUnlockToken = autoUnlockToken
+        self.evaluatePolicy = evaluatePolicy
+    }
 
     private static func composedLabel(for context: PendingLockContext) -> String {
         if let detail = context.detailLine {
             return "\(context.primaryLine). \(detail)"
         }
         return context.primaryLine
+    }
+
+    static func makeAuthenticationContext() -> LAContext {
+        let context = LAContext()
+        // Allow the keychain call to reuse this authentication within
+        // a short window. Must be set BEFORE evaluatePolicy. Matches
+        // AuthDialogHelper.runAuthorize so both hybrid-pattern paths
+        // have the same reuse semantics.
+        context.touchIDAuthenticationAllowableReuseDuration = 10
+        // Password fallback is only offered after biometry lockout through
+        // the view's explicit retry path. Hiding the system fallback avoids
+        // LAError.userFallback leaving proxy waiters pending until timeout.
+        context.localizedFallbackTitle = ""
+        return context
     }
 
     var body: some View {
@@ -74,31 +115,34 @@ struct LockedView: View {
         }
     }
 
-    private func unlock() async {
-        onUnlockPhaseChange(true)
-        defer { onUnlockPhaseChange(false) }
-        let context = LAContext()
-        // Allow the keychain call to reuse this authentication within
-        // a short window. Must be set BEFORE evaluatePolicy. Matches
-        // AuthDialogHelper.runAuthorize so both hybrid-pattern paths
-        // have the same reuse semantics.
-        context.touchIDAuthenticationAllowableReuseDuration = 10
+    /// Runs one panel authentication attempt.
+    /// Internal so authentication outcomes can be verified without presenting the SwiftUI view.
+    func unlock() async {
+        guard let attemptID = beginUnlock() else { return }
+        defer { endUnlock(attemptID) }
+        let context = Self.makeAuthenticationContext()
         let policy: LAPolicy = isBiometryLockedOut
             ? .deviceOwnerAuthentication
             : .deviceOwnerAuthenticationWithBiometrics
 
         do {
-            try await context.evaluatePolicy(
+            let didAuthenticate = try await evaluatePolicy(
+                context,
                 policy,
-                localizedReason: String(localized: "Unlock Quick Access")
+                String(localized: "Unlock Quick Access")
             )
+            guard didAuthenticate else {
+                onUnlockCancelled()
+                return
+            }
         } catch let laError as LAError {
             switch laError.code {
             case .biometryLockout:
                 isBiometryLockedOut = true
                 errorMessage = String(localized: "Touch ID is locked. Use your password instead.")
                 return
-            case .userCancel, .appCancel, .systemCancel:
+            case .userCancel, .userFallback, .appCancel, .systemCancel:
+                onUnlockCancelled()
                 return
             default:
                 errorMessage = laError.localizedDescription

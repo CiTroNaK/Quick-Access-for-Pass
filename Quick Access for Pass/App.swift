@@ -2,21 +2,12 @@ import SwiftUI
 import AppKit
 import Darwin
 
-@main
-struct QuickAccessPassApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
-    var body: some Scene {
-        Settings {
-            SettingsRoot(appDelegate: appDelegate)
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var panelController: PanelController?
+    /// Injectable so key-window notification ordering can be tested without WindowServer races.
+    @ObservationIgnored var keyWindowProvider: () -> NSWindow? = { NSApp.keyWindow }
     @ObservationIgnored private var largeTypeWindowController: LargeTypeWindowController?
     @ObservationIgnored var syncIssueWindowController: SyncIssueWindowController?
     @ObservationIgnored var settingsWindowCoordinator = SettingsWindowCoordinator()
@@ -70,10 +61,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `@FocusState` out of sync with AppKit's first responder, so each
     /// presentation needs an explicit focus request.
     var searchFocusRequestID: UUID?
-    /// True while `LockedView.unlock()` is running. Read by
-    /// `PanelController.shouldBlockHide` to keep the panel anchored
-    /// while an LAContext sheet is on screen.
+    /// True while `LockedView.unlock()` owns the single active panel
+    /// authentication attempt. Read by `PanelController.shouldBlockHide`
+    /// to keep the panel anchored while an LAContext sheet is on screen.
     var isUnlockInFlight = false
+    /// Token for the single active panel authentication attempt. The token
+    /// prevents a rejected or stale attempt from ending the active attempt.
+    @ObservationIgnored var panelUnlockAttemptID: UUID?
     /// True when `showPanelAndWaitForUnlock` opened the panel itself
     /// (not already visible). Consumed by `hidePanelAfterLockWaitIfNeeded`
     /// so a system-initiated presentation closes the panel after unlock,
@@ -81,6 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var panelShownForLockWait = false
     private(set) var pendingLockContext: PendingLockContext?
     @ObservationIgnored var pendingUnlockWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// Injectable timeout wait that keeps unlock-waiter tests deterministic.
+    @ObservationIgnored var waitForUnlockTimeout: @MainActor @Sendable (TimeInterval) async -> Void = { seconds in
+        try? await Task.sleep(for: .seconds(seconds))
+    }
 
     /// Overridable defaults for testing. Production code uses `.standard`.
     var testDefaults: UserDefaults?
@@ -331,10 +329,7 @@ private extension AppDelegate {
         NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor in
-                self?.handleWindowDidBecomeKey(window)
-            }
+            self?.handleWindowDidBecomeKeyNotification(notification)
         }
     }
 
