@@ -7,6 +7,7 @@ final class SyncCoordinator {
     private let databaseManager: DatabaseManager
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
+    private let onAuthenticationRequired: (@MainActor @Sendable () async -> Void)?
 
     private var syncTask: Task<Void, Never>?
     private var syncTimer: Timer?
@@ -16,12 +17,14 @@ final class SyncCoordinator {
         cliService: PassCLIService,
         databaseManager: DatabaseManager,
         viewModel: QuickAccessViewModel,
-        onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in }
+        onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in },
+        onAuthenticationRequired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
         self.viewModel = viewModel
         self.onSyncIssueChanged = onSyncIssueChanged
+        self.onAuthenticationRequired = onAuthenticationRequired
     }
 
     // MARK: - Public

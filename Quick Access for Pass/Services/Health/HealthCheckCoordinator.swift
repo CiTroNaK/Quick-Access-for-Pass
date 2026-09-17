@@ -127,6 +127,7 @@ final class HealthCheckCoordinator {
     // MARK: - Test seams (internal)
 
     /// Executes one CLI tick body: probe → write store → dispatch transition.
+    /// Rechecks authentication recovery on every logged-out result, even if unchanged.
     /// Called by the production tick loop AND directly by tests.
     /// - Note: Test seam — do not inline into the loop factory.
     func tickCLI() async {
@@ -146,7 +147,15 @@ final class HealthCheckCoordinator {
         )
 
         guard !Task.isCancelled else { return }
-        guard previous != outcome.health else { return }
+        guard previous != outcome.health else {
+            // The saved PAT may have been unavailable while Keychain was locked.
+            // Recheck availability without redispatching proxy lifecycle transitions.
+            // The PAT coordinator guards in-flight and already-attempted logins.
+            if outcome.health == .notLoggedIn {
+                passCLITransitionHandler?.handleCLIHealthTransition(to: outcome.health)
+            }
+            return
+        }
         runCoordinator.handleCLIHealthTransition(to: outcome.health)
         await sshCoordinator.handleCLIHealthTransition(to: outcome.health)
         passCLITransitionHandler?.handleCLIHealthTransition(to: outcome.health)
