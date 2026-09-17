@@ -20,6 +20,9 @@ extension AppDelegate {
             viewModel: viewModel!,
             onSyncIssueChanged: { [weak self] presentation in
                 self?.syncIssueDidChange(presentation)
+            },
+            onAuthenticationRequired: { [weak self] in
+                await self?.healthCoordinator?.reportAuthenticationFailure()
             }
         )
         syncCoordinator?.start()

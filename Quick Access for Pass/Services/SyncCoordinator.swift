@@ -82,7 +82,7 @@ final class SyncCoordinator {
                 viewModel.errorMessage = String(localized: "pass-cli not found. Install: brew install protonpass/tap/pass-cli")
                 onSyncIssueChanged(nil)
             } catch let error as CLIError where error.isAuthError {
-                handleAuthSyncError(error, viewModel: viewModel)
+                await handleAuthSyncError(error, viewModel: viewModel)
             } catch {
                 viewModel.errorMessage = nil
                 viewModel.syncProgress = nil
@@ -99,12 +99,22 @@ final class SyncCoordinator {
         }
     }
 
-    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) {
+    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) async {
+        guard !Task.isCancelled else { return }
         viewModel.errorMessage = nil
-        viewModel.syncProgress = nil
         viewModel.isShowingSkippedSyncItems = false
-        if viewModel.syncError?.action != .updatePAT {
-            viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
+        if let onAuthenticationRequired {
+            // Recovery owns the auth presentation. Do not flash Login before checking
+            // the PAT, or overwrite progress / Update PAT from an existing attempt.
+            if viewModel.syncError?.action == .copyAndReport {
+                viewModel.syncError = nil
+            }
+            await onAuthenticationRequired()
+        } else {
+            viewModel.syncProgress = nil
+            if viewModel.syncError?.action != .updatePAT {
+                viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
+            }
         }
         onSyncIssueChanged(nil)
     }

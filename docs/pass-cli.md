@@ -55,7 +55,7 @@ If the latest bundled CLI causes problems, select an older bundled version in **
 
 Quick Access can optionally store a Proton Pass CLI personal access token (PAT) in Keychain from **Settings → Pass CLI**.
 
-When a PAT is saved, Quick Access validates it immediately with `pass-cli login`. Later, if the CLI session is lost, Quick Access uses the saved PAT to recreate the session before asking you to use the normal browser login flow from the notification or **Settings → Pass CLI**.
+When a PAT is saved, Quick Access validates it immediately with `pass-cli login`. Later, if the CLI session is lost, Quick Access uses the saved PAT to recreate the session before asking you to use the normal browser login flow from the notification or **Settings → Pass CLI**. Authentication failures during sync (including **⌘R**) request recovery immediately rather than waiting for the next health check. Sync does not show **Login** before PAT recovery decides whether manual login is needed; an invalid PAT still shows **Update PAT**.
 
 If the saved PAT is unavailable because your Mac is locked, subsequent logged-out health checks recheck its availability. After unlocking, automatic recovery can resume on the next check (normally every 30 seconds), without opening Settings. Keychain protection remains unchanged, and a completed automatic login attempt is not repeated until a healthy CLI session has been observed.
 

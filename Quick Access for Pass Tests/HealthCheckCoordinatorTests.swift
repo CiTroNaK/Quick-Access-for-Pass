@@ -209,6 +209,33 @@ struct HealthCheckCoordinatorTests {
         }
     }
 
+    @Test("reported auth failure starts recovery and the next healthy probe resets the episode")
+    func reportedAuthFailureStartsRecoveryBeforeNextProbe() async {
+        let h = makeHarness()
+        let handler = FakePassCLITransitionHandler()
+        h.coordinator.passCLITransitionHandler = handler
+        h.cliStore.identity = PassCLIIdentity(username: "test", email: nil, releaseTrack: nil)
+
+        await h.coordinator.reportAuthenticationFailure()
+
+        #expect(h.cliStore.health == .notLoggedIn)
+        #expect(h.cliStore.identity == nil)
+        #expect(h.cliChecker.callCount == 0)
+        #expect(handler.transitions == [.notLoggedIn])
+        #expect(h.runDispatcher.cliTransitions == [.notLoggedIn])
+        #expect(h.sshDispatcher.cliTransitions == [.notLoggedIn])
+
+        // Another sync can report the same failure without restarting proxy lifecycle work.
+        await h.coordinator.reportAuthenticationFailure()
+        #expect(handler.transitions == [.notLoggedIn, .notLoggedIn])
+        #expect(h.runDispatcher.cliTransitions == [.notLoggedIn])
+        #expect(h.sshDispatcher.cliTransitions == [.notLoggedIn])
+
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .ok, identity: nil, version: nil)
+        await h.coordinator.tickCLI()
+        #expect(handler.transitions == [.notLoggedIn, .notLoggedIn, .ok])
+    }
+
     // MARK: - Flow B/C: hard gate
 
     @Test("runTick skipped when CLI is not ok")
