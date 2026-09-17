@@ -62,6 +62,7 @@ final class PassCLIPATLoginService {
     private let healthRefresher: any PassCLIHealthRefreshing
     private let syncTrigger: @MainActor @Sendable () async -> Void
     private let timeoutSeconds: TimeInterval
+    private var isLoggingIn = false
 
     init(
         credentialStore: any PassCLIPATCredentialStoring,
@@ -80,28 +81,25 @@ final class PassCLIPATLoginService {
     }
 
     func loginWithSavedToken(triggerSync: Bool = true) async -> PassCLIPATLoginResult {
+        // Settings and automatic recovery share this service. MainActor alone
+        // does not prevent their login/logout commands overlapping across awaits.
+        guard !isLoggingIn else {
+            return .failed(String(localized: "Personal access token login is already in progress."))
+        }
+        isLoggingIn = true
+        defer { isLoggingIn = false }
+
         do {
             guard let token = try await credentialStore.loadToken(), token.isEmpty == false else {
                 return .missingToken
             }
             let sanitizer = PassCLIPATOutputSanitizer(token: token)
             do {
-                _ = try await runner.run(
-                    executablePath: cliService.cliPath,
-                    arguments: ["login"],
-                    environmentOverrides: ["PROTON_PASS_PERSONAL_ACCESS_TOKEN": token],
-                    timeout: timeoutSeconds
-                )
+                try await login(token: token, executablePath: cliService.cliPath)
             } catch CLIError.notInstalled {
                 return .notInstalled
             } catch CLIError.timeout {
                 return .timeout
-            } catch let error as CLIError {
-                let message = error.localizedDescription
-                if sanitizer.isInvalidExpiredOrDeletedPAT(message) {
-                    return .invalidToken
-                }
-                return .failed(sanitizer.sanitize(message))
             } catch {
                 let message = error.localizedDescription
                 if sanitizer.isInvalidExpiredOrDeletedPAT(message) {
@@ -121,6 +119,53 @@ final class PassCLIPATLoginService {
             return .succeeded
         } catch {
             return .failed(String(localized: "Could not read saved personal access token: \(error.localizedDescription)"))
+        }
+    }
+
+    private func login(token: String, executablePath: String) async throws {
+        let environment = ["PROTON_PASS_PERSONAL_ACCESS_TOKEN": token]
+        do {
+            _ = try await runner.run(
+                executablePath: executablePath,
+                arguments: ["login"],
+                environmentOverrides: environment,
+                timeout: timeoutSeconds
+            )
+            return
+        } catch CLIError.commandFailed(let message)
+            where message.localizedCaseInsensitiveContains("already authenticated") {
+            // A local session can block login even when it no longer works remotely.
+            // Probe directly: publishing an intermediate health transition here could
+            // start automatic PAT login while this recovery is still in progress.
+            do {
+                _ = try await runner.run(
+                    executablePath: executablePath,
+                    arguments: ["info", "--output", "json"],
+                    environmentOverrides: [:],
+                    timeout: PassCLISanityCheck.timeoutSeconds
+                )
+            } catch let error as CLIError where error.isAuthError {
+                try Task.checkCancellation()
+                _ = try await runner.run(
+                    executablePath: executablePath,
+                    arguments: ["logout", "--force"],
+                    environmentOverrides: [:],
+                    timeout: timeoutSeconds
+                )
+                try Task.checkCancellation()
+                // Retry once, not recursively. The caller classifies and sanitizes
+                // any cleanup/retry failure, including an invalid replacement PAT.
+                _ = try await runner.run(
+                    executablePath: executablePath,
+                    arguments: ["login"],
+                    environmentOverrides: environment,
+                    timeout: timeoutSeconds
+                )
+                return
+            }
+            // Healthy sessions must not be replaced or reported as a successful
+            // login with the saved PAT: that token has not been validated yet.
+            throw CLIError.commandFailed(message)
         }
     }
 }

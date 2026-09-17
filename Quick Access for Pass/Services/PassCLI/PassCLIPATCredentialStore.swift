@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-protocol PassCLIPATCredentialStoring: Sendable {
+nonisolated protocol PassCLIPATCredentialStoring: Sendable {
     func loadToken() async throws -> String?
     func saveToken(_ token: String) async throws
     func deleteToken() async throws
