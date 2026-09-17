@@ -63,9 +63,13 @@ struct PassCLISanityCheckTests {
         #expect(outcome.identity == nil)
     }
 
-    @Test func returnsNotLoggedInOnAuthFailureMessage() async {
+    @Test(arguments: [
+        "Error: not logged in. Run: pass-cli login",
+        "Error getting personal access token name: failed to authenticate: non-existent session",
+    ])
+    func returnsNotLoggedInOnAuthFailureMessage(message: String) async {
         let runner = FakeRunner { _ in
-            throw CLIError.commandFailed("Error: not logged in. Run: pass-cli login")
+            throw CLIError.commandFailed(message)
         }
         let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(
             cliPath: "/fake/pass-cli",

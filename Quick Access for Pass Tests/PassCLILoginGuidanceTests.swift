@@ -3,6 +3,7 @@ import Testing
 @testable import Quick_Access_for_Pass
 
 @Suite("Pass CLI login guidance")
+@MainActor
 struct PassCLILoginGuidanceTests {
     @Test("bundled CLI guidance uses app login and omits terminal fallback")
     func bundledGuidanceOmitsTerminalFallback() {

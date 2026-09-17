@@ -29,9 +29,31 @@ private actor FakeEnvironmentRunner: CLIEnvironmentRunning {
 
     var invocations: [Invocation] = []
     private var outcome: Outcome = .success(Data())
+    private var queuedOutcomes: [Outcome] = []
+    private var pausesFirstInvocation = false
+    private var firstInvocationWaiter: CheckedContinuation<Void, Never>?
+    private var firstInvocationResume: CheckedContinuation<Void, Never>?
+
+    func pauseFirstInvocation() {
+        pausesFirstInvocation = true
+    }
+
+    func waitForFirstInvocation() async {
+        guard invocations.isEmpty else { return }
+        await withCheckedContinuation { firstInvocationWaiter = $0 }
+    }
+
+    func resumeFirstInvocation() {
+        firstInvocationResume?.resume()
+        firstInvocationResume = nil
+    }
 
     func setOutcome(_ outcome: Outcome) {
         self.outcome = outcome
+    }
+
+    func setOutcomes(_ outcomes: [Outcome]) {
+        queuedOutcomes = outcomes
     }
 
     func run(
@@ -45,7 +67,15 @@ private actor FakeEnvironmentRunner: CLIEnvironmentRunning {
             arguments: arguments,
             environmentOverrides: environmentOverrides
         ))
-        switch outcome {
+        let nextOutcome = queuedOutcomes.isEmpty ? outcome : queuedOutcomes.removeFirst()
+        if pausesFirstInvocation && invocations.count == 1 {
+            await withCheckedContinuation { continuation in
+                firstInvocationResume = continuation
+                firstInvocationWaiter?.resume()
+                firstInvocationWaiter = nil
+            }
+        }
+        switch nextOutcome {
         case .success(let data):
             return data
         case .failure(let error):
@@ -91,6 +121,155 @@ struct PassCLIPATLoginServiceTests {
         #expect(invocation.arguments == ["login"])
         #expect(invocation.environmentOverrides["PROTON_PASS_PERSONAL_ACCESS_TOKEN"] == "pst_test_token::secret")
         #expect(await sync.count() == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func overlappingLoginDoesNotStartAnotherSessionMutation() async {
+        let runner = FakeEnvironmentRunner()
+        await runner.pauseFirstInvocation()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: "pst_test_token::secret"),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: {}
+        )
+        let first = Task { await service.loginWithSavedToken() }
+        await runner.waitForFirstInvocation()
+
+        let second = await service.loginWithSavedToken()
+
+        #expect(second != .succeeded)
+        #expect(await runner.invocations.count == 1)
+        await runner.resumeFirstInvocation()
+        #expect(await first.value == .succeeded)
+        // The guard must be released after completion, not block future logins.
+        #expect(await service.loginWithSavedToken() == .succeeded)
+        #expect(await runner.invocations.count == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func alreadyAuthenticatedWithMissingRemoteSessionRecoversAndSyncs() async {
+        let token = "pst_test_token::secret"
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error: Already authenticated")),
+            .failure(.commandFailed("Error getting personal access token name: failed to authenticate: non-existent session")),
+            .success(Data()),
+            .success(Data()),
+        ])
+        let sync = PATSyncRecorder()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: token),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() }
+        )
+
+        let result = await service.loginWithSavedToken()
+
+        #expect(result == .succeeded)
+        #expect(await sync.count() == 1)
+        let invocations = await runner.invocations
+        #expect(invocations.map(\.arguments) == [["login"], ["info", "--output", "json"], ["logout", "--force"], ["login"]])
+        #expect(invocations.allSatisfy { $0.executablePath == "/fake/pass-cli" })
+        for invocation in invocations {
+            let expectedEnvironment = invocation.arguments == ["login"]
+                ? ["PROTON_PASS_PERSONAL_ACCESS_TOKEN": token] : [:]
+            #expect(invocation.environmentOverrides == expectedEnvironment)
+            #expect(invocation.arguments.contains(token) == false)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [
+        FakeEnvironmentRunner.Outcome.success(Data()),
+        .failure(.timeout),
+        .failure(.commandFailed("network unreachable")),
+        .failure(.notInstalled),
+    ])
+    private func alreadyAuthenticatedDoesNotClearHealthyOrUncertainSession(probeOutcome: FakeEnvironmentRunner.Outcome) async {
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error: Already authenticated")),
+            probeOutcome,
+        ])
+        let sync = PATSyncRecorder()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: "pst_test_token::secret"),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() }
+        )
+
+        let result = await service.loginWithSavedToken()
+
+        #expect(result != .succeeded)
+        #expect(await sync.count() == 0)
+        #expect(await runner.invocations.map(\.arguments) == [["login"], ["info", "--output", "json"]])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func failedRecoveryLogoutStopsBeforeRetryAndRedactsToken() async {
+        let token = "pst_test_token::secret"
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error: Already authenticated")),
+            .failure(.notLoggedIn),
+            .failure(.commandFailed("cleanup failed \(token)")),
+        ])
+        let sync = PATSyncRecorder()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: token),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() }
+        )
+
+        let result = await service.loginWithSavedToken()
+
+        guard case .failed(let message) = result else {
+            Issue.record("Expected cleanup failure")
+            return
+        }
+        #expect(message.contains("cleanup failed"))
+        #expect(message.contains(token) == false)
+        #expect(await sync.count() == 0)
+        #expect(await runner.invocations.map(\.arguments) == [["login"], ["info", "--output", "json"], ["logout", "--force"]])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func recoveryRetriesLoginOnlyOnce(invalidToken: Bool) async {
+        let runner = FakeEnvironmentRunner()
+        let retryError = invalidToken
+            ? "This personal access token is invalid, expired or has been deleted."
+            : "Error: Already authenticated"
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error: Already authenticated")),
+            .failure(.notLoggedIn),
+            .success(Data()),
+            .failure(.commandFailed(retryError)),
+        ])
+        let sync = PATSyncRecorder()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: "pst_test_token::secret"),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() }
+        )
+
+        let result = await service.loginWithSavedToken()
+
+        if invalidToken {
+            #expect(result == .invalidToken)
+        } else {
+            #expect(result != .succeeded)
+        }
+        #expect(await sync.count() == 0)
+        #expect(await runner.invocations.map(\.arguments) == [["login"], ["info", "--output", "json"], ["logout", "--force"], ["login"]])
     }
 
     @Test(.timeLimit(.minutes(1)))

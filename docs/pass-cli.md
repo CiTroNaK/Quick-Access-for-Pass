@@ -57,6 +57,8 @@ Quick Access can optionally store a Proton Pass CLI personal access token (PAT) 
 
 When a PAT is saved, Quick Access validates it immediately with `pass-cli login`. Later, if the CLI session is lost, Quick Access uses the saved PAT to recreate the session before asking you to use the normal browser login flow from the notification or **Settings → Pass CLI**.
 
+If login reports **Already authenticated** but an authenticated probe confirms the cached CLI session is no longer usable (including **failed to authenticate: non-existent session**), Quick Access clears the stale local CLI session with `pass-cli logout --force` and retries the saved PAT once. It does not clear a healthy session or clear one merely because a probe times out or encounters a network error. The saved PAT stays in Keychain; it is passed only to login via the child-process environment, never as a command-line argument.
+
 PAT expiration is managed by Proton Pass. Quick Access cannot discover the expiration date or extend a session created from a PAT. If the token expires or is revoked, replace it in Settings or complete the normal browser login flow from the notification or **Settings → Pass CLI**.
 
 ## Provenance

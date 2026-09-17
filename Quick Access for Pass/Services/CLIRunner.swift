@@ -1,7 +1,7 @@
 import Foundation
 
 /// Abstracts CLI execution so health-check code can be tested with a fake.
-protocol CLIRunning: Sendable {
+nonisolated protocol CLIRunning: Sendable {
     func run(
         executablePath: String,
         arguments: [String],
@@ -12,7 +12,7 @@ protocol CLIRunning: Sendable {
 /// Abstracts CLI execution for commands that need controlled child-process
 /// environment values. Used by PAT login so the token never becomes an
 /// argument, UserDefault, or database value.
-protocol CLIEnvironmentRunning: Sendable {
+nonisolated protocol CLIEnvironmentRunning: Sendable {
     func run(
         executablePath: String,
         arguments: [String],
@@ -155,10 +155,13 @@ nonisolated enum CLIRunner {
     /// - `"there is no session"` (pass-cli 2.x, emitted from
     ///    `pass-cli/src/main.rs:301` when any non-logout command is run
     ///    while no session exists)
+    /// - `"failed to authenticate: non-existent session"` (a locally cached
+    ///    session that can no longer authenticate requests)
     static func stderrIndicatesNotLoggedIn(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
         return lowered.contains("not logged in")
             || lowered.contains("please log in")
             || lowered.contains("there is no session")
+            || lowered.contains("failed to authenticate: non-existent session")
     }
 }
