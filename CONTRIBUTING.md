@@ -23,6 +23,8 @@ xcodebuild -scheme "Quick Access for Pass" test
 
 You do not need `pass-cli` installed to build or run tests. It is only required for runtime functionality.
 
+`make install` bundles the CLI and signs it with the first available Developer ID Application certificate, falling back to Apple Development. Automatic selection uses the certificate fingerprint to avoid encoding issues with accented names. To override selection, use `SIGN_IDENTITY="<certificate fingerprint or signing identity>" make install`.
+
 ## Submitting Changes
 
 1. Create a branch from `main`
