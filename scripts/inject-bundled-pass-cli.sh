@@ -15,15 +15,16 @@ select_signing_identity() {
 	local identities
 	identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
 
+	# Use the ASCII certificate fingerprint: codesign can misdecode non-ASCII names.
 	local developer_id
-	developer_id="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -n 1)"
+	developer_id="$(printf '%s\n' "$identities" | sed -n 's/.* \([[:xdigit:]]\{40\}\) "Developer ID Application:[^"]*".*/\1/p' | head -n 1)"
 	if [[ -n "$developer_id" ]]; then
 		printf '%s\n' "$developer_id"
 		return 0
 	fi
 
 	local apple_development
-	apple_development="$(printf '%s\n' "$identities" | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -n 1)"
+	apple_development="$(printf '%s\n' "$identities" | sed -n 's/.* \([[:xdigit:]]\{40\}\) "Apple Development:[^"]*".*/\1/p' | head -n 1)"
 	if [[ -n "$apple_development" ]]; then
 		printf '%s\n' "$apple_development"
 		return 0

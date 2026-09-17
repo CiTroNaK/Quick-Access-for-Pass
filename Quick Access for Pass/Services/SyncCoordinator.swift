@@ -7,6 +7,7 @@ final class SyncCoordinator {
     private let databaseManager: DatabaseManager
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
+    private let onAuthenticationRequired: (@MainActor @Sendable () async -> Void)?
 
     private var syncTask: Task<Void, Never>?
     private var syncTimer: Timer?
@@ -16,12 +17,14 @@ final class SyncCoordinator {
         cliService: PassCLIService,
         databaseManager: DatabaseManager,
         viewModel: QuickAccessViewModel,
-        onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in }
+        onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in },
+        onAuthenticationRequired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
         self.viewModel = viewModel
         self.onSyncIssueChanged = onSyncIssueChanged
+        self.onAuthenticationRequired = onAuthenticationRequired
     }
 
     // MARK: - Public
@@ -79,7 +82,7 @@ final class SyncCoordinator {
                 viewModel.errorMessage = String(localized: "pass-cli not found. Install: brew install protonpass/tap/pass-cli")
                 onSyncIssueChanged(nil)
             } catch let error as CLIError where error.isAuthError {
-                handleAuthSyncError(error, viewModel: viewModel)
+                await handleAuthSyncError(error, viewModel: viewModel)
             } catch {
                 viewModel.errorMessage = nil
                 viewModel.syncProgress = nil
@@ -96,12 +99,22 @@ final class SyncCoordinator {
         }
     }
 
-    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) {
+    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) async {
+        guard !Task.isCancelled else { return }
         viewModel.errorMessage = nil
-        viewModel.syncProgress = nil
         viewModel.isShowingSkippedSyncItems = false
-        if viewModel.syncError?.action != .updatePAT {
-            viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
+        if let onAuthenticationRequired {
+            // Recovery owns the auth presentation. Do not flash Login before checking
+            // the PAT, or overwrite progress / Update PAT from an existing attempt.
+            if viewModel.syncError?.action == .copyAndReport {
+                viewModel.syncError = nil
+            }
+            await onAuthenticationRequired()
+        } else {
+            viewModel.syncProgress = nil
+            if viewModel.syncError?.action != .updatePAT {
+                viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
+            }
         }
         onSyncIssueChanged(nil)
     }

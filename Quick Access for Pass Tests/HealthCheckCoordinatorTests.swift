@@ -1,7 +1,23 @@
 // Quick Access for Pass Tests/HealthCheckCoordinatorTests.swift
 import Testing
 import Foundation
+import Security
 @testable import Quick_Access_for_Pass
+
+/// Models the saved token being unavailable while the Data Protection Keychain is locked.
+private actor LockablePATCredentialStore: PassCLIPATCredentialStoring {
+    private var token: String? = "pst_test_token::secret"
+    private var isLocked = true
+
+    func setLocked(_ locked: Bool) { isLocked = locked }
+    func hasToken() async -> Bool { !isLocked && token != nil }
+    func loadToken() async throws -> String? {
+        guard !isLocked else { throw KeychainError.retrieveFailed(errSecInteractionNotAllowed) }
+        return token
+    }
+    func saveToken(_ token: String) async throws { self.token = token }
+    func deleteToken() async throws { token = nil }
+}
 
 @Suite("HealthCheckCoordinator")
 @MainActor
@@ -134,8 +150,8 @@ struct HealthCheckCoordinatorTests {
         #expect(handler.transitions == [.notLoggedIn])
     }
 
-    @Test("unchanged logged out health does not renotify transition handler")
-    func unchangedLoggedOutHealthDoesNotRenotifyTransitionHandler() async {
+    @Test("unchanged logged out health rechecks authentication without redispatching to proxies")
+    func unchangedLoggedOutHealthRechecksAuthenticationOnly() async {
         let h = makeHarness()
         let handler = FakePassCLITransitionHandler()
         h.coordinator.passCLITransitionHandler = handler
@@ -144,7 +160,80 @@ struct HealthCheckCoordinatorTests {
 
         await h.coordinator.tickCLI()
 
-        #expect(handler.transitions.isEmpty)
+        #expect(handler.transitions == [.notLoggedIn])
+        #expect(h.runDispatcher.cliTransitions.isEmpty)
+        #expect(h.sshDispatcher.cliTransitions.isEmpty)
+    }
+
+    @Test("PAT recovery resumes after Keychain unlock without another health transition",
+          .timeLimit(.minutes(1)),
+          arguments: [PassCLIPATLoginResult.succeeded, .invalidToken, .failed("offline")])
+    func patRecoveryResumesAfterKeychainUnlock(loginResult: PassCLIPATLoginResult) async {
+        let h = makeHarness()
+        let credentials = LockablePATCredentialStore()
+        let fallback = FakePassCLITransitionHandler()
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .notLoggedIn, identity: nil, version: nil)
+
+        await confirmation("Exactly one PAT login after unlocking") { loginAttempted in
+            let recovery = PassCLIPATAutoLoginCoordinator(
+                credentialStore: credentials,
+                loginWithSavedToken: {
+                    #expect(await credentials.hasToken())
+                    loginAttempted()
+                    return loginResult
+                },
+                fallbackHandler: fallback,
+                patFailureHandler: { _ in },
+                browserLoginIsRunning: { false }
+            )
+            h.coordinator.passCLITransitionHandler = recovery
+
+            // Session loss occurs while locked. Subsequent probes still report logged out.
+            await h.coordinator.tickCLI()
+            await recovery.waitForCurrentAttempt()
+            await h.coordinator.tickCLI()
+            await recovery.waitForCurrentAttempt()
+            #expect(h.cliStore.health == .notLoggedIn)
+            #expect(fallback.transitions.contains(.notLoggedIn))
+
+            // Unlocking changes token availability, not CLI health.
+            await credentials.setLocked(false)
+            await h.coordinator.tickCLI()
+            await recovery.waitForCurrentAttempt()
+
+            // A real login attempt (including rejection/failure) must not repeat each tick.
+            await h.coordinator.tickCLI()
+            await recovery.waitForCurrentAttempt()
+            #expect(h.runDispatcher.cliTransitions == [.notLoggedIn])
+            #expect(h.sshDispatcher.cliTransitions == [.notLoggedIn])
+        }
+    }
+
+    @Test("reported auth failure starts recovery and the next healthy probe resets the episode")
+    func reportedAuthFailureStartsRecoveryBeforeNextProbe() async {
+        let h = makeHarness()
+        let handler = FakePassCLITransitionHandler()
+        h.coordinator.passCLITransitionHandler = handler
+        h.cliStore.identity = PassCLIIdentity(username: "test", email: nil, releaseTrack: nil)
+
+        await h.coordinator.reportAuthenticationFailure()
+
+        #expect(h.cliStore.health == .notLoggedIn)
+        #expect(h.cliStore.identity == nil)
+        #expect(h.cliChecker.callCount == 0)
+        #expect(handler.transitions == [.notLoggedIn])
+        #expect(h.runDispatcher.cliTransitions == [.notLoggedIn])
+        #expect(h.sshDispatcher.cliTransitions == [.notLoggedIn])
+
+        // Another sync can report the same failure without restarting proxy lifecycle work.
+        await h.coordinator.reportAuthenticationFailure()
+        #expect(handler.transitions == [.notLoggedIn, .notLoggedIn])
+        #expect(h.runDispatcher.cliTransitions == [.notLoggedIn])
+        #expect(h.sshDispatcher.cliTransitions == [.notLoggedIn])
+
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .ok, identity: nil, version: nil)
+        await h.coordinator.tickCLI()
+        #expect(handler.transitions == [.notLoggedIn, .notLoggedIn, .ok])
     }
 
     // MARK: - Flow B/C: hard gate

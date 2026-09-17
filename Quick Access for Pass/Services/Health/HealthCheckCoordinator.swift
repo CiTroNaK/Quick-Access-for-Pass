@@ -127,6 +127,7 @@ final class HealthCheckCoordinator {
     // MARK: - Test seams (internal)
 
     /// Executes one CLI tick body: probe → write store → dispatch transition.
+    /// Rechecks authentication recovery on every logged-out result, even if unchanged.
     /// Called by the production tick loop AND directly by tests.
     /// - Note: Test seam — do not inline into the loop factory.
     func tickCLI() async {
@@ -146,10 +147,34 @@ final class HealthCheckCoordinator {
         )
 
         guard !Task.isCancelled else { return }
-        guard previous != outcome.health else { return }
+        guard previous != outcome.health else {
+            // The saved PAT may have been unavailable while Keychain was locked.
+            // Recheck availability without redispatching proxy lifecycle transitions.
+            // The PAT coordinator guards in-flight and already-attempted logins.
+            if outcome.health == .notLoggedIn {
+                passCLITransitionHandler?.handleCLIHealthTransition(to: outcome.health)
+            }
+            return
+        }
         runCoordinator.handleCLIHealthTransition(to: outcome.health)
         await sshCoordinator.handleCLIHealthTransition(to: outcome.health)
         passCLITransitionHandler?.handleCLIHealthTransition(to: outcome.health)
+    }
+
+    /// Records a CLI authentication failure immediately, without waiting for the next probe.
+    /// Publishing logged-out health ensures a successful login's probe resets the recovery episode.
+    func reportAuthenticationFailure() async {
+        guard !Task.isCancelled else { return }
+        let previous = cliStore.health
+        cliStore.health = .notLoggedIn
+        cliStore.identity = nil
+
+        if previous != .notLoggedIn {
+            runCoordinator.handleCLIHealthTransition(to: .notLoggedIn)
+            await sshCoordinator.handleCLIHealthTransition(to: .notLoggedIn)
+        }
+        guard !Task.isCancelled, cliStore.health == .notLoggedIn else { return }
+        passCLITransitionHandler?.handleCLIHealthTransition(to: .notLoggedIn)
     }
 
     func refreshPassCLI() async -> PassCLIHealth {
