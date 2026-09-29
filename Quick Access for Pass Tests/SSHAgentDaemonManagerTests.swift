@@ -21,4 +21,75 @@ struct SSHAgentDaemonManagerTests {
         let args = manager.buildDaemonStartArguments(vaultNames: [])
         #expect(args == ["ssh-agent", "daemon", "start"])
     }
+
+    @Test("stale reported daemon is cleared and started again")
+    func startDaemonClearsStaleReportedDaemon() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let socketURL = directory.appendingPathComponent("proton-pass-agent.sock")
+        let pidURL = directory.appendingPathComponent("proton-pass-agent.pid")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data().write(to: socketURL)
+        try Data("1280".utf8).write(to: pidURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let runner = DaemonCommandRecorder()
+        let manager = SSHAgentDaemonManager(
+            cliPath: "/fake/pass-cli",
+            socketPath: socketURL.path,
+            runner: runner,
+            isSocketHealthy: { _ in false }
+        )
+
+        try await manager.startDaemon()
+
+        #expect(FileManager.default.fileExists(atPath: socketURL.path) == false)
+        #expect(FileManager.default.fileExists(atPath: pidURL.path) == false)
+        #expect(await runner.commands() == [
+            ["ssh-agent", "daemon", "status"],
+            ["ssh-agent", "daemon", "start"]
+        ])
+    }
+
+    @Test("responsive reported daemon is not restarted")
+    func startDaemonKeepsResponsiveReportedDaemon() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let socketURL = directory.appendingPathComponent("proton-pass-agent.sock")
+        let pidURL = directory.appendingPathComponent("proton-pass-agent.pid")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data().write(to: socketURL)
+        try Data("53479".utf8).write(to: pidURL)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let runner = DaemonCommandRecorder()
+        let manager = SSHAgentDaemonManager(
+            cliPath: "/fake/pass-cli",
+            socketPath: socketURL.path,
+            runner: runner,
+            isSocketHealthy: { _ in true }
+        )
+
+        try await manager.startDaemon()
+
+        #expect(FileManager.default.fileExists(atPath: socketURL.path))
+        #expect(FileManager.default.fileExists(atPath: pidURL.path))
+        #expect(await runner.commands() == [["ssh-agent", "daemon", "status"]])
+    }
+}
+
+private actor DaemonCommandRecorder: CLIRunning {
+    private var recordedCommands: [[String]] = []
+
+    func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
+        recordedCommands.append(arguments)
+        if arguments == ["ssh-agent", "daemon", "status"] {
+            return Data("Status:   running\\n".utf8)
+        }
+        return Data()
+    }
+
+    func commands() -> [[String]] {
+        recordedCommands
+    }
 }
