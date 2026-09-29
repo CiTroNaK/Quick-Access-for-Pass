@@ -86,13 +86,21 @@ nonisolated extension DatabaseManager {
         }
     }
 
-    func saveRunDecision(appIdentifier: String, subcommand: String, profileSlug: String, expiresAt: Date?, appTeamID: String? = nil) throws {
+    func saveRunDecision(
+        appIdentifier: String,
+        subcommand: String,
+        profileSlug: String,
+        expiresAt: Date?,
+        allowed: Bool = true,
+        appTeamID: String? = nil
+    ) throws {
         try writer.write { db in
             let decision = RunAuthDecision(
                 appIdentifier: appIdentifier,
                 subcommand: subcommand,
                 profileSlug: profileSlug,
                 expiresAt: expiresAt,
+                allowed: allowed,
                 appTeamID: appTeamID
             )
             try decision.save(db, onConflict: .replace)

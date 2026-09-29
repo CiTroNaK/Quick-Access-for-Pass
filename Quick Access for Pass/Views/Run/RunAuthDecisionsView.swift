@@ -55,7 +55,8 @@ nonisolated struct RunAuthDecisionRowPresentation: Sendable {
     var primaryText: String { decision.subcommand }
 
     func secondaryText(relativeExpiration: String) -> String {
-        "\(profileName) · \(relativeExpiration)"
+        let outcome = decision.allowed ? String(localized: "Allowed") : String(localized: "Denied")
+        return "\(outcome) · \(profileName) · \(relativeExpiration)"
     }
 
     var removeHelpText: String {

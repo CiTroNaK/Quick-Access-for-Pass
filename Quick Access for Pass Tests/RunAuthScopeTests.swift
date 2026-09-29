@@ -98,6 +98,31 @@ struct ScopeMatchingTests {
         #expect(match == "gh pr")
     }
 
+    @Test("persisted denial retains its decision")
+    func persistedDenialRetainsDecision() throws {
+        let db = try makeTestDB()
+        try db.saveRunDecision(
+            appIdentifier: "com.test.app",
+            subcommand: "gh pr",
+            profileSlug: "gh",
+            expiresAt: Date().addingTimeInterval(3600),
+            allowed: false
+        )
+        let controller = RunAuthWindowController(
+            databaseManager: db,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+
+        let match = try #require(controller.anyCachedMatch(
+            appIdentifier: "com.test.app",
+            profileSlug: "gh",
+            scopeOptions: ["gh pr list", "gh pr"]
+        ))
+        #expect(match.scope == "gh pr")
+        #expect(match.allowed == false)
+    }
+
     @Test("narrower decision wins when both exist")
     func narrowerWins() throws {
         let db = try makeTestDB()

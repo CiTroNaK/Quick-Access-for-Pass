@@ -198,7 +198,7 @@ struct RunAuthDialogView: View {
     private func sendResult(allowed: Bool) {
         guard !resultSent else { return }
         resultSent = true
-        let scope: String? = allowed && !selectedScope.isEmpty ? selectedScope : nil
+        let scope: String? = selectedScope.isEmpty ? nil : selectedScope
         request.onResult(allowed, rememberDuration, scope)
     }
 

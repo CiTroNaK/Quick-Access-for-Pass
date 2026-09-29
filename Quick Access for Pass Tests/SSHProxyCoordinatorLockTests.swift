@@ -87,6 +87,34 @@ struct SSHProxyCoordinatorLockTests {
         controller.cancelAll()
     }
 
+    @Test func cachedDenialSkipsLockUi() async throws {
+        let (coordinator, recorder, database) = try makeFixture(isLocked: true, panelResult: false)
+        let controller = SSHAuthWindowController(
+            databaseManager: database,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+        let connection = stubConnection()
+        let keyBlob = Data("key".utf8)
+        let clientInfo = ProcessIdentifier.identifyRequester(of: connection)
+        let identity = SSHAuthorizationIdentity(connection: connection, clientInfo: clientInfo)
+        try database.saveDecision(
+            appIdentifier: identity.persistentCacheID,
+            keyFingerprint: keyBlob.sha256Hex,
+            expiresAt: Date().addingTimeInterval(300),
+            allowed: false
+        )
+
+        let result = await coordinator.authorizeProxyRequest(
+            keyBlob: keyBlob,
+            connection: connection,
+            authController: controller
+        )
+
+        #expect(result == .deny)
+        #expect(recorder.events.isEmpty)
+    }
+
     @Test func lockedAndPanelDeniesReturnsDenyAndClearsContext() async throws {
         let (coordinator, recorder, database) = try makeFixture(isLocked: true, panelResult: false)
 

@@ -62,7 +62,7 @@ nonisolated struct SSHDecisionRowPresentation: Sendable {
     }
 
     func secondaryText(relativeExpiration: String) -> String {
-        var components: [String] = []
+        var components = [decision.allowed ? String(localized: "Allowed") : String(localized: "Denied")]
         if command != nil, let host {
             components.append(host)
         } else if host != nil {

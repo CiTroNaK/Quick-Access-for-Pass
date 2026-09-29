@@ -36,6 +36,24 @@ struct RunAuthDecisionsViewTests {
             profileName: "Production"
         )
 
-        #expect(presentation.secondaryText(relativeExpiration: "in 1 hour") == "Production · in 1 hour")
+        #expect(presentation.secondaryText(relativeExpiration: "in 1 hour") == "Allowed · Production · in 1 hour")
+    }
+
+    @Test func presentationLabelsDeniedDecision() {
+        let decision = RunAuthDecision(
+            appIdentifier: "com.apple.Terminal",
+            subcommand: "git pull",
+            profileSlug: "prod",
+            expiresAt: .distantFuture,
+            allowed: false,
+            appTeamID: nil
+        )
+
+        let presentation = RunAuthDecisionRowPresentation(
+            decision: decision,
+            profileName: "Production"
+        )
+
+        #expect(presentation.secondaryText(relativeExpiration: "in 1 hour") == "Denied · Production · in 1 hour")
     }
 }

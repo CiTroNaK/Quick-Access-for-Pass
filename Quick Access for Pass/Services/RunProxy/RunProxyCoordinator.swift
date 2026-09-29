@@ -12,6 +12,7 @@ final class RunProxyCoordinator {
     private let keychainService: any BiometricAuthorizing
     private let defaults: UserDefaults
     private let authCallbacks: AuthDialogHelper.Callbacks
+    private let secretResolver: @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String]
     var isAppLocked: @MainActor @Sendable () -> Bool = { false }
     var showLockedPanel: (@MainActor @Sendable () async -> Bool)?
     var setPendingLockContext: @MainActor @Sendable (PendingLockContext) -> UUID = { _ in UUID() }
@@ -34,7 +35,10 @@ final class RunProxyCoordinator {
         passCLIStatusStore: PassCLIStatusStore,
         keychainService: any BiometricAuthorizing,
         defaults: UserDefaults = .standard,
-        authCallbacks: AuthDialogHelper.Callbacks = .noop
+        authCallbacks: AuthDialogHelper.Callbacks = .noop,
+        secretResolver: @escaping @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String] = { mappings, cliPath in
+            try await RunSecretResolver.resolve(mappings: mappings, cliPath: cliPath)
+        }
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
@@ -44,6 +48,7 @@ final class RunProxyCoordinator {
         self.keychainService = keychainService
         self.defaults = defaults
         self.authCallbacks = authCallbacks
+        self.secretResolver = secretResolver
     }
 
     // MARK: - Public
@@ -159,8 +164,9 @@ final class RunProxyCoordinator {
             return try await existing.value
         }
         let cli = cliService
+        let secretResolver = secretResolver
         let task = Task<[String: String], Error> {
-            try await RunSecretResolver.resolve(mappings: mappings, cliPath: cli.cliPath)
+            try await secretResolver(mappings, cli.cliPath)
         }
         inFlightResolutions[slug] = task
         defer { inFlightResolutions[slug] = nil }

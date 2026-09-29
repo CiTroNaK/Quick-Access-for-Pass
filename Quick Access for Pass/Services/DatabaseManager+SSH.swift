@@ -14,12 +14,19 @@ nonisolated extension DatabaseManager {
         }
     }
 
-    func saveDecision(appIdentifier: String, keyFingerprint: String, expiresAt: Date?, appTeamID: String? = nil) throws {
+    func saveDecision(
+        appIdentifier: String,
+        keyFingerprint: String,
+        expiresAt: Date?,
+        allowed: Bool = true,
+        appTeamID: String? = nil
+    ) throws {
         try writer.write { db in
             let decision = SSHAuthDecision(
                 appIdentifier: appIdentifier,
                 keyFingerprint: keyFingerprint,
                 expiresAt: expiresAt,
+                allowed: allowed,
                 appTeamID: appTeamID
             )
             try decision.save(db, onConflict: .replace)

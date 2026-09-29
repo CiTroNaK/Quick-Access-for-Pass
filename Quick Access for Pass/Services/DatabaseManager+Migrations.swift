@@ -246,6 +246,14 @@ nonisolated extension DatabaseManager {
                 )
             }
         }
+        migrator.registerMigration("v13") { db in
+            try db.alter(table: "sshAuthDecisions") { t in
+                t.add(column: "allowed", .boolean).notNull().defaults(to: true)
+            }
+            try db.alter(table: "runAuthDecisions") { t in
+                t.add(column: "allowed", .boolean).notNull().defaults(to: true)
+            }
+        }
         // swiftlint:enable identifier_name
     }
 

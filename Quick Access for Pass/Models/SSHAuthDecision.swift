@@ -5,6 +5,7 @@ nonisolated struct SSHAuthDecision: Codable, Sendable, FetchableRecord, Persista
     let appIdentifier: String
     let keyFingerprint: String
     var expiresAt: Date?
+    var allowed: Bool = true
     var appTeamID: String?
 
     static let databaseTableName = "sshAuthDecisions"

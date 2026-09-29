@@ -155,7 +155,7 @@ file/Keychain cleanup is permitted.
 
 ## Database Schema
 
-`DatabaseManager` currently defines **12 migrations**:
+`DatabaseManager` currently defines **13 migrations**:
 
 - **v1**
   - `vaults`
@@ -189,6 +189,9 @@ file/Keychain cleanup is permitted.
   - adds whole-vault policy generations, manual item selection flags and generations, and cascading per-item vault exclusions
   - clears legacy permission-only vault rows without changing existing item selections or encrypted snapshot bytes
   - existing selected items remain individually selected; prior vault permission does not become whole-vault consent
+- **v13**
+  - adds `allowed` to SSH and Run remembered decisions so both allow and deny actions can be persisted
+  - existing remembered decisions retain allow behavior
 
 ### Offline Mode Documentation Verification Checklist
 

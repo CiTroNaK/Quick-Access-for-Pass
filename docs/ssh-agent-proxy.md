@@ -38,7 +38,7 @@ Host *
 
 Quick Access resolves the requesting process so the prompt can show the app and command context when available. This helps distinguish a terminal command from a GUI app request.
 
-The prompt supports remembered decisions so repeated approved workflows do not require a new Touch ID prompt every time.
+The prompt supports remembered approvals and denials, each with the selected duration. This avoids repeated Touch ID prompts for a workflow you have already approved or intentionally blocked.
 
 ## Remembered decisions and session cache
 
@@ -74,7 +74,7 @@ If a GUI app behaves differently from Terminal, review the per-app command-displ
 ## Security notes
 
 - The proxy socket is local and owner-only.
-- Signing requests are gated by Touch ID unless covered by an allowed remembered decision.
+- Signing requests are gated by Touch ID unless covered by a remembered authorization decision; remembered denials reject the request without prompting.
 - Key material remains with Proton Pass's SSH agent; Quick Access gates access to signing rather than exporting private keys.
 
 ## Related docs

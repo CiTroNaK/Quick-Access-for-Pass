@@ -6,6 +6,7 @@ nonisolated struct RunAuthDecision: Codable, Sendable, FetchableRecord, Persista
     let subcommand: String
     let profileSlug: String
     var expiresAt: Date?
+    var allowed: Bool = true
     var appTeamID: String?
 
     static let databaseTableName = "runAuthDecisions"

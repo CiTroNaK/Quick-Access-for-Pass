@@ -7,7 +7,7 @@ import Testing
 struct DatabaseManagerAutoFillMigrationTests {
     private let passphrase = Data("autofill-migration-test".utf8)
 
-    @Test("v8 adds only non-secret descriptor metadata and preserves v7 data")
+    @Test("migrations add only non-secret metadata and preserve v7 data")
     func migrationPreservesExistingData() throws {
         let fixture = try makeV7Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -19,6 +19,15 @@ struct DatabaseManagerAutoFillMigrationTests {
         let legacyValue = try database.reader.read { db in
             try String.fetchOne(db, sql: "SELECT value FROM legacyMarker")
         }
+        let sshDecision = try database.findValidDecision(
+            appIdentifier: "com.test.ssh",
+            keyFingerprint: "SHA256:legacy"
+        )
+        let runDecision = try database.findValidRunDecision(
+            appIdentifier: "com.test.run",
+            subcommand: "git fetch",
+            profileSlug: "work"
+        )
 
         #expect(Set(columns) == [
             "id", "vaultID", "itemID", "shareID", "title", "username",
@@ -32,6 +41,8 @@ struct DatabaseManagerAutoFillMigrationTests {
                 || normalized.contains("code")
         })
         #expect(legacyValue == "preserved")
+        #expect(sshDecision?.allowed == true)
+        #expect(runDecision?.allowed == true)
     }
 
     @Test("v9 app associations constrain descriptor references and service identity")
@@ -237,8 +248,37 @@ struct DatabaseManagerAutoFillMigrationTests {
                 table.column("id", .text).primaryKey()
                 table.column("vaultId", .text).notNull()
             }
+            try db.create(table: "sshAuthDecisions") { table in
+                table.column("appIdentifier", .text).notNull()
+                table.column("keyFingerprint", .text).notNull()
+                table.column("expiresAt", .datetime)
+                table.column("appTeamID", .text)
+                table.primaryKey(["appIdentifier", "keyFingerprint"])
+            }
+            try db.create(table: "runAuthDecisions") { table in
+                table.column("appIdentifier", .text).notNull()
+                table.column("subcommand", .text).notNull()
+                table.column("profileSlug", .text).notNull()
+                table.column("expiresAt", .datetime)
+                table.column("appTeamID", .text)
+                table.primaryKey(["appIdentifier", "subcommand", "profileSlug"])
+            }
             try db.create(table: "legacyMarker") { $0.column("value", .text).notNull() }
             try db.execute(sql: "INSERT INTO legacyMarker (value) VALUES ('preserved')")
+            try db.execute(
+                sql: """
+                INSERT INTO sshAuthDecisions
+                    (appIdentifier, keyFingerprint, expiresAt, appTeamID)
+                VALUES ('com.test.ssh', 'SHA256:legacy', NULL, NULL)
+                """
+            )
+            try db.execute(
+                sql: """
+                INSERT INTO runAuthDecisions
+                    (appIdentifier, subcommand, profileSlug, expiresAt, appTeamID)
+                VALUES ('com.test.run', 'git fetch', 'work', NULL, NULL)
+                """
+            )
             try db.create(table: "grdb_migrations") { $0.column("identifier", .text).primaryKey() }
             for version in 1...7 {
                 try db.execute(

@@ -5,7 +5,7 @@ extension RunAuthWindowController {
         appIdentifier: String,
         profileSlug: String,
         scopeOptions: [String]
-    ) -> String? {
+    ) -> AuthorizationMatch? {
         sessionCachedScope(
             appIdentifier: appIdentifier,
             profileSlug: profileSlug,
@@ -21,15 +21,14 @@ extension RunAuthWindowController {
         appIdentifier: String,
         profileSlug: String,
         scopeOptions: [String]
-    ) -> String? {
+    ) -> AuthorizationMatch? {
         for scope in scopeOptions {
-            let decision = try? databaseManager.findValidRunDecision(
+            if let decision = try? databaseManager.findValidRunDecision(
                 appIdentifier: appIdentifier,
                 subcommand: scope,
                 profileSlug: profileSlug
-            )
-            if decision != nil {
-                return scope
+            ) {
+                return AuthorizationMatch(scope: scope, allowed: decision.allowed)
             }
         }
         return nil
@@ -39,7 +38,7 @@ extension RunAuthWindowController {
         appIdentifier: String,
         profileSlug: String,
         scopeOptions: [String]
-    ) -> String? {
+    ) -> AuthorizationMatch? {
         let now = Date()
         for scope in scopeOptions {
             let key = Self.sessionKey(
@@ -47,25 +46,33 @@ extension RunAuthWindowController {
                 profileSlug: profileSlug,
                 scope: scope
             )
-            if let expiry = sessionCache[key], expiry > now {
-                return scope
+            if let decision = sessionCache[key], decision.expiresAt > now {
+                return AuthorizationMatch(scope: scope, allowed: decision.allowed)
             }
         }
         return nil
     }
 
-    func storeSessionCache(appIdentifier: String, profileSlug: String, scope: String) {
+    func storeSessionCache(
+        appIdentifier: String,
+        profileSlug: String,
+        scope: String,
+        allowed: Bool
+    ) {
         let key = Self.sessionKey(
             appIdentifier: appIdentifier,
             profileSlug: profileSlug,
             scope: scope
         )
-        sessionCache[key] = Date().addingTimeInterval(sessionCacheDuration)
+        sessionCache[key] = (
+            allowed: allowed,
+            expiresAt: Date().addingTimeInterval(sessionCacheDuration)
+        )
     }
 
     func pruneSessionCache() {
         let now = Date()
-        sessionCache = sessionCache.filter { $0.value > now }
+        sessionCache = sessionCache.filter { $0.value.expiresAt > now }
     }
 
     private static func sessionKey(

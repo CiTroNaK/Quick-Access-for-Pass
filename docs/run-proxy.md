@@ -101,7 +101,7 @@ When `qa-run --profile github-cli -- gh auth status` runs, Quick Access resolves
 
 ## Remembered decisions
 
-Run Proxy authorization decisions are context-aware. They can include the requesting app, subcommand, and profile, so a decision for one command profile does not automatically authorize unrelated commands.
+Run Proxy authorization decisions are context-aware. They can remember either an approval or a denial for the selected duration, scoped to the requesting app, subcommand, and profile, so a decision for one command profile does not apply to unrelated commands.
 
 Remembered decisions can be reviewed and cleared from **Settings → Run**.
 
