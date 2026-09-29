@@ -8,6 +8,7 @@ private let defaultShowLargeTypeModifiers = Int(NSEvent.ModifierFlags.shift.rawV
 
 struct SettingsView: View {
     let onWindowAvailable: @MainActor (NSWindow) -> Void
+    let autoFillAppAssociationsSettingsModel: AutoFillAppAssociationsSettingsModel?
 
     @AppStorage(DefaultsKey.clipboardClearTimeout) var clipboardClearTimeout: Double = 30
     @AppStorage(DefaultsKey.concealFromClipboardManagers) var concealFromClipboardManagers: Bool = true
@@ -59,6 +60,7 @@ struct SettingsView: View {
                     lockoutEnabled: $lockoutEnabled,
                     lockoutTimeout: $lockoutTimeout,
                     lockOnSystemLock: $lockOnSystemLock,
+                    autoFillAppAssociationsSettingsModel: autoFillAppAssociationsSettingsModel,
                     onDisableLocking: {
                         let context = LAContext()
                         do {

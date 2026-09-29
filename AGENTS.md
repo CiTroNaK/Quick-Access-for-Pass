@@ -134,7 +134,7 @@ These are core constraints, not implementation details:
 
 ## Database Schema
 
-`DatabaseManager` currently defines **6 migrations**:
+`DatabaseManager` currently defines **9 migrations**:
 
 - **v1**
   - `vaults`
@@ -156,6 +156,10 @@ These are core constraints, not implementation details:
   - makes `expiresAt` nullable on `sshAuthDecisions` and `runAuthDecisions` (table-rewrite migration) to represent permanent (`Forever`) decisions
 - **v7**
   - adds `shareId` to `vaults` so stable `vault_id` can be used as the local identity while current session-specific `share_id` is still available for Pass CLI commands
+- **v8**
+  - adds non-secret `autoFillDescriptors` with stable opaque IDs and a unique vault/item/service/username identity key
+- **v9**
+  - adds non-secret `autoFillAppAssociations` for explicit native-app AutoFill associations
 
 When changing schema:
 

@@ -14,9 +14,24 @@ struct PassCLIBundleMetadataTests {
         #expect(!workflow.contains("Contents/Helpers/pass-cli-arm64"))
         #expect(!workflow.contains("Contents/Helpers/pass-cli-x86_64"))
         #expect(workflow.contains("Contents/Resources/ProtonPassCLI"))
-        #expect(workflow.contains("LATEST_VERSION=\"$(find \"$CLI_RESOURCES_DIR\" -mindepth 1 -maxdepth 1 -type d -exec basename {} \\; | sort -V | tail -n 1)\""))
+        #expect(verifiesLatestVersionCommand(in: workflow))
         #expect(workflow.contains("\"$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-arm64\" --version"))
         #expect(workflow.contains("\"$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-x86_64\" --version"))
+    }
+
+    @Test
+    func latestVersionCommandAcceptsMultilineWhitespaceWithoutRelaxingTokens() {
+        let multilineCommand = """
+        LATEST_VERSION="$(
+          find "$CLI_RESOURCES_DIR" -mindepth 1 -maxdepth 1 -type d \\
+            -exec basename {} \\; | sort -V | tail -n 1
+        )"
+        """
+
+        #expect(verifiesLatestVersionCommand(in: multilineCommand))
+        #expect(!verifiesLatestVersionCommand(
+            in: multilineCommand.replacingOccurrences(of: "-maxdepth 1", with: "-maxdepth 2")
+        ))
     }
 
     @Test
@@ -65,6 +80,11 @@ struct PassCLIBundleMetadataTests {
                 #expect(notice.text.contains(asset.sha256))
             }
         }
+    }
+
+    private func verifiesLatestVersionCommand(in workflow: String) -> Bool {
+        let pattern = #"LATEST_VERSION="\$\(\s*find\s+"\$CLI_RESOURCES_DIR"\s+-mindepth\s+1\s+-maxdepth\s+1\s+-type\s+d\s*\\?\s*-exec\s+basename\s+\{\}\s+\\;\s+\|\s+sort\s+-V\s+\|\s+tail\s+-n\s+1\s*\)""#
+        return workflow.range(of: pattern, options: .regularExpression) != nil
     }
 
     private var repositoryRoot: URL {

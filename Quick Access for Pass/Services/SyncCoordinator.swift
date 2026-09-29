@@ -5,6 +5,7 @@ import os
 final class SyncCoordinator {
     private let cliService: PassCLIService
     private let databaseManager: DatabaseManager
+    private let identitySynchronizer: any AutoFillIdentitySynchronizing
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
     private let onAuthenticationRequired: (@MainActor @Sendable () async -> Void)?
@@ -17,11 +18,13 @@ final class SyncCoordinator {
         cliService: PassCLIService,
         databaseManager: DatabaseManager,
         viewModel: QuickAccessViewModel,
+        identitySynchronizer: any AutoFillIdentitySynchronizing = DisabledAutoFillIdentitySynchronizer(),
         onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in },
         onAuthenticationRequired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
+        self.identitySynchronizer = identitySynchronizer
         self.viewModel = viewModel
         self.onSyncIssueChanged = onSyncIssueChanged
         self.onAuthenticationRequired = onAuthenticationRequired
@@ -45,9 +48,9 @@ final class SyncCoordinator {
             var skippedDiagnosticFileURL: URL?
 
             do {
-                let (vaults, cliItems, skippedItems) = try await cliService.fetchAllItems { [weak viewModel] progress in
+                let (vaults, cliItems, skippedItems) = try await cliService.fetchAllItems { progress in
                     await MainActor.run {
-                        viewModel?.syncProgress = progress
+                        viewModel.syncProgress = progress
                     }
                 }
                 skippedItemsForDiagnostics = skippedItems
@@ -58,16 +61,18 @@ final class SyncCoordinator {
                         AppLogger.sync.warning("skipped sync item: \(skipped.diagnosticSummary, privacy: .private(mask: .hash))")
                     }
                 }
-                let passVaults = vaults.map { PassVault(from: $0) }
-                let passItems = cliItems.map { PassItem(from: $0.item, vaultId: $0.vaultId) }
-                let currentVaultIds = Set(passVaults.map(\.id))
+                let projection = projectSyncMetadata(vaults: vaults, cliItems: cliItems)
 
                 let db = databaseManager
-                try await Task.detached {
-                    try db.upsertVaults(passVaults)
-                    try db.syncItems(passItems)
-                    try db.removeVaultsNotIn(currentVaultIds)
+                let descriptors = try await Task.detached { [db, projection] in
+                    try db.syncMetadata(
+                        vaults: projection.vaults,
+                        items: projection.items,
+                        descriptors: projection.descriptorInputs
+                    )
                 }.value
+                try Task.checkCancellation()
+                try await identitySynchronizer.reconcile(descriptors: descriptors)
 
                 finishSuccessfulSync(
                     skippedItems: skippedItems,
@@ -97,6 +102,31 @@ final class SyncCoordinator {
                 onSyncIssueChanged(.syncError(presentation))
             }
         }
+    }
+
+    private func projectSyncMetadata(
+        vaults: [CLIVault],
+        cliItems: [(item: CLIItem, vaultId: String)]
+    ) -> (vaults: [PassVault], items: [PassItem], descriptorInputs: [AutoFillDescriptorInput]) {
+        let passVaults = vaults.map { PassVault(from: $0) }
+        let shareIDsByVaultID = Dictionary(
+            uniqueKeysWithValues: passVaults.map { ($0.id, $0.shareId) }
+        )
+        var passItems: [PassItem] = []
+        var descriptorInputs: [AutoFillDescriptorInput] = []
+        passItems.reserveCapacity(cliItems.count)
+        for cliItem in cliItems {
+            let metadata = PassItem(from: cliItem.item, vaultId: cliItem.vaultId)
+            passItems.append(metadata)
+            if let shareID = shareIDsByVaultID[cliItem.vaultId] {
+                descriptorInputs.append(contentsOf: AutoFillCredentialDescriptor.inputs(
+                    from: cliItem.item,
+                    metadata: metadata,
+                    shareID: shareID
+                ))
+            }
+        }
+        return (passVaults, passItems, descriptorInputs)
     }
 
     private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) async {

@@ -66,8 +66,14 @@ jobs:
             -T /usr/bin/security
           rm "$CERT_PATH"
 
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          existing_keychains=()
+          while IFS= read -r keychain; do
+            existing_keychains+=("${keychain//\"/}")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s \
+            "$KEYCHAIN_PATH" "${existing_keychains[@]}"
 
       - name: List signing identities
         run: security find-identity -v -p codesigning
@@ -75,13 +81,43 @@ jobs:
       - name: Prepare bundled Proton Pass CLI
         run: scripts/prepare-bundled-pass-cli.sh build/bundled-pass-cli
 
-      - name: Install provisioning profile
+      - name: Install provisioning profiles
         env:
           APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          APPLE_AUTOFILL_PROVISIONING_PROFILE: >-
+            ${{ secrets.APPLE_AUTOFILL_PROVISIONING_PROFILE }}
         run: |
           PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILES_DIR"
-          echo "$APPLE_PROVISIONING_PROFILE" | base64 --decode > "$PROFILES_DIR/QuickAccessForPass.provisionprofile"
+
+          install_profile() {
+            local encoded_profile="$1"
+            local filename="$2"
+            local label="$3"
+            local profile_path="$PROFILES_DIR/$filename"
+            local profile_plist="$RUNNER_TEMP/$filename.plist"
+
+            [[ -n "$encoded_profile" ]] || {
+              echo "::error::$label provisioning-profile secret is missing"
+              return 1
+            }
+            printf '%s' "$encoded_profile" | base64 --decode > "$profile_path"
+            security cms -D -i "$profile_path" > "$profile_plist"
+            /usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist"
+          }
+
+          HOST_PROFILE_NAME="$(
+            install_profile "$APPLE_PROVISIONING_PROFILE" \
+              host.provisionprofile host
+          )"
+          AUTOFILL_PROFILE_NAME="$(
+            install_profile "$APPLE_AUTOFILL_PROVISIONING_PROFILE" \
+              autofill.provisionprofile AutoFill-extension
+          )"
+          {
+            echo "HOST_PROFILE_NAME=$HOST_PROFILE_NAME"
+            echo "AUTOFILL_PROFILE_NAME=$AUTOFILL_PROFILE_NAME"
+          } >> "$GITHUB_ENV"
 
       - name: Archive
         env:
@@ -100,11 +136,11 @@ jobs:
       - name: Export archive
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_PROFILE_NAME: ${{ secrets.APPLE_PROFILE_NAME }}
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>destination</key>
@@ -120,7 +156,9 @@ jobs:
               <key>provisioningProfiles</key>
               <dict>
                   <key>codes.petr.quick-access-for-pass</key>
-                  <string>${APPLE_PROFILE_NAME}</string>
+                  <string>${HOST_PROFILE_NAME}</string>
+                  <key>codes.petr.quick-access-for-pass.autofill</key>
+                  <string>${AUTOFILL_PROFILE_NAME}</string>
               </dict>
           </dict>
           </plist>
@@ -141,15 +179,27 @@ jobs:
 
       - name: Verify bundled Proton Pass CLI helpers
         run: |
-          CLI_RESOURCES_DIR="build/export/$APP_NAME/Contents/Resources/ProtonPassCLI"
-          LATEST_VERSION="$(find "$CLI_RESOURCES_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort -V | tail -n 1)"
+          EXPORT_APP_PATH="build/export/$APP_NAME"
+          CLI_RESOURCES_DIR="$EXPORT_APP_PATH/Contents/Resources/ProtonPassCLI"
+          LATEST_VERSION="$(
+            find "$CLI_RESOURCES_DIR" -mindepth 1 -maxdepth 1 -type d \
+              -exec basename {} \; | sort -V | tail -n 1
+          )"
           "$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-arm64" --version
           "$CLI_RESOURCES_DIR/$LATEST_VERSION/pass-cli-x86_64" --version
+
+      - name: Verify AutoFill entitlements
+        run: |
+          APP_PATH="build/export/$APP_NAME"
+          scripts/verify-autofill-entitlements.sh \
+            "$APP_PATH" \
+            "$APP_PATH/Contents/PlugIns/Quick Access AutoFill.appex"
 
       - name: Notarize app
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: >-
+            ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           APP_PATH="build/export/$APP_NAME"
@@ -166,8 +216,15 @@ jobs:
 
           echo "$SUBMIT_OUTPUT"
 
-          STATUS=$(echo "$SUBMIT_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
-          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+          NOTARY_RESULT="$RUNNER_TEMP/notary-result.json"
+          printf '%s' "$SUBMIT_OUTPUT" > "$NOTARY_RESULT"
+          STATUS="$(
+            plutil -extract status raw -o - "$NOTARY_RESULT" 2>/dev/null ||
+              printf '%s' unknown
+          )"
+          SUBMISSION_ID="$(
+            plutil -extract id raw -o - "$NOTARY_RESULT" 2>/dev/null || true
+          )"
 
           if [ "$STATUS" != "Accepted" ]; then
             echo "::error::Notarization failed with status: $STATUS"
@@ -226,11 +283,14 @@ jobs:
       - name: Summarize dry run
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "Manual dry run complete. Artifacts were uploaded, and publish jobs were skipped."
+          echo "Manual dry run complete. Artifacts were uploaded."
+          echo "Publish jobs were skipped."
 
       - name: Cleanup keychain
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" \
+            2>/dev/null || true
 
   release:
     name: Create Release
@@ -255,7 +315,7 @@ jobs:
 
       - name: Build release body
         run: |
-          TAG="${{ github.ref_name }}"
+          TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#v}"
           DMG_NAME="Quick.Access.for.Pass-${VERSION}.dmg"
           cat > "$RUNNER_TEMP/release-body.md" << 'BODY'
@@ -269,7 +329,9 @@ jobs:
           ```
 
           ### macOS (Apple Silicon & Intel)
-          Download `__DMG_NAME__` from the assets below, open it, and drag to Applications. The app is a universal binary and runs natively on both architectures.
+          Download `__DMG_NAME__` from the assets below.
+          Open it and drag the app to Applications.
+          The app is a universal binary and runs natively on both architectures.
 
           > Signed and notarized with Apple Developer ID.
           </details>
@@ -308,7 +370,10 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          SHA=$(sha256sum artifacts/Quick.Access.for.Pass-*.zip | awk '{print $1}')
+          SHA="$(
+            sha256sum artifacts/Quick.Access.for.Pass-*.zip |
+              awk '{print $1}'
+          )"
 
           curl -X POST \
             -H "Accept: application/vnd.github+json" \

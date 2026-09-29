@@ -7,6 +7,7 @@ struct SecuritySettingsTab: View {
     @Binding var lockoutEnabled: Bool
     @Binding var lockoutTimeout: Double
     @Binding var lockOnSystemLock: Bool
+    let autoFillAppAssociationsSettingsModel: AutoFillAppAssociationsSettingsModel?
     var onDisableLocking: () async -> Bool
 
     var body: some View {
@@ -75,6 +76,10 @@ struct SecuritySettingsTab: View {
                     }
                     .frame(width: 140)
                 }
+            }
+            if let autoFillAppAssociationsSettingsModel {
+                Divider()
+                AutoFillAppAssociationsSettingsView(model: autoFillAppAssociationsSettingsModel)
             }
         }
     }

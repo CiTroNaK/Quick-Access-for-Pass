@@ -11,10 +11,12 @@ struct LockedView: View {
     let keychainService: any BiometricAuthorizing
     let pendingContext: PendingLockContext?
     let autoUnlockToken: UUID?
+    let accessibilityFocusRequestID: UUID?
     private let evaluatePolicy: PolicyEvaluator
 
     @State private var errorMessage: String?
     @State private var isBiometryLockedOut = false
+    @AccessibilityFocusState private var isUnlockButtonFocused: Bool
     @ScaledMetric(relativeTo: .largeTitle) private var iconSize: CGFloat = 48
 
     init(
@@ -25,6 +27,7 @@ struct LockedView: View {
         keychainService: any BiometricAuthorizing,
         pendingContext: PendingLockContext?,
         autoUnlockToken: UUID?,
+        accessibilityFocusRequestID: UUID? = nil,
         evaluatePolicy: @escaping PolicyEvaluator = { context, policy, reason in
             try await context.evaluatePolicy(policy, localizedReason: reason)
         }
@@ -36,6 +39,7 @@ struct LockedView: View {
         self.keychainService = keychainService
         self.pendingContext = pendingContext
         self.autoUnlockToken = autoUnlockToken
+        self.accessibilityFocusRequestID = accessibilityFocusRequestID
         self.evaluatePolicy = evaluatePolicy
     }
 
@@ -100,6 +104,7 @@ struct LockedView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .accessibilityFocused($isUnlockButtonFocused)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: pendingContext, initial: true) { _, newValue in
@@ -107,6 +112,16 @@ struct LockedView: View {
                 AccessibilityNotification.Announcement(
                     Self.composedLabel(for: newValue)
                 ).post()
+            }
+        }
+        .onChange(of: accessibilityFocusRequestID, initial: true) { _, requestID in
+            if requestID != nil {
+                isUnlockButtonFocused = true
+            }
+        }
+        .onChange(of: errorMessage) { _, message in
+            if let message {
+                AccessibilityNotification.Announcement(message).post()
             }
         }
         .task(id: autoUnlockToken) {
@@ -139,17 +154,19 @@ struct LockedView: View {
             switch laError.code {
             case .biometryLockout:
                 isBiometryLockedOut = true
-                errorMessage = String(localized: "Touch ID is locked. Use your password instead.")
+                presentAuthenticationFailure(
+                    String(localized: "Touch ID is locked. Use your password instead.")
+                )
                 return
             case .userCancel, .userFallback, .appCancel, .systemCancel:
                 onUnlockCancelled()
                 return
             default:
-                errorMessage = laError.localizedDescription
+                presentAuthenticationFailure(laError.localizedDescription)
                 return
             }
         } catch {
-            errorMessage = error.localizedDescription
+            presentAuthenticationFailure(error.localizedDescription)
             return
         }
 
@@ -173,12 +190,19 @@ struct LockedView: View {
             do {
                 try await keychainService.authorize(kind: .app, context: context)
             } catch {
-                errorMessage = String(localized: "Authentication failed. Try again.")
+                presentAuthenticationFailure(
+                    String(localized: "Authentication failed. Try again.")
+                )
                 return
             }
         }
 
         errorMessage = nil
         onUnlockSuccess()
+    }
+
+    private func presentAuthenticationFailure(_ message: String) {
+        errorMessage = message
+        isUnlockButtonFocused = true
     }
 }

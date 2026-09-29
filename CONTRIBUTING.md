@@ -52,7 +52,25 @@ Example: `feat: add Large Type display for selected values`
 
 ## Continuous Integration
 
-Tests run automatically on every PR via GitHub Actions (`macos-26`). CI must pass before merging.
+Tests run automatically on every PR via GitHub Actions (`macos-26`). CI must pass before merging. It builds and tests without Apple signing secrets.
+
+### Release signing secrets
+
+The tag-triggered release workflow requires these repository secrets:
+
+- `APPLE_CERTIFICATE_P12` and `APPLE_CERTIFICATE_PASSWORD` — the Developer ID Application certificate and its password.
+- `APPLE_PROVISIONING_PROFILE` — base64 of the regenerated host Developer ID profile named `Quick Access for Pass - Developer ID`.
+- `APPLE_AUTOFILL_PROVISIONING_PROFILE` — base64 of the extension Developer ID profile named `Quick Access AutoFill - Developer ID`.
+- `APPLE_TEAM_ID`, `APPLE_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` — existing notarization credentials.
+- `HOMEBREW_TAP_TOKEN` — existing Homebrew update token.
+
+Encode each provisioning profile without line wrapping before adding it as a GitHub repository secret:
+
+```bash
+base64 < profile.provisionprofile | tr -d '\n'
+```
+
+The workflow reads profile names from the installed profiles, maps both bundle IDs during export, and verifies the signed host and embedded AutoFill extension before notarization. `APPLE_PROFILE_NAME` is no longer used.
 
 ## Code Guidelines
 
@@ -60,6 +78,7 @@ Tests run automatically on every PR via GitHub Actions (`macos-26`). CI must pas
 - **Thin composition root** — keep `AppDelegate` focused on wiring; orchestration belongs in `SyncCoordinator`, `SSHProxyCoordinator`, `RunProxyCoordinator`, and `HealthCheckCoordinator`.
 - **No secrets on disk** — the database stores metadata only. Sync may temporarily load full item content from `pass-cli` to derive metadata; selected actions fetch current values on demand.
 - **Run proxy clients must be verified** — maintain `PeerVerifier` protections; unverified local peers must stay rejected.
+- **AutoFill remains IPC-only** — protocol v2 may expose at most 20 in-memory, non-secret candidates to the extension. The host alone owns descriptor and app-association storage, the database, Keychain, Pass CLI, unlock UI, and secret resolution; never add those capabilities to the extension.
 - **Tests use Swift Testing** — use `@Suite`, `@Test`, `#expect`, and `#require`, not XCTest.
 - **Single external dependency** — [GRDB.swift](https://github.com/groue/GRDB.swift) via Swift Package Manager.
 - **Accessibility first** — icon-only buttons need `.accessibilityLabel`, decorative images need `.accessibilityHidden(true)`, selection uses `.accessibilityAddTraits(.isSelected)`, and state changes should announce via `AccessibilityNotification.Announcement`.
@@ -92,6 +111,8 @@ Quick Access for Pass/
 - Prefer real implementations with controlled inputs over broad mocking
 - Add regression tests for migration changes, concurrency fixes, health/recovery logic, and security-sensitive behavior
 - If you change SSH or Run proxy behavior, update or add probe/lifecycle tests as needed
+- AutoFill tests must use injected fakes or temporary/in-memory fixtures only; never access real credentials, Keychain items, or the real database. Candidate metadata stays capped at 20 and memory-only; test typed global search only after non-empty input and explicit host-local native-app association behavior.
+- For an AutoFill release change, complete owner-operated validation on an isolated account with non-production fixtures. Cover Safari and a native app, exact subdomain-before-parent ranking, typed global search, explicit association opt-in and repeat ranking, host unlock, Cancel, unavailable host, and a passkey request that shows password/TOTP picker content rather than a blank panel. Do not inspect or record credential values.
 
 ## Documentation
 
