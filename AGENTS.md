@@ -78,8 +78,8 @@ Key behaviors:
 3. `ProcessIdentifier` resolves the requesting PID, app, host, and BatchMode metadata
 4. BatchMode probes are denied by default and handled through `SSHBatchModeNotifier`, with decisions persisted per fingerprint + host
 5. `SSHAuthWindowController` applies:
-   - a **session cache** (3 seconds, in memory) keyed by app + fingerprint
-   - a **persistent cache** keyed by app + command + fingerprint
+   - a **session cache** (3 seconds, in memory) keyed by app + command/host context + fingerprint
+   - a **persistent cache** using the same authorization context
 6. Failures feed the shared health/auto-heal path
 
 ### Run Proxy

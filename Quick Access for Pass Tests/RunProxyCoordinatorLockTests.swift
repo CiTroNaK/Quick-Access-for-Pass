@@ -117,7 +117,8 @@ struct RunProxyCoordinatorLockTests {
         controller.cancelAll()
     }
 
-    @Test func cachedDenialSkipsLockUiAndSecretResolution() async throws {
+    @Test(arguments: [false, true])
+    func cachedDenialSkipsLockUiAndSecretResolution(broaderSessionApproval: Bool) async throws {
         let resolutionRecorder = SecretResolutionRecorder()
         let (coordinator, recorder, database) = try makeFixture(
             isLocked: true,
@@ -148,14 +149,22 @@ struct RunProxyCoordinatorLockTests {
         let identity = try #require(controller.resolveIdentity(for: connection, profile: "test-profile"))
         try database.saveRunDecision(
             appIdentifier: identity.appIdentifier,
-            subcommand: "gh status",
+            subcommand: "gh pr list",
             profileSlug: "test-profile",
             expiresAt: Date().addingTimeInterval(300),
             allowed: false
         )
+        if broaderSessionApproval {
+            controller.storeSessionCache(
+                appIdentifier: identity.appIdentifier,
+                profileSlug: "test-profile",
+                scope: "gh pr",
+                allowed: true
+            )
+        }
         let request = RunProxyRequest(
             profile: "test-profile",
-            command: ["gh", "status"],
+            command: ["gh", "pr", "list"],
             pid: Int32(ProcessInfo.processInfo.processIdentifier)
         )
 

@@ -5,7 +5,25 @@ nonisolated struct RememberedDecisionRowConfig: Sendable {
     let bundleID: String
     let primaryText: String
     let secondaryText: String
+    let detailText: String?
+    let allowed: Bool
     let removeHelpText: String
+
+    init(
+        bundleID: String,
+        primaryText: String,
+        secondaryText: String,
+        detailText: String? = nil,
+        allowed: Bool = true,
+        removeHelpText: String
+    ) {
+        self.bundleID = bundleID
+        self.primaryText = primaryText
+        self.secondaryText = secondaryText
+        self.detailText = detailText
+        self.allowed = allowed
+        self.removeHelpText = removeHelpText
+    }
 }
 
 struct RememberedDecisionRow: View {
@@ -25,8 +43,17 @@ struct RememberedDecisionRow: View {
                 Text(config.secondaryText)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                if let detailText = config.detailText {
+                    Text(detailText)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .textSelection(.enabled)
+                }
             }
             Spacer()
+            Image(systemName: config.allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(config.allowed ? .green : .red)
+                .accessibilityLabel(config.allowed ? String(localized: "Allowed") : String(localized: "Denied"))
             Button("Remove", systemImage: "minus.circle.fill", action: onDelete)
                 .labelStyle(.iconOnly)
                 .foregroundStyle(.red)

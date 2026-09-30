@@ -123,6 +123,102 @@ struct ScopeMatchingTests {
         #expect(match.allowed == false)
     }
 
+    @Test("narrow persisted decisions beat wider session decisions", arguments: [false, true])
+    func narrowPersistedDecisionWins(allowed: Bool) throws {
+        let db = try makeTestDB()
+        try db.saveRunDecision(
+            appIdentifier: "com.test.app",
+            subcommand: "gh pr list",
+            profileSlug: "gh",
+            expiresAt: nil,
+            allowed: allowed
+        )
+        let controller = RunAuthWindowController(
+            databaseManager: db,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+        controller.storeSessionCache(
+            appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr", allowed: allowed == false
+        )
+
+        let match = try #require(controller.anyCachedMatch(
+            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr list", "gh pr"]
+        ))
+        #expect(match.scope == "gh pr list")
+        #expect(match.allowed == allowed)
+    }
+
+    @Test("session decisions retain precedence within the same scope", arguments: [false, true])
+    func sameScopeSessionDecisionWins(allowed: Bool) throws {
+        let db = try makeTestDB()
+        try db.saveRunDecision(
+            appIdentifier: "com.test.app", subcommand: "gh pr", profileSlug: "gh",
+            expiresAt: nil, allowed: allowed == false
+        )
+        let controller = RunAuthWindowController(
+            databaseManager: db,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+        controller.storeSessionCache(
+            appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr", allowed: allowed
+        )
+
+        let match = try #require(controller.anyCachedMatch(
+            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr list", "gh pr"]
+        ))
+        #expect(match.scope == "gh pr")
+        #expect(match.allowed == allowed)
+    }
+
+    @Test("expired session approval falls back to persisted denial")
+    func expiredSessionApprovalFallsBackToDenial() throws {
+        let db = try makeTestDB()
+        try db.saveRunDecision(
+            appIdentifier: "com.test.app", subcommand: "gh pr", profileSlug: "gh",
+            expiresAt: nil, allowed: false
+        )
+        let controller = RunAuthWindowController(
+            databaseManager: db,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+        controller.storeSessionCache(
+            appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr", allowed: true
+        )
+        for key in controller.sessionCache.keys {
+            controller.sessionCache[key]?.expiresAt = .distantPast
+        }
+
+        let match = try #require(controller.anyCachedMatch(
+            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr"]
+        ))
+        #expect(match.allowed == false)
+    }
+
+    @Test("session decisions cannot collide across app and profile boundaries")
+    func sessionIdentityComponentsStaySeparate() throws {
+        let controller = RunAuthWindowController(
+            databaseManager: try makeTestDB(),
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+        controller.storeSessionCache(
+            appIdentifier: "app|profile", profileSlug: "profile", scope: "gh pr", allowed: true
+        )
+
+        #expect(controller.anyCachedMatch(
+            appIdentifier: "app", profileSlug: "profile|profile", scopeOptions: ["gh pr"]
+        ) == nil)
+        #expect(controller.anyCachedMatch(
+            appIdentifier: "app|profile", profileSlug: "other", scopeOptions: ["gh pr"]
+        ) == nil)
+        #expect(controller.anyCachedMatch(
+            appIdentifier: "app|profile", profileSlug: "profile", scopeOptions: ["gh issue"]
+        ) == nil)
+    }
+
     @Test("narrower decision wins when both exist")
     func narrowerWins() throws {
         let db = try makeTestDB()

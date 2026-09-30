@@ -18,6 +18,8 @@ struct SSHAuthDecisionsViewTests {
         #expect(config.bundleID == "com.mitchellh.ghostty")
         #expect(config.primaryText == "git fetch --all")
         #expect(config.secondaryText == "Allowed · github.com · in 1 hour")
+        #expect(config.detailText == "Key: SHA256:abc")
+        #expect(config.allowed)
         #expect(config.removeHelpText == "Remove (will ask again on next request)")
     }
 
@@ -31,7 +33,9 @@ struct SSHAuthDecisionsViewTests {
         )
 
         let presentation = SSHDecisionRowPresentation(decision: decision)
+        let config = presentation.rowConfig(relativeExpiration: "in 1 hour")
 
         #expect(presentation.secondaryText(relativeExpiration: "in 1 hour") == "Denied · github.com · in 1 hour")
+        #expect(config.allowed == false)
     }
 }

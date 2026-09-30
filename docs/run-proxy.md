@@ -103,6 +103,8 @@ When `qa-run --profile github-cli -- gh auth status` runs, Quick Access resolves
 
 Run Proxy authorization decisions are context-aware. They can remember either an approval or a denial for the selected duration, scoped to the requesting app, subcommand, and profile, so a decision for one command profile does not apply to unrelated commands.
 
+Matching checks the most specific subcommand scope first across both session and persistent decisions. A broader session approval cannot override a more specific remembered denial. Within the same scope, a current session decision takes precedence.
+
 Remembered decisions can be reviewed and cleared from **Settings → Run**.
 
 ## Secret cache duration

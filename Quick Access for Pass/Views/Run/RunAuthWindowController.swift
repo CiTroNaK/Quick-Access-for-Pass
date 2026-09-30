@@ -12,8 +12,15 @@ final class RunAuthWindowController {
     let databaseManager: DatabaseManager
     private let keychainService: any BiometricAuthorizing
     private let callbacks: AuthDialogHelper.Callbacks
-    var sessionCache: [String: (allowed: Bool, expiresAt: Date)] = [:]
+    var sessionCache: [SessionCacheKey: (allowed: Bool, expiresAt: Date)] = [:]
     let sessionCacheDuration: TimeInterval = 10
+
+    /// The independent identity components of a short-lived Run decision.
+    nonisolated struct SessionCacheKey: Hashable, Sendable {
+        let appIdentifier: String
+        let profileSlug: String
+        let scope: String
+    }
 
     nonisolated struct AuthorizationMatch: Sendable {
         let scope: String

@@ -8,25 +8,27 @@ struct SSHAuthDecisionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Remembered SSH decisions")
+            Text("Remembered SSH decisions (\(decisions.count))")
                 .foregroundStyle(.secondary)
-
-            ForEach(decisions, id: \.compositeKey) { decision in
-                SSHDecisionRow(
-                    presentation: SSHDecisionRowPresentation(decision: decision)
-                ) {
-                    try? databaseManager.removeAuthDecision(
-                        appIdentifier: decision.appIdentifier,
-                        keyFingerprint: decision.keyFingerprint
-                    )
-                    loadDecisions()
-                }
-            }
 
             if decisions.isEmpty {
                 Text("No remembered decisions.")
                     .font(.caption)
                     .foregroundStyle(.quaternary)
+            } else {
+                RememberedDecisionList(accessibilityLabel: String(localized: "Remembered SSH decisions")) {
+                    ForEach(decisions, id: \.compositeKey) { decision in
+                        SSHDecisionRow(
+                            presentation: SSHDecisionRowPresentation(decision: decision)
+                        ) {
+                            try? databaseManager.removeAuthDecision(
+                                appIdentifier: decision.appIdentifier,
+                                keyFingerprint: decision.keyFingerprint
+                            )
+                            loadDecisions()
+                        }
+                    }
+                }
             }
         }
         .onAppear { loadDecisions() }
@@ -81,6 +83,8 @@ nonisolated struct SSHDecisionRowPresentation: Sendable {
             bundleID: bundleID,
             primaryText: primaryText,
             secondaryText: secondaryText(relativeExpiration: relativeExpiration),
+            detailText: "Key: \(decision.keyFingerprint)",
+            allowed: decision.allowed,
             removeHelpText: removeHelpText
         )
     }

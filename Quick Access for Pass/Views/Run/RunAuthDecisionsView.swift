@@ -9,29 +9,31 @@ struct RunAuthDecisionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Remembered run decisions")
+            Text("Remembered run decisions (\(decisions.count))")
                 .foregroundStyle(.secondary)
-
-            ForEach(decisions, id: \.compositeKey) { decision in
-                RunDecisionRow(
-                    presentation: RunAuthDecisionRowPresentation(
-                        decision: decision,
-                        profileName: profileNames[decision.profileSlug] ?? decision.profileSlug
-                    )
-                ) {
-                    try? databaseManager.removeRunAuthDecision(
-                        appIdentifier: decision.appIdentifier,
-                        subcommand: decision.subcommand,
-                        profileSlug: decision.profileSlug
-                    )
-                    loadDecisions()
-                }
-            }
 
             if decisions.isEmpty {
                 Text("No remembered decisions.")
                     .font(.caption)
                     .foregroundStyle(.quaternary)
+            } else {
+                RememberedDecisionList(accessibilityLabel: String(localized: "Remembered run decisions")) {
+                    ForEach(decisions, id: \.compositeKey) { decision in
+                        RunDecisionRow(
+                            presentation: RunAuthDecisionRowPresentation(
+                                decision: decision,
+                                profileName: profileNames[decision.profileSlug] ?? decision.profileSlug
+                            )
+                        ) {
+                            try? databaseManager.removeRunAuthDecision(
+                                appIdentifier: decision.appIdentifier,
+                                subcommand: decision.subcommand,
+                                profileSlug: decision.profileSlug
+                            )
+                            loadDecisions()
+                        }
+                    }
+                }
             }
         }
         .onAppear { loadDecisions() }
@@ -77,6 +79,7 @@ private struct RunDecisionRow: View {
             bundleID: presentation.bundleID,
             primaryText: presentation.primaryText,
             secondaryText: presentation.secondaryText(relativeExpiration: relativeExpiration),
+            allowed: presentation.decision.allowed,
             removeHelpText: presentation.removeHelpText
         )
     }

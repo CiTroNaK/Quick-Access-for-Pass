@@ -45,7 +45,9 @@ The prompt supports remembered approvals and denials, each with the selected dur
 Quick Access uses two layers to reduce prompt fatigue:
 
 - A short in-memory session cache for repeated requests during multi-step operations.
-- Persistent remembered decisions keyed by app, command context, and key fingerprint.
+- Persistent remembered decisions keyed by app, command/host context, and key fingerprint.
+
+Both layers use the same authorization context, including for queued requests. An approval for another command or host cannot override a matching remembered denial.
 
 Remembered decisions can be reviewed and cleared from **Settings → SSH**.
 
