@@ -14,26 +14,36 @@ extension QuickAccessViewModel {
         isActionLoading = true
         copyGeneration += 1
         let generation = copyGeneration
+        let releaseToken = secretReleaseGuard.capture()
         inFlightCopy = Task { [weak self] in
             guard let self else { return }
             defer { self.finishCopyTaskIfCurrent(generation) }
-            await self.runCopyFieldTask(key, from: item, generation: generation)
+            await self.runCopyFieldTask(key, from: item, generation: generation, releaseToken: releaseToken)
         }
     }
 
-    private func runCopyFieldTask(_ key: FieldKey, from item: PassItem, generation: Int) async {
+    private func runCopyFieldTask(
+        _ key: FieldKey,
+        from item: PassItem,
+        generation: Int,
+        releaseToken: UUID
+    ) async {
         do {
-            guard let value = try await currentFieldValue(for: key, from: item, generation: generation) else {
+            guard let value = try await currentFieldValue(
+                for: key, from: item, generation: generation, releaseToken: releaseToken
+            ) else {
                 return
             }
-            guard isCurrentCopyGeneration(generation) else { return }
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
             clipboardManager.copy(value, label: copyLabel(for: key))
-            guard isCurrentCopyGeneration(generation) else { return }
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
             try? searchService.recordUsage(itemId: item.id)
-            guard isCurrentCopyGeneration(generation) else { return }
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
             onDismiss()
         } catch is CancellationError {
             return
+        } catch let error as OfflineSecretResolver.Error {
+            publishCopyError(error.localizedDescription, generation: generation)
         } catch let error as CLIError where error.isAuthError {
             publishCopyError(cliService.cliSelection.loginRequiredMessage, generation: generation)
         } catch {
@@ -41,10 +51,17 @@ extension QuickAccessViewModel {
         }
     }
 
-    private func currentFieldValue(for key: FieldKey, from item: PassItem, generation: Int) async throws -> String? {
-        let cliItem = try await fetchItem(item.id, shareId(for: item))
+    private func currentFieldValue(
+        for key: FieldKey,
+        from item: PassItem,
+        generation: Int,
+        releaseToken: UUID
+    ) async throws -> String? {
+        let cliItem = try await secretResolver.resolveItem(
+            itemId: item.id, vaultId: item.vaultId, shareId: shareId(for: item)
+        )
         try Task.checkCancellation()
-        guard isCurrentCopyGeneration(generation) else { return nil }
+        guard canReleaseCopy(generation, token: releaseToken) else { return nil }
 
         guard let value = FieldExtractor.value(for: key, in: cliItem) else {
             publishCopyError(String(localized: "Field no longer available — refresh"), generation: generation)
@@ -52,12 +69,16 @@ extension QuickAccessViewModel {
         }
 
         try Task.checkCancellation()
-        guard isCurrentCopyGeneration(generation) else { return nil }
+        guard canReleaseCopy(generation, token: releaseToken) else { return nil }
         return value
     }
 
     func isCurrentCopyGeneration(_ generation: Int) -> Bool {
         copyGeneration == generation
+    }
+
+    func canReleaseCopy(_ generation: Int, token: UUID) -> Bool {
+        !Task.isCancelled && isCurrentCopyGeneration(generation) && secretReleaseGuard.isCurrent(token)
     }
 
     func publishCopyError(_ message: String, generation: Int) {

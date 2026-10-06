@@ -2,10 +2,21 @@ import Darwin
 import Foundation
 
 nonisolated enum RunSecretResolver {
+    /// Internal, nil-default diagnostics expose lifecycle metadata only.
+    nonisolated struct LifecycleTesting: Sendable {
+        nonisolated enum Event: Sendable, Equatable {
+            case readerScheduled, readerEntered, cliSubmitted, cliFinished
+            case keepAliveClosed, readerFinished, resolverFinished
+        }
+        let marker: @Sendable (Event) -> Void
+    }
+
     static func resolve(
         mappings: [RunProfileEnvMapping],
-        cliPath: String
+        cliPath: String,
+        lifecycleTesting: LifecycleTesting? = nil
     ) async throws -> [String: String] {
+        defer { lifecycleTesting?.marker(.resolverFinished) }
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("qa-resolve-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -26,10 +37,11 @@ nonisolated enum RunSecretResolver {
         }
 
         var outputChannel = try FIFOOutputChannel.open(path: outputPipe.path)
-        let outputTask = outputChannel.startReading()
+        let outputTask = outputChannel.startReading(lifecycleTesting: lifecycleTesting)
         defer { outputChannel.close() }
 
         do {
+            lifecycleTesting?.marker(.cliSubmitted)
             _ = try await CLIRunner.run(
                 executablePath: cliPath,
                 arguments: [
@@ -43,12 +55,16 @@ nonisolated enum RunSecretResolver {
                 timeout: 30
             )
         } catch {
+            lifecycleTesting?.marker(.cliFinished)
             outputChannel.closeKeepAliveWriter()
+            lifecycleTesting?.marker(.keepAliveClosed)
             _ = try? await outputTask.value
             throw error
         }
 
+        lifecycleTesting?.marker(.cliFinished)
         outputChannel.closeKeepAliveWriter()
+        lifecycleTesting?.marker(.keepAliveClosed)
         let data = try await outputTask.value
         guard let output = String(data: data, encoding: .utf8) else { return [:] }
         return parseEnvOutput(output, keys: envNames)
@@ -79,12 +95,24 @@ nonisolated enum RunSecretResolver {
             return Self(readFD: readFD, keepAliveWriteFD: keepAliveWriteFD)
         }
 
-        mutating func startReading() -> Task<Data, Error> {
+        mutating func startReading(lifecycleTesting: LifecycleTesting?) -> Task<Data, Error> {
             let fd = readFD
             readFD = -1
+            let queue = DispatchQueue(label: "com.quickaccess.pass.run.fifo-reader")
+            lifecycleTesting?.marker(.readerScheduled)
             return Task {
-                defer { Darwin.close(fd) }
-                return try Self.readToEnd(from: fd)
+                // The FIFO poll loop must not occupy a cooperative task worker.
+                // This task remains the awaited owner of one operation-scoped
+                // I/O job; the job closes its transferred fd before completion.
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                    queue.async {
+                        lifecycleTesting?.marker(.readerEntered)
+                        let result = Result { try Self.readToEnd(from: fd) }
+                        Darwin.close(fd)
+                        lifecycleTesting?.marker(.readerFinished)
+                        continuation.resume(with: result)
+                    }
+                }
             }
         }
 

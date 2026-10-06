@@ -42,26 +42,27 @@ struct SystemLockHandlerTests {
 
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("system-lock-handler-\(name)"))
         let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: pasteboard)
+        let delegate = AppDelegate()
+        delegate.testDefaults = defaults
         let viewModel = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: PassCLIService(),
             clipboardManager: clipboard,
-            onDismiss: {}
+            onDismiss: {},
+            secretReleaseGuard: delegate.secretReleaseGuard
         )
         viewModel.searchQuery = "git"
         viewModel.performSearch(query: "git")
         viewModel.errorMessage = "Failed"
         clipboard.copy("secret")
 
-        let delegate = AppDelegate()
-        delegate.testDefaults = defaults
         delegate.viewModel = viewModel
         delegate.resetAuthTimestamp()
 
         return (delegate, viewModel, pasteboard)
     }
 
-    @Test func disabledSettingIgnoresSystemLockEvent() throws {
+    @Test func disabledSettingPreservesAppLockStateButClearsOwnedClipboard() throws {
         let (delegate, viewModel, pasteboard) = try makeFixture(lockOnSystemLock: false)
 
         delegate.handleSystemLockEvent()
@@ -69,7 +70,74 @@ struct SystemLockHandlerTests {
         #expect(delegate.isLocked == false)
         #expect(viewModel.searchQuery == "git")
         #expect(viewModel.errorMessage == "Failed")
-        #expect(pasteboard.string(forType: .string) == "secret")
+        let value = pasteboard.string(forType: .string)
+        #expect(value == nil || value == "")
+    }
+
+    @Test func disabledSettingRevokesBlockedSecretActionWithoutChangingLockPolicy() async throws {
+        let (delegate, viewModel, pasteboard) = try makeFixture(lockOnSystemLock: false)
+        let gate = OfflineTestGate()
+        let resolver = SystemLockBlockingResolver(gate: gate)
+        let guardedViewModel = QuickAccessViewModel(
+            searchService: viewModel.searchService,
+            cliService: PassCLIService(),
+            clipboardManager: ClipboardManager(autoClearSeconds: 0, pasteboard: pasteboard),
+            onDismiss: {},
+            secretResolver: resolver,
+            secretReleaseGuard: delegate.secretReleaseGuard
+        )
+        delegate.viewModel = guardedViewModel
+        pasteboard.clearContents()
+        let item = offlineTestMetadata(id: "1", vaultID: "s1")
+        guardedViewModel.handleAction(.copyPassword, for: item)
+        do {
+            try await gate.waitUntilEntered()
+            delegate.handleSystemLockEvent()
+            await gate.open()
+            await guardedViewModel.inFlightCopy?.value
+            #expect(delegate.isLocked == false)
+            #expect(delegate.testDefaults?.bool(forKey: DefaultsKey.lockOnSystemLock) == false)
+            #expect(pasteboard.string(forType: .string) == nil)
+        } catch {
+            await gate.open()
+            throw error
+        }
+    }
+
+    @Test func forceLockRevokesTheSharedReleaseGeneration() throws {
+        let (delegate, _, _) = try makeFixture(lockOnSystemLock: false)
+        let token = delegate.secretReleaseGuard.capture()
+
+        delegate.forceLock()
+
+        #expect(delegate.isLocked)
+        #expect(!delegate.secretReleaseGuard.isCurrent(token))
+        #expect(delegate.testDefaults?.bool(forKey: DefaultsKey.lockOnSystemLock) == false)
+    }
+
+    @Test func forceLockStopsABlockedSecretAction() async throws {
+        let (delegate, viewModel, pasteboard) = try makeFixture(lockOnSystemLock: false)
+        let gate = OfflineTestGate()
+        let guardedViewModel = QuickAccessViewModel(
+            searchService: viewModel.searchService, cliService: PassCLIService(),
+            clipboardManager: ClipboardManager(autoClearSeconds: 0, pasteboard: pasteboard), onDismiss: {},
+            secretResolver: SystemLockBlockingResolver(gate: gate), secretReleaseGuard: delegate.secretReleaseGuard
+        )
+        delegate.viewModel = guardedViewModel
+        pasteboard.clearContents()
+        guardedViewModel.handleAction(.copyPassword, for: offlineTestMetadata(id: "1", vaultID: "s1"))
+        do {
+            try await gate.waitUntilEntered()
+            let task = try #require(guardedViewModel.inFlightCopy)
+            delegate.forceLock()
+            await gate.open()
+            await task.value
+            #expect(delegate.isLocked)
+            #expect(pasteboard.string(forType: .string) == nil)
+        } catch {
+            await gate.open()
+            throw error
+        }
     }
 
     @Test func enabledSettingForcesLockAndClearsSensitiveState() throws {
@@ -93,5 +161,21 @@ struct SystemLockHandlerTests {
         delegate.handleSystemLockEvent()
 
         #expect(pasteboard.string(forType: .string) == "user-value")
+    }
+}
+
+private actor SystemLockBlockingResolver: SecretItemResolving {
+    let gate: OfflineTestGate
+
+    init(gate: OfflineTestGate) { self.gate = gate }
+
+    func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> CLIItem {
+        try? await gate.wait()
+        return try offlineTestCLIItem(id: itemId, vaultID: vaultId, shareID: shareId, password: "system-lock-secret")
+    }
+
+    func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> String {
+        try? await gate.wait()
+        return "000000"
     }
 }

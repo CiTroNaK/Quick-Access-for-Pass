@@ -54,6 +54,7 @@ final class AutoFillBrokerCoordinator {
     private let descriptorStore: any AutoFillDescriptorStoring
     private let associationStore: (any AutoFillAppAssociationStoring)?
     private let secretResolver: any AutoFillSecretResolving
+    private let secretReleaseGuard: SecretReleaseGuard
     private let isAppLocked: LockedState
     private let showLockedPanel: ShowLockedPanel
     private let accessibility: any AutoFillAccessibilityPresenting
@@ -63,6 +64,7 @@ final class AutoFillBrokerCoordinator {
         descriptorStore: any AutoFillDescriptorStoring,
         associationStore: (any AutoFillAppAssociationStoring)? = nil,
         secretResolver: any AutoFillSecretResolving,
+        secretReleaseGuard: SecretReleaseGuard = SecretReleaseGuard(),
         isAppLocked: @escaping LockedState,
         showLockedPanel: @escaping ShowLockedPanel,
         accessibility: (any AutoFillAccessibilityPresenting)? = nil,
@@ -71,6 +73,7 @@ final class AutoFillBrokerCoordinator {
         self.descriptorStore = descriptorStore
         self.associationStore = associationStore
         self.secretResolver = secretResolver
+        self.secretReleaseGuard = secretReleaseGuard
         self.isAppLocked = isAppLocked
         self.showLockedPanel = showLockedPanel
         self.accessibility = accessibility ?? NoOpAutoFillAccessibilityAdapter()
@@ -96,11 +99,40 @@ final class AutoFillBrokerCoordinator {
         appAssociationIntent: AutoFillAppAssociationIntent? = nil,
         transition: AutoFillBrokerStateTransition = { _ in }
     ) async throws -> String {
+        try await resolveDelivery(
+            request: request,
+            appAssociationIntent: appAssociationIntent,
+            transition: transition
+        ).value
+    }
+
+    /// Produces a transient value paired with the only allowed final IPC
+    /// release capability. The processor must call that capability only after
+    /// its registry completion linearization.
+    func resolveDelivery(
+        request: AutoFillRegisteredRequest,
+        appAssociationIntent: AutoFillAppAssociationIntent? = nil,
+        transition: AutoFillBrokerStateTransition = { _ in }
+    ) async throws -> AutoFillCredentialDelivery {
+        let releaseToken = secretReleaseGuard.capture()
         do {
-            return try await resolveRequest(
+            let resolved = try await resolveRequest(
                 request,
+                releaseToken: releaseToken,
                 appAssociationIntent: appAssociationIntent,
                 transition: transition
+            )
+            return AutoFillCredentialDelivery(
+                value: resolved.value,
+                release: AutoFillCredentialRelease(
+                    request: request,
+                    descriptor: resolved.descriptor,
+                    releaseToken: releaseToken,
+                    descriptorStore: descriptorStore,
+                    secretReleaseGuard: secretReleaseGuard,
+                    isAppLocked: isAppLocked,
+                    now: now
+                )
             )
         } catch Error.deadlineExpired {
             accessibility.announce(.requestTimedOut)
@@ -110,9 +142,10 @@ final class AutoFillBrokerCoordinator {
 
     private func resolveRequest(
         _ request: AutoFillRegisteredRequest,
+        releaseToken: UUID,
         appAssociationIntent: AutoFillAppAssociationIntent?,
         transition: AutoFillBrokerStateTransition
-    ) async throws -> String {
+    ) async throws -> AutoFillResolvedCredential {
         try Task.checkCancellation()
         try requireRemainingTime(until: request.deadline)
 
@@ -121,6 +154,7 @@ final class AutoFillBrokerCoordinator {
             try await store.descriptor(id: request.descriptorID)
         }
         guard let descriptor else { throw Error.descriptorNotFound }
+        try requireCurrentGuard(releaseToken)
 
         if let appAssociationIntent {
             guard appAssociationIntent.service.kind == .app,
@@ -134,17 +168,20 @@ final class AutoFillBrokerCoordinator {
                     createdAt: Date()
                 )
             }
+            try requireCurrentGuard(releaseToken)
         }
 
         try Task.checkCancellation()
         if isAppLocked() {
             accessibility.announce(.unlockRequired)
             try await transition(.awaitingUnlock)
+            try requireCurrentGuard(releaseToken)
             let timeout = try remainingSeconds(until: request.deadline)
             let unlocked = try await beforeDeadline(request.deadline) {
                 await self.showLockedPanel(timeout)
             }
             try Task.checkCancellation()
+            try requireCurrentGuard(releaseToken)
             guard unlocked else {
                 accessibility.recoverFocusAfterAuthenticationFailure()
                 throw Error.unlockFailed
@@ -152,14 +189,42 @@ final class AutoFillBrokerCoordinator {
         }
 
         try requireRemainingTime(until: request.deadline)
+        try requireCurrentGuard(releaseToken)
         try await transition(.resolving)
         try Task.checkCancellation()
+        try requireCurrentGuard(releaseToken)
 
         let resolver = secretResolver
+        let context = SecretResolutionContext(
+            deadlineUptimeNanoseconds: request.deadline,
+            expectedUsername: descriptor.username
+        )
         do {
-            return try await beforeDeadline(request.deadline) {
-                try await resolver.resolve(descriptor: descriptor, kind: request.kind)
+            // Native secret resolution receives the original deadline itself;
+            // wrapping it in a timer task would leave an unbounded child alive.
+            let value = try await resolver.resolve(descriptor: descriptor, kind: request.kind, context: context)
+            try Task.checkCancellation()
+            try requireRemainingTime(until: request.deadline)
+            try requireCurrentGuard(releaseToken)
+
+            // Re-read metadata after decryption/resolution so stale identity or
+            // capability changes cannot authorize the final broker release.
+            let currentDescriptor = try await beforeDeadline(request.deadline) {
+                try await store.descriptor(id: request.descriptorID)
             }
+            guard let currentDescriptor,
+                  currentDescriptor.id == descriptor.id,
+                  currentDescriptor.identityKey == descriptor.identityKey,
+                  supports(request.kind, descriptor: currentDescriptor)
+            else {
+                throw Error.descriptorNotFound
+            }
+            try Task.checkCancellation()
+            try requireRemainingTime(until: request.deadline)
+            try requireFinalRelease(releaseToken)
+            return AutoFillResolvedCredential(value: value, descriptor: descriptor)
+        } catch is SecretResolutionError {
+            throw Error.deadlineExpired
         } catch Error.deadlineExpired {
             throw Error.deadlineExpired
         } catch is CancellationError {
@@ -172,6 +237,22 @@ final class AutoFillBrokerCoordinator {
 
     private func requireRemainingTime(until deadline: UInt64) throws {
         _ = try remainingNanoseconds(until: deadline)
+    }
+
+    private func requireCurrentGuard(_ token: UUID) throws {
+        guard secretReleaseGuard.isCurrent(token) else { throw CancellationError() }
+    }
+
+    private func requireFinalRelease(_ token: UUID) throws {
+        try requireCurrentGuard(token)
+        guard !isAppLocked() else { throw Error.unlockFailed }
+    }
+
+    private func supports(_ kind: AutoFillValueKind, descriptor: AutoFillCredentialDescriptor) -> Bool {
+        switch kind {
+        case .password: true
+        case .oneTimeCode: descriptor.hasTOTP
+        }
     }
 
     private func remainingSeconds(until deadline: UInt64) throws -> TimeInterval {

@@ -6,11 +6,16 @@ final class SyncCoordinator {
     private let cliService: PassCLIService
     private let databaseManager: DatabaseManager
     private let identitySynchronizer: any AutoFillIdentitySynchronizing
+    private let offlineModeService: OfflineModeService?
+    /// Shared metadata-only remnant maintenance; it does not affect sync success.
+    private let maintenance: OfflineStorageMaintenance?
+    private let onResetInitiated: @MainActor @Sendable () -> Void
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
     private let onAuthenticationRequired: (@MainActor @Sendable () async -> Void)?
 
     private var syncTask: Task<Void, Never>?
+    private var resetTask: Task<Void, Never>?
     private var syncTimer: Timer?
     private var currentSyncInterval: TimeInterval = 0
 
@@ -19,12 +24,18 @@ final class SyncCoordinator {
         databaseManager: DatabaseManager,
         viewModel: QuickAccessViewModel,
         identitySynchronizer: any AutoFillIdentitySynchronizing = DisabledAutoFillIdentitySynchronizer(),
+        offlineModeService: OfflineModeService? = nil,
+        maintenance: OfflineStorageMaintenance? = nil,
+        onResetInitiated: @escaping @MainActor @Sendable () -> Void = {},
         onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in },
         onAuthenticationRequired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
         self.identitySynchronizer = identitySynchronizer
+        self.offlineModeService = offlineModeService
+        self.maintenance = maintenance
+        self.onResetInitiated = onResetInitiated
         self.viewModel = viewModel
         self.onSyncIssueChanged = onSyncIssueChanged
         self.onAuthenticationRequired = onAuthenticationRequired
@@ -38,7 +49,7 @@ final class SyncCoordinator {
     }
 
     func refreshNow() {
-        guard let viewModel else { return }
+        guard resetTask == nil, let viewModel else { return }
 
         syncTask?.cancel()
         syncTask = Task {
@@ -48,7 +59,7 @@ final class SyncCoordinator {
             var skippedDiagnosticFileURL: URL?
 
             do {
-                let (vaults, cliItems, skippedItems) = try await cliService.fetchAllItems { progress in
+                let (vaults, cliItems, skippedItems, presenceUncertainties) = try await cliService.fetchAllItems { progress in
                     await MainActor.run {
                         viewModel.syncProgress = progress
                     }
@@ -62,23 +73,39 @@ final class SyncCoordinator {
                     }
                 }
                 let projection = projectSyncMetadata(vaults: vaults, cliItems: cliItems)
-
                 let db = databaseManager
-                let descriptors = try await Task.detached { [db, projection] in
-                    try db.syncMetadata(
-                        vaults: projection.vaults,
-                        items: projection.items,
-                        descriptors: projection.descriptorInputs
-                    )
-                }.value
+                let synchronization = try await db.synchronizeMetadata(
+                    vaults: projection.vaults,
+                    items: projection.items,
+                    descriptors: projection.descriptorInputs,
+                    presenceUncertainties: presenceUncertainties
+                )
+                // This registration happens only after the metadata transaction
+                // commits; checkpoint busy/error never changes sync success.
+                if synchronization.didDeleteOfflineData {
+                    await maintenance?.requestCheckpoint()
+                }
                 try Task.checkCancellation()
-                try await identitySynchronizer.reconcile(descriptors: descriptors)
+                try await identitySynchronizer.reconcile(descriptors: synchronization.descriptors)
+                try Task.checkCancellation()
+                // Queue only metadata-backed work after trusted reconciliation.
+                // Admission is nonblocking; secret preparation is independent of
+                // ordinary metadata sync completion and loading state.
+                await offlineModeService?.metadataDidSynchronize(
+                    allowMembershipExpansion: skippedItems.isEmpty && presenceUncertainties.allSatisfy {
+                        $0.skippedItemIDs.isEmpty && !$0.hasUnidentifiedSkippedItems
+                    },
+                    eligibleItemIDs: Set(projection.items.map(\.id))
+                )
+                try Task.checkCancellation()
 
                 finishSuccessfulSync(
                     skippedItems: skippedItems,
                     diagnosticFileURL: skippedDiagnosticFileURL,
                     viewModel: viewModel
                 )
+            } catch is CancellationError {
+                return
             } catch let error as CLIError where error.isNotInstalled {
                 viewModel.syncProgress = nil
                 viewModel.syncError = nil
@@ -157,14 +184,45 @@ final class SyncCoordinator {
     }
 
     func resetAndSync() {
-        do {
-            try databaseManager.clearAll()
-        } catch {
-            viewModel?.syncError = nil
-            viewModel?.errorMessage = String(localized: "Failed to reset database: \(error.localizedDescription)")
-            return
+        // Keep one reset owner so stale task cleanup cannot release a newer reset barrier.
+        guard resetTask == nil else { return }
+        onResetInitiated()
+        syncTask?.cancel()
+        syncTask = nil
+        resetTask = Task { [weak self] in
+            guard let self else { return }
+            guard let offlineModeService else {
+                do {
+                    try await databaseManager.clearMetadata()
+                    resetTask = nil
+                    refreshNow()
+                } catch is CancellationError {
+                    resetTask = nil
+                } catch {
+                    viewModel?.syncError = nil
+                    viewModel?.errorMessage = String(localized: "Failed to reset database: \(error.localizedDescription)")
+                    resetTask = nil
+                }
+                return
+            }
+
+            do {
+                try await offlineModeService.prepareForMetadataReset()
+                try Task.checkCancellation()
+                try await databaseManager.clearMetadata()
+                await offlineModeService.finishMetadataReset()
+                resetTask = nil
+                refreshNow()
+            } catch is CancellationError {
+                await offlineModeService.finishMetadataReset()
+                resetTask = nil
+            } catch {
+                await offlineModeService.finishMetadataReset()
+                viewModel?.syncError = nil
+                viewModel?.errorMessage = String(localized: "Failed to reset database: \(error.localizedDescription)")
+                resetTask = nil
+            }
         }
-        refreshNow()
     }
 
     nonisolated static func syncErrorPresentation(

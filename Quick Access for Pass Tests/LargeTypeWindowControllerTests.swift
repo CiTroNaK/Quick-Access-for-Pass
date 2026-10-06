@@ -41,9 +41,11 @@ struct LargeTypeWindowControllerTests {
         let display = try LargeTypeDisplay(validating: "AB12")
 
         controller.show(display: display, relativeTo: nil)
+        #expect(controller.debugHostingController != nil)
         controller.close()
 
         #expect(controller.debugWindow == nil)
+        #expect(controller.debugHostingController == nil)
     }
 
     @Test func showAndCloseNotifyOwnershipCallbacks() throws {

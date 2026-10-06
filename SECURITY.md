@@ -34,9 +34,12 @@ This policy covers the Quick Access for Pass application, including:
 
 Quick Access for Pass is designed around a few core invariants:
 
-- **No secrets in the database** — only metadata is persisted locally
-- **Secrets are never persisted locally**; sync may temporarily load full item content from `pass-cli` to derive metadata, and selected actions fetch current values on demand
-- **Database encryption is mandatory** — the local cache is encrypted using GRDB/SQLCipher with a Keychain-backed passphrase
+- **Ordinary database tables are metadata-only** — the primary GRDB/SQLCipher database persists search metadata, not secret values outside the dedicated snapshot table
+- **Offline persistence is opt-in and single-database** — a user may select an individual item or explicitly select a whole vault, including future items after successful sync. Removing an item under a selected vault excludes it from automatic caching until selected again; turning off a vault preserves individually selected items, and **Keep offline individually** promotes a vault-only copy without refetching. Only selected full snapshots are persisted in `offlineSnapshots`, encrypted before SQLite receives them; there is no second offline database, legacy import, or compatibility reader. On v11 upgrade, prior explicit item copies remain selected individually, while old permission-only vault rows do not become whole-vault consent.
+- **Offline snapshot keys are device-bound** — the distinct snapshot-cipher key is stored in the data-protection Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; snapshots are additionally authenticated with their vault, item, revision, and key fingerprint. Snapshot cipher/key use is operation-scoped, SQLCipher passphrase use is connection-lifetime, and row purge deliberately retains keys rather than racing Keychain deletion/rotation
+- **Live access remains first** — selected snapshots are read only when live Pass CLI access is unavailable. Settings can list and remove selected items, show stale cache state, or purge all offline data. The snapshot can serve ordinary host copy/Large Type or the existing verified host-broker AutoFill password/TOTP request, never SSH or Run proxy resolution
+- **Database encryption is mandatory** — the unified database, including encrypted selected snapshots, uses GRDB/SQLCipher with a Keychain-backed passphrase
+- **Backup and deletion limits are explicit** — backup exclusion applies to the entire unified file, including local Run profiles and remembered decisions. Device-bound snapshot keys make offline data non-portable; after committed deletion, bounded out-of-transaction WAL maintenance may reduce active-file remnants, but logical deletion does not claim forensic secure erasure, cryptographic shredding, APFS snapshot removal, or deletion from manual/third-party backups
 - **Optional Proton Pass CLI personal access tokens stay in Keychain** — PATs use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and are never written to UserDefaults, SQLite, logs, notifications, or captured CLI output
 - **Local proxies are permission constrained** — sockets are created with strict owner-only permissions
 - **Run proxy peers are verified** — unverified local clients are rejected; trusted helper handling is explicit
@@ -52,7 +55,84 @@ The main app is the only component that invokes Pass CLI. The extension sends an
 
 The provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the AutoFill broker socket directory and socket. The directory is owner-only (`0700`) and the socket is owner-only (`0600`). The extension has no database or Keychain Sharing entitlement: it sends only the system identity's opaque descriptor ID and fixed value kind over the verified broker. The host alone opens the local SQLCipher metadata database and accesses its `H23TXL6LPT.codes.petr.quick-access-for-pass` Keychain Sharing group with the data-protection Keychain and `WhenUnlockedThisDeviceOnly` accessibility.
 
-Passwords, TOTP seeds, and generated TOTP codes are not persisted by Quick Access in the database, system identity store, App Group files, logs, or launch URLs. Values are resolved on demand by the host, returned once to the verified extension, and discarded.
+Passwords, TOTP seeds, and generated TOTP codes are not persisted in ordinary metadata tables, the system identity store, App Group files, logs, or launch URLs. The sole exception is an explicitly selected encrypted `offlineSnapshots` record in the host-owned unified database. It is never exposed to the extension and is excluded from SSH and Run proxy resolution. For the existing host-only, verified AutoFill broker boundary, a selected snapshot may provide only the requested password or TOTP value when live access is unavailable; unselected, missing, or unusable items fail generically without cache diagnostics. Values returned to the verified extension are returned once and discarded.
+
+## Offline Storage Lifecycle and Limits
+
+Offline Mode uses one host-only SQLCipher database, outside App Group storage.
+Migration v11 adds the dedicated `offlineSnapshots` table and request ownership;
+migration v12 adds whole-vault policy generations, manual item-selection state, and
+per-item exclusions. It clears legacy permission-only vault rows while preserving
+existing individually selected rows and ciphertext; v1–v11 remain intact. Its payloads receive an additional
+AES-256-GCM layer with authenticated domain, vault/item, schema, revision, and
+key-fingerprint identity. Ordinary tables, FTS, presentation models, diagnostics,
+UserDefaults, and proxy paths never persist offline plaintext. Clipboard and
+Large Type retain only transient requested action values, not decoded snapshots.
+
+The independent snapshot key is host-only, non-synchronizable, and device-bound.
+Encryption/decryption loads it per operation; SQLCipher connections retain their
+passphrase for their connection lifetime. Offline Mode keeps the existing app
+authorization policy: it adds no mandatory Touch ID, user-presence ACL, Secure
+Enclave requirement, or authorization-reuse window. A compromised trusted host
+process on an unlocked Mac may still read keys or plaintext. Best-effort temporary
+buffer clearing is not guaranteed Swift/compiler/OS memory zeroization.
+
+Manual item selection, whole-vault selection, and refresh reserve metadata-only request tokens. Publication checks
+current ownership and identity and atomically commits ciphertext, status, and the
+last successful refresh time. Ordinary refresh failure preserves the previous
+complete snapshot and timestamp, marked stale. Cancellation before commit can
+prevent publication; cancellation after commit cannot undo it. Item removal, whole-vault deselection, and global purge atomically invalidate
+applicable selections and pending requests. Whole-vault deselection preserves
+manual item selections; item removal under a selected vault records an exclusion.
+Corruption cleanup is conditional on the captured revision, so it cannot remove
+a newer replacement. Missing, locked, invalid, or mismatched keys and unsupported
+formats are non-destructive failures, not permission to reset storage or rekey.
+
+Startup recovers abandoned provisional requests before offline readiness. Recovery
+failure disables fallback and new selections until explicit retry succeeds;
+live operations, removal, and purge remain usable. Settings/detail state observes
+non-secret committed projections, showing selected/usable counts, available,
+stale, or unavailable status and last successful refresh timestamps. These are
+metadata eligibility indicators, not promises that later key access/decryption
+will succeed. Observation failure marks retained display state stale and disables
+new selections until a fresh observation succeeds; explicit removal/purge remain
+available. Final authorization/revision, lock, generation, and broker-deadline
+checks reject obsolete release. Removal cannot retract a value already released.
+
+The owned database directory is `0700`; the database, known sidecars, and private
+preflight copies are `0600`. Owned expected paths are validated before permission
+changes. SQLCipher memory sanitization, secure deletion, in-memory temporary
+storage, and foreign keys are enabled and checked. Backup exclusion is reapplied
+after creation/replacement, including local Run profiles and remembered decisions
+in the unified file. These flags guide supported backup software; they cannot
+control manual copies, third-party backups, APFS snapshots, or storage-controller
+copies. Device-bound keys are not portable backup/restore credentials.
+
+After committed offline deletion, a metadata-only owner requests an
+out-of-transaction WAL TRUNCATE checkpoint. All three result columns are checked;
+busy retries at most three total attempts, with two cooperative 250 ms inter-attempt
+delays. Errors end that batch without reversing or misreporting deletion or sync.
+Startup also checkpoints after recovery. Normal termination cancels and awaits
+owned maintenance after joining setup; forced termination may bypass cleanup.
+Writer queues, disk I/O, and SQLite busy handling add latency: this is not a hard
+wall-clock erasure bound. Keys are retained, so an older copied ciphertext may
+remain decryptable on the original host. No secure erase or cryptographic
+shredding is promised. No legacy database import, compatibility reader, transfer,
+or automatic legacy file/Keychain cleanup was implemented.
+
+Verified host-broker System AutoFill is the only external offline integration;
+ordinary authorized host copy and Large Type are also supported. The extension
+receives only the requested final password/TOTP value, never storage access,
+selection state, or fallback diagnostics. SSH and Run never use snapshots.
+AutoFill preserves its original broker deadline and peer verification. When a
+usable selected snapshot exists, the live attempt defaults to at most two seconds,
+reserving one second for fallback; uncached requests keep the original remaining
+budget. External cancellation, parse errors, and ordinary command failures do not
+authorize fallback. Native cleanup uses up to 250 ms SIGTERM grace, then SIGKILL,
+nonblocking bounded pipe draining, and exactly-once completion; it is a monotonic
+policy bound, not a hard real-time OS guarantee. Secret-facing stdout is capped at
+4 MiB plus 4 KiB framing and stderr at 256 KiB; overflow/errors expose no captured
+output. Ordinary host actions retain their existing live-attempt policy.
 
 ## Sensitive Components
 

@@ -23,6 +23,7 @@ final class LargeTypeWindowController {
 
     #if DEBUG
     var debugWindow: NSWindow? { window }
+    var debugHostingController: NSViewController? { hostingController }
     #endif
 
     func show(display: LargeTypeDisplay, relativeTo panel: NSWindow?) {

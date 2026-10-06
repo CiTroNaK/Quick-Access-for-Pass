@@ -34,6 +34,17 @@ nonisolated enum SSHAgentError: Error, Equatable, Sendable {
 // MARK: - Message
 
 nonisolated struct SSHAgentMessage: Sendable {
+    /// Nil-default observations contain framing/syscall metadata only, never
+    /// buffer contents or descriptor/process identities.
+    nonisolated struct ReadObservation: Sendable, Equatable {
+        nonisolated enum Phase: Sendable, Equatable { case header, body }
+        let phase: Phase
+        let requestedCount: Int
+        let resultCount: Int
+        let completedCount: Int
+        let errorNumber: Int32?
+    }
+
     /// Maximum allowed message payload size (256 KB).
     static let maxMessageLength: UInt32 = 256 * 1024
 
@@ -99,8 +110,11 @@ nonisolated struct SSHAgentMessage: Sendable {
     // MARK: - Read from FileHandle
 
     /// Reads one complete message from a FileHandle (blocking I/O).
-    static func read(from handle: FileHandle) throws -> SSHAgentMessage {
-        let lengthData = try handle.readExact(count: 4)
+    static func read(
+        from handle: FileHandle,
+        readObservation: (@Sendable (ReadObservation) -> Void)? = nil
+    ) throws -> SSHAgentMessage {
+        let lengthData = try handle.readExact(count: 4, observationPhase: .header, readObservation: readObservation)
         let length = lengthData.readUInt32(at: 0)
 
         guard length <= maxMessageLength else {
@@ -110,7 +124,7 @@ nonisolated struct SSHAgentMessage: Sendable {
             throw SSHAgentError.messageTooShort
         }
 
-        let body = try handle.readExact(count: Int(length))
+        let body = try handle.readExact(count: Int(length), observationPhase: .body, readObservation: readObservation)
         let typeByte = body[0]
         let messageType = SSHAgentMessageType(rawValue: typeByte) ?? .unknown
         let payload = body.count > 1 ? body.subdata(in: 1..<body.count) : Data()
@@ -194,7 +208,11 @@ nonisolated extension FileHandle {
     /// Reads exactly `count` bytes, throwing `unexpectedEOF` if the stream ends early.
     /// Uses POSIX read() instead of NSFileHandle.readData to avoid ObjC exceptions
     /// when the file descriptor is closed during a blocking read.
-    func readExact(count: Int) throws -> Data {
+    func readExact(
+        count: Int,
+        observationPhase: SSHAgentMessage.ReadObservation.Phase = .body,
+        readObservation: (@Sendable (SSHAgentMessage.ReadObservation) -> Void)? = nil
+    ) throws -> Data {
         guard count > 0 else { return Data() }
         let fd = self.fileDescriptor
         var buffer = [UInt8](repeating: 0, count: count)
@@ -203,6 +221,17 @@ nonisolated extension FileHandle {
         while totalRead < count {
             let bytesRead = buffer.withUnsafeMutableBufferPointer { ptr in
                 Darwin.read(fd, ptr.baseAddress! + totalRead, count - totalRead)
+            }
+            if let readObservation {
+                // Capture immediately, before any diagnostic callback can
+                // overwrite thread-local errno. Preserve it for the caller.
+                let savedErrno = errno
+                readObservation(.init(
+                    phase: observationPhase, requestedCount: count - totalRead,
+                    resultCount: bytesRead, completedCount: totalRead + max(0, bytesRead),
+                    errorNumber: bytesRead < 0 ? savedErrno : nil
+                ))
+                errno = savedErrno
             }
             if bytesRead <= 0 {
                 throw SSHAgentError.unexpectedEOF

@@ -14,9 +14,12 @@ extension QuickAccessViewModel {
         inFlightCopy = nil
         inFlightLargeType?.cancel()
         inFlightLargeType = nil
+        inFlightOfflineOperation?.cancel()
+        inFlightOfflineOperation = nil
         isActionLoading = false
         copyGeneration += 1
         largeTypeGeneration += 1
+        offlineOperationGeneration += 1
         detailItem = nil
         selectedRowIndex = 0
     }
@@ -30,14 +33,27 @@ extension QuickAccessViewModel {
         let proposed = max(0, min(rows.count - 1, selectedRowIndex + offset))
         let direction = offset >= 0 ? 1 : -1
         var index = proposed
-        while index >= 0 && index < rows.count && !rows[index].isSelectable {
+        while index >= 0 && index < rows.count && !isDetailRowSelectable(rows[index], for: item) {
             let next = index + direction
             if next < 0 || next >= rows.count { break }
             index = next
         }
-        if index >= 0 && index < rows.count && rows[index].isSelectable {
+        if index >= 0 && index < rows.count && isDetailRowSelectable(rows[index], for: item) {
             selectedRowIndex = index
         }
+    }
+
+    /// The offline row becomes ineligible while its mutation is running, even
+    /// if focus moves to another detail row before the operation completes.
+    func isDetailRowSelectable(_ row: DetailRow, for item: PassItem) -> Bool {
+        guard row.isSelectable else { return false }
+        if case .offlineAvailability = row {
+            return offlineModeCoordinator?.isOperating(on: item) != true
+        }
+        if case .keepOfflineIndividually = row {
+            return offlineModeCoordinator?.canKeepOfflineIndividually(item.id) == true
+        }
+        return true
     }
 
     func moveSelection(by offset: Int) {
@@ -53,6 +69,12 @@ extension QuickAccessViewModel {
     func rows(for item: PassItem) -> [DetailRow] {
         var rows: [DetailRow] = actionsForItem(item).map { tuple in
             .namedAction(action: tuple.action, label: tuple.label, shortcut: tuple.shortcut)
+        }
+        if let offlineModeCoordinator {
+            rows.append(.offlineAvailability(offlineModeCoordinator.availability(for: item)))
+            if offlineModeCoordinator.shouldOfferKeepOfflineIndividually(item.id) {
+                rows.append(.keepOfflineIndividually)
+            }
         }
         var sectionOrdinal = 0
         for key in item.fieldKeys {

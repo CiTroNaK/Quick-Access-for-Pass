@@ -61,6 +61,7 @@ final class PassCLIPATLoginService {
     private let cliService: PassCLIService
     private let healthRefresher: any PassCLIHealthRefreshing
     private let syncTrigger: @MainActor @Sendable () async -> Void
+    private let revokeTransientSecretAccess: @MainActor @Sendable () -> Void
     private let timeoutSeconds: TimeInterval
     private var isLoggingIn = false
 
@@ -70,6 +71,7 @@ final class PassCLIPATLoginService {
         cliService: PassCLIService,
         healthRefresher: any PassCLIHealthRefreshing,
         syncTrigger: @escaping @MainActor @Sendable () async -> Void,
+        revokeTransientSecretAccess: @escaping @MainActor @Sendable () -> Void = {},
         timeoutSeconds: TimeInterval = 30
     ) {
         self.credentialStore = credentialStore
@@ -77,6 +79,7 @@ final class PassCLIPATLoginService {
         self.cliService = cliService
         self.healthRefresher = healthRefresher
         self.syncTrigger = syncTrigger
+        self.revokeTransientSecretAccess = revokeTransientSecretAccess
         self.timeoutSeconds = timeoutSeconds
     }
 
@@ -146,6 +149,9 @@ final class PassCLIPATLoginService {
                 )
             } catch let error as CLIError where error.isAuthError {
                 try Task.checkCancellation()
+                // Forced logout invalidates the current Pass session; revoke any
+                // transient host secret delivery before starting its runner work.
+                revokeTransientSecretAccess()
                 _ = try await runner.run(
                     executablePath: executablePath,
                     arguments: ["logout", "--force"],

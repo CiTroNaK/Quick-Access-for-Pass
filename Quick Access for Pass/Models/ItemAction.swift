@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum ItemAction: Sendable {
+nonisolated enum ItemAction: Sendable, Equatable {
     case copyPassword
     case copyUsername
     case copyTotp

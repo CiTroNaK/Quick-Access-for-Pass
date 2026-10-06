@@ -7,14 +7,19 @@ nonisolated final class DatabaseManager: Sendable {
 
     /// Production initializer: opens encrypted database at the given path.
     init(path: String, passphrase: Data) throws {
+        let databaseURL = URL(fileURLWithPath: path)
+        try HardenedDatabaseFiles.prepareDatabaseDirectory(for: databaseURL)
+        try HardenedDatabaseFiles.protectDatabaseFiles(at: databaseURL)
+
         var config = Configuration()
         config.prepareDatabase { db in
-            try db.usePassphrase(passphrase)
+            try EncryptedDatabaseConfiguration.prepare(db, passphrase: passphrase)
         }
         let pool = try DatabasePool(path: path, configuration: config)
         self.writer = pool
         self.reader = pool
         try Self.migrate(pool)
+        try HardenedDatabaseFiles.protectDatabaseFiles(at: databaseURL)
     }
 
     /// Test initializer: in-memory database.
@@ -22,7 +27,7 @@ nonisolated final class DatabaseManager: Sendable {
         precondition(inMemory)
         var config = Configuration()
         config.prepareDatabase { db in
-            try db.usePassphrase(passphrase)
+            try EncryptedDatabaseConfiguration.prepare(db, passphrase: passphrase)
         }
         let queue = try DatabaseQueue(configuration: config)
         self.writer = queue
@@ -212,6 +217,68 @@ nonisolated final class DatabaseManager: Sendable {
             }
             try db.create(index: "autoFillAppAssociations_service", on: "autoFillAppAssociations", columns: ["serviceKind", "serviceIdentifier"])
         }
+
+        migrator.registerMigration("v10") { db in
+            try db.create(table: "offlineVaults") { t in
+                t.column("vaultId", .text).primaryKey().references("vaults", onDelete: .cascade)
+                t.column("enabledAt", .datetime).notNull()
+            }
+            try db.create(table: "offlineItems") { t in
+                t.column("itemId", .text).primaryKey().references("items", onDelete: .cascade)
+                t.column("vaultId", .text).notNull().references("vaults", onDelete: .cascade)
+                t.column("selectedAt", .datetime).notNull()
+                t.column("lastRefreshedAt", .datetime)
+                t.column("cacheStatus", .text).notNull()
+            }
+        }
+
+        migrator.registerMigration("v11") { db in
+            try db.execute(sql: "ALTER TABLE offlineItems ADD COLUMN pendingRequestId TEXT")
+            try db.execute(sql: "CREATE UNIQUE INDEX offlineItems_identity ON offlineItems(itemId, vaultId)")
+            try db.execute(sql: """
+                CREATE TABLE offlineSnapshots (
+                    vaultId TEXT NOT NULL,
+                    itemId TEXT NOT NULL,
+                    schemaVersion INTEGER NOT NULL CHECK(schemaVersion BETWEEN 1 AND 255),
+                    snapshotRevision TEXT NOT NULL,
+                    keyFingerprint BLOB NOT NULL CHECK(typeof(keyFingerprint) = 'blob' AND length(keyFingerprint) = 32),
+                    encryptedPayload BLOB NOT NULL CHECK(typeof(encryptedPayload) = 'blob' AND length(encryptedPayload) BETWEEN 28 AND 4194332),
+                    PRIMARY KEY(vaultId, itemId),
+                    FOREIGN KEY(itemId, vaultId) REFERENCES offlineItems(itemId, vaultId) ON DELETE CASCADE
+                )
+                """)
+        }
+
+        migrator.registerMigration("v12") { db in
+            // Permission-only vault rows are deliberately not promoted to whole-vault consent.
+            try db.execute(sql: "DELETE FROM offlineVaults")
+            try db.execute(sql: """
+                ALTER TABLE offlineVaults ADD COLUMN policyGeneration TEXT NOT NULL
+                DEFAULT '00000000-0000-0000-0000-000000000000' CHECK(length(policyGeneration) = 36)
+                """)
+            try db.execute(sql: """
+                ALTER TABLE offlineItems ADD COLUMN isManuallySelected INTEGER NOT NULL
+                DEFAULT 1 CHECK(isManuallySelected IN (0, 1))
+                """)
+            try db.execute(sql: """
+                ALTER TABLE offlineItems ADD COLUMN selectionGeneration TEXT NOT NULL
+                DEFAULT '00000000-0000-0000-0000-000000000000' CHECK(length(selectionGeneration) = 36)
+                """)
+            try db.execute(sql: """
+                CREATE TABLE offlineItemExclusions (
+                    itemId TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                    vaultId TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+                    PRIMARY KEY(itemId, vaultId)
+                )
+                """)
+            let itemIDs = try String.fetchAll(db, sql: "SELECT itemId FROM offlineItems")
+            for itemID in itemIDs {
+                try db.execute(
+                    sql: "UPDATE offlineItems SET selectionGeneration = ? WHERE itemId = ?",
+                    arguments: [UUID().uuidString, itemID]
+                )
+            }
+        }
         // swiftlint:enable identifier_name
     }
 
@@ -219,6 +286,14 @@ nonisolated final class DatabaseManager: Sendable {
 
     func clearAll() throws {
         try writer.write { db in
+            try PassItem.deleteAll(db)
+            try PassVault.deleteAll(db)
+        }
+    }
+
+    /// Clears ordinary metadata and cascaded offline selections in one database transaction.
+    func clearMetadata() async throws {
+        try await writer.write { db in
             try PassItem.deleteAll(db)
             try PassVault.deleteAll(db)
         }

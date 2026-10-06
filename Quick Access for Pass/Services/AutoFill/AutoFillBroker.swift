@@ -3,11 +3,116 @@ import Foundation
 import os
 
 typealias AutoFillBrokerStateTransition = @Sendable (AutoFillRequestState) async throws -> Void
+struct AutoFillCredentialDelivery: Sendable {
+    let value: String
+    let release: AutoFillCredentialRelease
+}
+
+struct AutoFillResolvedCredential: Sendable {
+    let value: String
+    /// The descriptor authorized before secret resolution. Final metadata checks
+    /// compare only against this original identity and never establish a new one.
+    let descriptor: AutoFillCredentialDescriptor
+}
+
+/// The final host-side credential release boundary. The object is deliberately
+/// MainActor-isolated so a lifecycle revocation cannot interleave the final
+/// descriptor validation, guard check, and bounded socket write.
+@MainActor
+final class AutoFillCredentialRelease {
+    private let request: AutoFillRegisteredRequest
+    private let descriptor: AutoFillCredentialDescriptor
+    private let releaseToken: UUID
+    private let descriptorStore: any AutoFillDescriptorStoring
+    private let secretReleaseGuard: SecretReleaseGuard
+    private let isAppLocked: @MainActor @Sendable () -> Bool
+    private let now: @Sendable () -> UInt64
+    private var consumed = false
+
+    init(
+        request: AutoFillRegisteredRequest,
+        descriptor: AutoFillCredentialDescriptor,
+        releaseToken: UUID,
+        descriptorStore: any AutoFillDescriptorStoring,
+        secretReleaseGuard: SecretReleaseGuard,
+        isAppLocked: @escaping @MainActor @Sendable () -> Bool,
+        now: @escaping @Sendable () -> UInt64
+    ) {
+        self.request = request
+        self.descriptor = descriptor
+        self.releaseToken = releaseToken
+        self.descriptorStore = descriptorStore
+        self.secretReleaseGuard = secretReleaseGuard
+        self.isAppLocked = isAppLocked
+        self.now = now
+    }
+
+    /// Revalidates current metadata after the registry-completion suspension,
+    /// then writes in the same synchronous MainActor turn as the final guard.
+    /// A capability is consumed before its first suspension, including when that
+    /// attempted delivery later fails, so it cannot release a second frame.
+    func deliver(_ value: String, toFileDescriptor fd: Int32) async throws {
+        guard consumed == false else { throw CancellationError() }
+        consumed = true
+        let store = descriptorStore
+        let request = request
+        let current = try await beforeDeadline(request.deadline) {
+            try await store.descriptor(id: request.descriptorID)
+        }
+        guard let current,
+              current.id == descriptor.id,
+              current.identityKey == descriptor.identityKey,
+              supports(request.kind, descriptor: current)
+        else { throw AutoFillBrokerCoordinator.Error.descriptorNotFound }
+        try Task.checkCancellation()
+        guard request.deadline > now(),
+              secretReleaseGuard.isCurrent(releaseToken),
+              isAppLocked() == false
+        else { throw CancellationError() }
+        try AutoFillWire.writeMessageNonblocking(
+            AutoFillBrokerResponse.credential(requestID: request.requestID, value: value),
+            toFileDescriptor: fd
+        )
+    }
+
+    /// Runs the final metadata lookup only within the request's remaining
+    /// original budget. Both child tasks are owned by this call and cancelled
+    /// before it returns.
+    private func beforeDeadline<Value: Sendable>(
+        _ deadline: UInt64,
+        operation: @escaping @MainActor @Sendable () async throws -> Value
+    ) async throws -> Value {
+        let current = now()
+        guard deadline > current else { throw AutoFillBrokerCoordinator.Error.deadlineExpired }
+        let remaining = deadline - current
+        guard remaining <= AutoFillBrokerConnectionProcessor.maximumRequestLifetimeNanoseconds else {
+            throw AutoFillBrokerCoordinator.Error.deadlineExpired
+        }
+        return try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .nanoseconds(Int64(remaining)))
+                throw AutoFillBrokerCoordinator.Error.deadlineExpired
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw CancellationError() }
+            return first
+        }
+    }
+
+    private func supports(_ kind: AutoFillValueKind, descriptor: AutoFillCredentialDescriptor) -> Bool {
+        switch kind {
+        case .password: true
+        case .oneTimeCode: descriptor.hasTOTP
+        }
+    }
+}
+
 typealias AutoFillBrokerRequestHandler = @Sendable (
     AutoFillRegisteredRequest,
     AutoFillBrokerStateTransition,
     AutoFillAppAssociationIntent?
-) async throws -> String
+) async throws -> AutoFillCredentialDelivery
 typealias AutoFillBrokerCandidateHandler = @Sendable (AutoFillCandidateQuery) async throws -> [AutoFillCandidate]
 
 nonisolated enum AutoFillBrokerError: Error, Equatable, Sendable {
@@ -29,6 +134,8 @@ actor AutoFillBroker {
     private let verifier: @Sendable (Int32) throws -> VerifiedAutoFillPeer
     private let requestHandler: AutoFillBrokerRequestHandler
     private let candidateHandler: AutoFillBrokerCandidateHandler
+    private let completionGate: (@Sendable () async -> Void)?
+    private let partialDeliveryGate: (@Sendable () async -> Void)?
     private nonisolated let activeConnections = OSAllocatedUnfairLock(initialState: Set<Int32>())
 
     private var serverFD: Int32 = -1
@@ -48,7 +155,9 @@ actor AutoFillBroker {
             )
         },
         requestHandler: @escaping AutoFillBrokerRequestHandler,
-        candidateHandler: @escaping AutoFillBrokerCandidateHandler
+        candidateHandler: @escaping AutoFillBrokerCandidateHandler,
+        completionGate: (@Sendable () async -> Void)? = nil,
+        partialDeliveryGate: (@Sendable () async -> Void)? = nil
     ) {
         self.listenPath = listenPath
         self.registry = registry
@@ -58,6 +167,8 @@ actor AutoFillBroker {
         self.verifier = verifier
         self.requestHandler = requestHandler
         self.candidateHandler = candidateHandler
+        self.completionGate = completionGate
+        self.partialDeliveryGate = partialDeliveryGate
     }
 
     func start() throws {
@@ -74,7 +185,9 @@ actor AutoFillBroker {
             launchGate: launchGate,
             verifier: verifier,
             requestHandler: requestHandler,
-            candidateHandler: candidateHandler
+            candidateHandler: candidateHandler,
+            completionGate: completionGate,
+            partialDeliveryGate: partialDeliveryGate
         )
         let connectionLimit = maximumConnections
         let readTimeout = idleTimeout

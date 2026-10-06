@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private var statusBarController: StatusBarController?
     @ObservationIgnored private var hotkeyManager: HotkeyManager?
     @ObservationIgnored var viewModel: QuickAccessViewModel?
+    /// Shared by every host secret release path so lifecycle revocation has one authority.
+    @ObservationIgnored let secretReleaseGuard = SecretReleaseGuard()
 
     @ObservationIgnored private(set) var cliService: PassCLIService?
     // Observed: SwiftUI Settings scene body evaluates eagerly at app init,
@@ -27,12 +29,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private var searchService: SearchService?
     @ObservationIgnored private var clipboardManager: ClipboardManager?
     @ObservationIgnored var keychainService: KeychainService?
+    @ObservationIgnored var offlineSnapshotRepository: OfflineSnapshotRepository?
+    @ObservationIgnored var offlineSnapshotCodec: OfflineSnapshotCodec?
+    @ObservationIgnored var offlineModeService: OfflineModeService?
+    @ObservationIgnored var offlineStorageMaintenance: OfflineStorageMaintenance?
+    @ObservationIgnored var offlineModeCoordinator: OfflineModeCoordinator?
+    @ObservationIgnored var offlineSecretResolver: OfflineSecretResolver?
 
     @ObservationIgnored private var toastController: ToastWindowController?
     @ObservationIgnored private var refreshObserver: Any?
     @ObservationIgnored private var resetObserver: Any?
     @ObservationIgnored private var hotkeyObserver: Any?
     @ObservationIgnored private var setupTask: Task<Void, Never>?
+    @ObservationIgnored private var didPerformSynchronousTerminationCleanup = false
+    @ObservationIgnored private(set) var isTerminating = false
+    @ObservationIgnored lazy var terminationCoordinator: AppTerminationCoordinator = makeTerminationCoordinator()
 
     let healthStore = ProxyHealthStore()
     let passCLIStatusStore = PassCLIStatusStore()
@@ -157,8 +168,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        performSynchronousTerminationCleanup()
+        return terminationCoordinator.beginTermination()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        // This callback cannot await. The asynchronous termination coordinator
+        // already joined owned startup/maintenance/broker work when AppKit used
+        // applicationShouldTerminate; direct callback tests remain synchronous.
+        performSynchronousTerminationCleanup()
+    }
+
+    private func performSynchronousTerminationCleanup() {
+        guard !didPerformSynchronousTerminationCleanup else { return }
+        didPerformSynchronousTerminationCleanup = true
+        isTerminating = true
+        secretReleaseGuard.blockReleasesForTermination()
+        cancelPanelUnlock()
+        panelController?.hide(ignoringBlock: true)
+        revokeTransientSecretAccess()
         setupTask?.cancel()
+        autoFillBrokerStartTask?.cancel()
         passCLILoginCoordinator?.cancel()
         healthCoordinator?.cancel()
         wakeObserver?.stop()
@@ -166,12 +197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager?.clearOnTermination()
         sshCoordinator?.shutdown()
         runCoordinator?.shutdown()
-        autoFillBrokerStartTask?.cancel()
+        offlineModeCoordinator?.stopObservation()
         if let socketPath = autoFillSocketPath {
             unlink(socketPath)
-        }
-        if let autoFillBroker {
-            Task { await autoFillBroker.stop() }
         }
     }
 
@@ -180,9 +208,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     nonisolated static func openDatabase(path: String, passphrase: Data) throws -> DatabaseManager {
         try DatabaseManager(path: path, passphrase: passphrase)
     }
+
+    /// Revokes only transient host-owned secret presentation. It intentionally
+    /// does not promise to retract values that were already released.
+    func revokeTransientSecretAccess() {
+        secretReleaseGuard.revoke()
+        viewModel?.cancelSecretActions()
+        // Production composition owns this instance; the view-model fallback
+        // preserves the same ownership rule in lifecycle-focused test wiring.
+        (clipboardManager ?? viewModel?.clipboardManager)?.clearIfOwned()
+        largeTypeWindowController?.close()
+    }
 }
 
 private extension AppDelegate {
+    func makeTerminationCoordinator() -> AppTerminationCoordinator {
+        AppTerminationCoordinator(
+            cancelStartup: { [weak self] in self?.setupTask?.cancel() },
+            cancelBrokerStart: { [weak self] in self?.autoFillBrokerStartTask?.cancel() },
+            awaitStartup: { [weak self] in
+                guard let task = self?.setupTask else { return }
+                await task.value
+            },
+            awaitBrokerStart: { [weak self] in
+                guard let task = self?.autoFillBrokerStartTask else { return }
+                await task.value
+            },
+            stopOfflineWork: { [weak self] in
+                await self?.offlineModeService?.stop()
+            },
+            stopMaintenance: { [weak self] in
+                await self?.offlineStorageMaintenance?.stop()
+            },
+            stopBroker: { [weak self] in
+                await self?.autoFillBroker?.stop()
+            },
+            reply: {
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+        )
+    }
+
     // MARK: - Setup
 
     func setupServices() async throws {
@@ -207,6 +273,21 @@ private extension AppDelegate {
         autoFillDatabaseURL = prepared.2
         autoFillSocketPath = prepared.3
 
+        let offlineStorageMaintenance = OfflineStorageMaintenance(
+            checkpointer: DatabaseWALCheckpointer(writer: prepared.1.writer)
+        )
+        let offlineSnapshotRepository = OfflineSnapshotRepository(
+            database: prepared.1,
+            maintenance: offlineStorageMaintenance
+        )
+        let offlineSnapshotCodec = OfflineSnapshotCodec(
+            keyMaterialProvider: OfflineKeyMaterialStore(),
+            hasPersistedSnapshots: { try await offlineSnapshotRepository.hasPersistedSnapshots() }
+        )
+        self.offlineSnapshotRepository = offlineSnapshotRepository
+        self.offlineSnapshotCodec = offlineSnapshotCodec
+        self.offlineStorageMaintenance = offlineStorageMaintenance
+
         let rawClipboardTimeout = UserDefaults.standard.double(forKey: DefaultsKey.clipboardClearTimeout)
         let clipboardTimeout = rawClipboardTimeout > 0 ? rawClipboardTimeout : 30
         let cliPathOverride = UserDefaults.standard.string(forKey: DefaultsKey.cliPath)
@@ -216,9 +297,27 @@ private extension AppDelegate {
             legacyCustomPath: cliPathOverride
         )
 
-        cliService = PassCLIService(
+        let cliService = PassCLIService(
             preference: selectionPreference,
             customPath: cliPathOverride?.isEmpty == false ? cliPathOverride : nil
+        )
+        self.cliService = cliService
+        let offlineModeService = OfflineModeService(
+            repository: offlineSnapshotRepository,
+            codec: offlineSnapshotCodec,
+            cliService: cliService,
+            maintenance: offlineStorageMaintenance
+        )
+        self.offlineModeService = offlineModeService
+        // Recovery failure keeps normal live setup usable. Offline selection and
+        // fallback remain unavailable until an explicit retry succeeds.
+        try? await offlineModeService.initialize()
+        try Task.checkCancellation()
+        offlineSecretResolver = OfflineSecretResolver(
+            cliService: cliService,
+            repository: offlineSnapshotRepository,
+            codec: offlineSnapshotCodec,
+            readiness: offlineModeService
         )
         searchService = SearchService(databaseManager: databaseManager!)
         clipboardManager = ClipboardManager(autoClearSeconds: clipboardTimeout)
@@ -231,7 +330,8 @@ private extension AppDelegate {
         configureViewModel(
             searchService: searchService,
             cliService: cliService,
-            clipboardManager: clipboardManager
+            clipboardManager: clipboardManager,
+            secretResolver: offlineSecretResolver ?? LiveSecretItemResolver(cliService: cliService)
         )
         configureStatusBar()
         installUIObservers()
@@ -257,14 +357,30 @@ private extension AppDelegate {
     func configureViewModel(
         searchService: SearchService,
         cliService: PassCLIService,
-        clipboardManager: ClipboardManager
+        clipboardManager: ClipboardManager,
+        secretResolver: any SecretItemResolving
     ) {
+        let offlineModeCoordinator = offlineModeService.map { service in
+            OfflineModeCoordinator(
+                service: service,
+                observation: OfflineCatalogObservation(database: databaseManager!),
+                shareIDForVault: { vaultID in
+                    try? searchService.vaultShareId(for: vaultID)
+                }
+            )
+        }
+        self.offlineModeCoordinator = offlineModeCoordinator
+        offlineModeCoordinator?.startObservation()
+
         viewModel = QuickAccessViewModel(
             searchService: searchService,
             cliService: cliService,
             clipboardManager: clipboardManager,
             onDismiss: { [weak self] in self?.panelController?.hide() },
             onActivity: { [weak self] in self?.recordActivity() },
+            secretResolver: secretResolver,
+            offlineModeCoordinator: offlineModeCoordinator,
+            secretReleaseGuard: secretReleaseGuard,
             presentLargeType: { [weak self] display in
                 guard let self else { return }
                 self.largeTypeWindowController?.show(

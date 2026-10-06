@@ -1,13 +1,27 @@
 import Foundation
 import GRDB
 
+/// Non-secret result of the atomic metadata synchronization transaction.
+nonisolated struct MetadataSynchronizationResult: Sendable {
+    let descriptors: [AutoFillCredentialDescriptor]
+    let didDeleteOfflineData: Bool
+}
+
 // MARK: - Vault Operations
 
 nonisolated extension DatabaseManager {
     func upsertVaults(_ vaults: [PassVault]) throws {
         try writer.write { db in
             for vault in vaults {
-                try vault.save(db, onConflict: .replace)
+                try db.execute(
+                    sql: """
+                    INSERT INTO vaults (id, name, shareId) VALUES (?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        shareId = excluded.shareId
+                    """,
+                    arguments: [vault.id, vault.name, vault.shareId]
+                )
             }
         }
     }
@@ -51,7 +65,7 @@ nonisolated extension DatabaseManager {
                     item.useCount = existing.useCount
                     item.lastUsedAt = existing.lastUsedAt
                 }
-                try item.save(db, onConflict: .replace)
+                try item.save(db)
             }
         }
     }
@@ -71,41 +85,30 @@ nonisolated extension DatabaseManager {
         vaults: [PassVault],
         items: [PassItem],
         descriptors: [AutoFillDescriptorInput],
+        presenceUncertainties: [SyncItemPresenceUncertainty] = [],
         beforeDescriptorWrite: @Sendable () throws -> Void = {}
     ) throws -> [AutoFillCredentialDescriptor] {
         try writer.write { db in
-            for vault in vaults {
-                try db.execute(
-                    sql: """
-                        INSERT INTO vaults (id, name, shareId)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET
-                            name = excluded.name,
-                            shareId = excluded.shareId
-                        """,
-                    arguments: [vault.id, vault.name, vault.shareId]
-                )
-            }
+            try Self.writeSyncedMetadata(
+                vaults: vaults,
+                items: items,
+                descriptors: descriptors,
+                presenceUncertainties: presenceUncertainties,
+                beforeDescriptorWrite: beforeDescriptorWrite,
+                in: db
+            ).descriptors
+        }
+    }
 
-            try Self.syncItems(items, in: db)
-            try beforeDescriptorWrite()
-            try Self.syncAutoFillDescriptors(descriptors, in: db)
-
-            let incomingVaultIDs = Set(vaults.map(\.id))
-            let existingVaultIDs = try String.fetchAll(db, sql: "SELECT id FROM vaults")
-            let staleVaultIDs = existingVaultIDs.filter { !incomingVaultIDs.contains($0) }
-            if !staleVaultIDs.isEmpty {
-                try PassVault.filter(staleVaultIDs.contains(Column("id"))).deleteAll(db)
-            }
-
-            return try AutoFillCredentialDescriptor
-                .order(
-                    Column("serviceIdentifier").asc,
-                    Column("vaultID").asc,
-                    Column("itemID").asc,
-                    Column("username").asc
-                )
-                .fetchAll(db)
+    /// Asynchronously writes metadata in one transaction for async sync callers.
+    func synchronizeMetadata(
+        vaults: [PassVault],
+        items: [PassItem],
+        descriptors: [AutoFillDescriptorInput],
+        presenceUncertainties: [SyncItemPresenceUncertainty] = []
+    ) async throws -> MetadataSynchronizationResult {
+        try await writer.write { db in
+            try Self.writeSyncedMetadata(vaults: vaults, items: items, descriptors: descriptors, presenceUncertainties: presenceUncertainties, in: db)
         }
     }
 
@@ -123,10 +126,102 @@ nonisolated extension DatabaseManager {
         }
     }
 
-    private static func syncItems(_ items: [PassItem], in db: Database) throws {
+    static func writeSyncedMetadata(
+        vaults: [PassVault],
+        items: [PassItem],
+        descriptors: [AutoFillDescriptorInput],
+        presenceUncertainties: [SyncItemPresenceUncertainty] = [],
+        beforeDescriptorWrite: @Sendable () throws -> Void = {},
+        in db: Database
+    ) throws -> MetadataSynchronizationResult {
+        // `syncItems` and stale-vault removal can cascade selections before the
+        // explicit prune. Counts stay metadata-only and are read in this one
+        // transaction so a rollback cannot request maintenance.
+        let offlineSelectionsBefore = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineItems") ?? 0
+
+        for vault in vaults {
+            try db.execute(
+                sql: """
+                INSERT INTO vaults (id, name, shareId) VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    shareId = excluded.shareId
+                """,
+                arguments: [vault.id, vault.name, vault.shareId]
+            )
+        }
+
+        let incomingVaultIDs = Set(vaults.map(\.id))
+        let retainedItemIDs = try retainedUndecodedItemIDs(
+            presenceUncertainties: presenceUncertainties, enumeratedVaultIDs: incomingVaultIDs, in: db
+        )
+        try syncItems(items, retainingAbsentIDs: retainedItemIDs, in: db)
+        try pruneInvalidOfflineSelections(in: db)
+        try beforeDescriptorWrite()
+        try syncAutoFillDescriptors(descriptors, in: db)
+
+        let existingVaultIDs = try String.fetchAll(db, sql: "SELECT id FROM vaults")
+        let staleVaultIDs = existingVaultIDs.filter { !incomingVaultIDs.contains($0) }
+        if !staleVaultIDs.isEmpty {
+            try PassVault.filter(staleVaultIDs.contains(Column("id"))).deleteAll(db)
+        }
+
+        let descriptors = try AutoFillCredentialDescriptor
+            .order(
+                Column("serviceIdentifier").asc,
+                Column("vaultID").asc,
+                Column("itemID").asc,
+                Column("username").asc
+            )
+            .fetchAll(db)
+        let offlineSelectionsAfter = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineItems") ?? 0
+        return MetadataSynchronizationResult(
+            descriptors: descriptors,
+            didDeleteOfflineData: offlineSelectionsAfter < offlineSelectionsBefore
+        )
+    }
+
+    private static func pruneInvalidOfflineSelections(in db: Database) throws {
+        try db.execute(sql: """
+            DELETE FROM offlineItems
+            WHERE NOT EXISTS (
+                SELECT 1 FROM items
+                WHERE items.id = offlineItems.itemId
+                  AND items.vaultId = offlineItems.vaultId
+                  AND items.state = 'Active'
+            )
+            OR NOT EXISTS (
+                SELECT 1 FROM vaults WHERE vaults.id = offlineItems.vaultId
+            )
+            """)
+        try db.execute(sql: """
+            DELETE FROM offlineItemExclusions
+            WHERE NOT EXISTS (
+                SELECT 1 FROM items
+                WHERE items.id = offlineItemExclusions.itemId
+                  AND items.vaultId = offlineItemExclusions.vaultId
+                  AND items.state = 'Active'
+            )
+            """)
+    }
+
+    /// Retains only existing metadata parents in successfully enumerated, incomplete
+    /// vaults. This is not decoded content and must not supply descriptor inputs.
+    private static func retainedUndecodedItemIDs(
+        presenceUncertainties: [SyncItemPresenceUncertainty], enumeratedVaultIDs: Set<String>, in db: Database
+    ) throws -> Set<String> {
+        var retainedIDs: Set<String> = []
+        for uncertainty in presenceUncertainties where enumeratedVaultIDs.contains(uncertainty.vaultID) {
+            let priorIDs = try String.fetchAll(db, sql: "SELECT id FROM items WHERE vaultId = ?", arguments: [uncertainty.vaultID])
+            retainedIDs.formUnion(priorIDs.filter { uncertainty.hasUnidentifiedSkippedItems || uncertainty.skippedItemIDs.contains($0) })
+        }
+        return retainedIDs
+    }
+
+    private static func syncItems(_ items: [PassItem], retainingAbsentIDs: Set<String> = [], in db: Database) throws {
         let incomingIDs = Set(items.map(\.id))
         let existingIDs = try String.fetchAll(db, sql: "SELECT id FROM items")
-        let staleIDs = existingIDs.filter { !incomingIDs.contains($0) }
+        let staleIDs = existingIDs.filter { !incomingIDs.contains($0) && !retainingAbsentIDs.contains($0) }
         if !staleIDs.isEmpty {
             try PassItem.filter(staleIDs.contains(Column("id"))).deleteAll(db)
         }

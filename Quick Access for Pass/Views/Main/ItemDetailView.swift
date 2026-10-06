@@ -55,6 +55,8 @@ struct ItemDetailView: View {
         /// Bottom-group field row: render the ⏎ + Copy glyph pair and
         /// announce "Press Return to copy".
         case copyHint
+        /// Offline availability rows are visible actions without a shortcut.
+        case offlineAction
     }
 
     /// Pure mapping from `DetailRow` to `RowTrailing`. Returns `nil` for
@@ -69,6 +71,8 @@ struct ItemDetailView: View {
             return action == .openURL ? .openShortcut(shortcut) : .shortcut(shortcut)
         case .field:
             return .copyHint
+        case .offlineAvailability, .keepOfflineIndividually:
+            return .offlineAction
         case .sectionHeader:
             return nil
         }
@@ -81,6 +85,9 @@ struct ItemDetailView: View {
         let label: String
         let trailing: RowTrailing
         let isSensitive: Bool
+        let isEnabled: Bool
+        let statusText: String?
+        let accessibilityHint: String
         let action: @Sendable @MainActor () -> Void
     }
 
@@ -126,6 +133,9 @@ struct ItemDetailView: View {
                         label: label,
                         trailing: trailing,
                         isSensitive: false,
+                        isEnabled: true,
+                        statusText: nil,
+                        accessibilityHint: "",
                         action: { viewModel.handleAction(action, for: item) }
                     )
                 )
@@ -140,10 +150,45 @@ struct ItemDetailView: View {
                         label: label,
                         trailing: trailing,
                         isSensitive: isSensitive,
+                        isEnabled: true,
+                        statusText: nil,
+                        accessibilityHint: "",
                         action: { viewModel.copyField(key, from: item) }
                     )
                 )
             }
+        case .offlineAvailability(let availability):
+            if let trailing = Self.rowTrailing(for: row) {
+                selectableRow(
+                    props: SelectableRowProps(
+                        rowID: row.id,
+                        indexInRows: indexInRows,
+                        icon: Self.offlineIcon(for: availability),
+                        label: Self.offlineLabel(for: availability),
+                        trailing: trailing,
+                        isSensitive: false,
+                        isEnabled: viewModel.offlineModeCoordinator?.isOperating(on: item) != true,
+                        statusText: Self.offlineStatusText(for: availability),
+                        accessibilityHint: "",
+                        action: { viewModel.handleOfflineAvailability(for: item) }
+                    )
+                )
+            }
+        case .keepOfflineIndividually:
+            selectableRow(
+                props: SelectableRowProps(
+                    rowID: row.id,
+                    indexInRows: indexInRows,
+                    icon: "pin",
+                    label: Self.keepOfflineLabel,
+                    trailing: .offlineAction,
+                    isSensitive: false,
+                    isEnabled: viewModel.offlineModeCoordinator?.canKeepOfflineIndividually(item.id) == true,
+                    statusText: nil,
+                    accessibilityHint: "",
+                    action: { viewModel.handleKeepOfflineIndividually(for: item) }
+                )
+            )
         case .sectionHeader(let name, _):
             Text(name)
                 .font(.caption)
@@ -156,6 +201,37 @@ struct ItemDetailView: View {
         }
     }
 
+    nonisolated static let keepOfflineLabel = String(localized: "Keep offline individually")
+
+    /// `internal` + `static` so offline action presentation can be unit-tested.
+    nonisolated static func offlineLabel(for availability: OfflineItemAvailability) -> String {
+        switch availability {
+        case .available, .stale:
+            String(localized: "Remove offline copy")
+        case .notCached, .unavailable:
+            String(localized: "Make available offline")
+        }
+    }
+
+    /// `internal` + `static` so offline action presentation can be unit-tested.
+    nonisolated static func offlineStatusText(for availability: OfflineItemAvailability) -> String? {
+        switch availability {
+        case .available: String(localized: "Cached")
+        case .stale: String(localized: "Stale")
+        case .unavailable: String(localized: "Unavailable")
+        case .notCached: nil
+        }
+    }
+
+    nonisolated static func offlineIcon(for availability: OfflineItemAvailability) -> String {
+        switch availability {
+        case .available, .stale:
+            "trash"
+        case .notCached, .unavailable:
+            "arrow.down.circle"
+        }
+    }
+
     @ViewBuilder
     private func selectableRow(props: SelectableRowProps) -> some View {
         let isSelected = viewModel.selectedRowIndex == props.indexInRows
@@ -163,9 +239,10 @@ struct ItemDetailView: View {
             switch props.trailing {
             case .copyHint: return String(localized: "Press Return to copy")
             case .openShortcut: return String(localized: "Press Return to open")
-            case .shortcut: return ""
+            case .shortcut, .offlineAction: return ""
             }
         }()
+        let accessibilityHint = props.accessibilityHint.isEmpty ? hint : props.accessibilityHint
         Button {
             viewModel.selectedRowIndex = props.indexInRows
             props.action()
@@ -179,7 +256,14 @@ struct ItemDetailView: View {
                 Text(props.label)
                     .font(.body)
                 Spacer()
-                if viewModel.isActionLoading && isSelected {
+                if let statusText = props.statusText {
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if viewModel.isOfflineOperation && props.trailing == .offlineAction {
+                    ProgressView().controlSize(.small)
+                } else if viewModel.isActionLoading && isSelected {
                     ProgressView().controlSize(.small)
                 } else {
                     trailingView(props.trailing, isSelected: isSelected)
@@ -197,11 +281,11 @@ struct ItemDetailView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.isActionLoading)
+        .disabled(!props.isEnabled || (viewModel.isActionLoading && (!viewModel.isOfflineOperation || isSelected)))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityFocused($focusedRowID, equals: props.rowID)
         .modifier(ConditionalAccessibilityValue(isSensitive: props.isSensitive))
-        .modifier(ConditionalAccessibilityHint(hint: hint))
+        .modifier(ConditionalAccessibilityHint(hint: accessibilityHint))
     }
 
     @ViewBuilder
@@ -218,6 +302,8 @@ struct ItemDetailView: View {
                 .foregroundStyle(isSelected ? .secondary : .tertiary)
                 .accessibilityHidden(true)
         case .shortcut, .openShortcut:
+            EmptyView()
+        case .offlineAction:
             EmptyView()
         case .copyHint:
             // Use Text(verbatim:) for the glyph and a separate Text("Copy")

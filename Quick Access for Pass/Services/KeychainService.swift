@@ -41,8 +41,7 @@ nonisolated struct KeychainService: Sendable {
             return existing
         }
         let passphrase = try generatePassphrase()
-        try storeData(passphrase)
-        return passphrase
+        return try createData(passphrase)
     }
 
     func deletePassphrase() throws {
@@ -77,6 +76,28 @@ nonisolated struct KeychainService: Sendable {
         return try backend.retrieve(query).get()
     }
 
+    /// Creates material without changing an existing concurrent winner.
+    private func createData(_ passphrase: Data) throws -> Data {
+        let addQuery = PassphraseQuery(
+            kind: .add,
+            serviceName: serviceName,
+            accessGroup: accessGroup,
+            value: passphrase
+        )
+        switch backend.add(addQuery) {
+        case .success:
+            return passphrase
+        case .failure(.storeFailed(errSecDuplicateItem)):
+            guard let winner = try retrievePassphrase() else {
+                throw KeychainError.retrieveFailed(errSecItemNotFound)
+            }
+            return winner
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    /// Explicit stores preserve their established update-on-duplicate behavior.
     private func storeData(_ passphrase: Data) throws {
         let addQuery = PassphraseQuery(
             kind: .add,

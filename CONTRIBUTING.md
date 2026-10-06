@@ -23,7 +23,7 @@ xcodebuild -scheme "Quick Access for Pass" test
 
 You do not need `pass-cli` installed to build or run tests. It is only required for runtime functionality.
 
-`make install` bundles the CLI and signs it with the first available Developer ID Application certificate, falling back to Apple Development. Automatic selection uses the certificate fingerprint to avoid encoding issues with accented names. To override selection, use `SIGN_IDENTITY="<certificate fingerprint or signing identity>" make install`.
+`make install` bundles the CLI and reuses the built app's signing certificate for both the bundled CLI and the host app. This preserves Xcode's certificate selection and keeps the host signer consistent with its embedded provisioning profile, even when Keychain contains multiple certificates with the same name. Automatic selection uses the certificate fingerprint to avoid encoding issues with accented names. An unsigned or ad-hoc-signed build requires an explicit override. To override selection, use `SIGN_IDENTITY="<certificate fingerprint or signing identity>" make install`; the override must match the host's provisioning profile and remain consistent with the embedded AutoFill extension's signing setup.
 
 ## Submitting Changes
 
@@ -76,7 +76,7 @@ The workflow reads profile names from the installed profiles, maps both bundle I
 
 - **Swift 6 strict concurrency** — use `actor` for shared mutable state, `@MainActor` for UI and orchestration, and `Sendable` models for cross-actor data.
 - **Thin composition root** — keep `AppDelegate` focused on wiring; orchestration belongs in `SyncCoordinator`, `SSHProxyCoordinator`, `RunProxyCoordinator`, and `HealthCheckCoordinator`.
-- **No secrets on disk** — the database stores metadata only. Sync may temporarily load full item content from `pass-cli` to derive metadata; selected actions fetch current values on demand.
+- **No secrets on disk** — ordinary database tables store metadata only. Sync may temporarily load full item content from `pass-cli` to derive metadata; selected actions fetch current values on demand. Offline snapshots are the sole persisted-secret exception: users explicitly select individual items or whole vaults; fixtures must cover manual-only authorization without requiring a whole-vault selection, and must keep offline data out of SSH/Run proxies and the extension.
 - **Run proxy clients must be verified** — maintain `PeerVerifier` protections; unverified local peers must stay rejected.
 - **AutoFill remains IPC-only** — protocol v2 may expose at most 20 in-memory, non-secret candidates to the extension. The host alone owns descriptor and app-association storage, the database, Keychain, Pass CLI, unlock UI, and secret resolution; never add those capabilities to the extension.
 - **Tests use Swift Testing** — use `@Suite`, `@Test`, `#expect`, and `#require`, not XCTest.
@@ -111,7 +111,7 @@ Quick Access for Pass/
 - Prefer real implementations with controlled inputs over broad mocking
 - Add regression tests for migration changes, concurrency fixes, health/recovery logic, and security-sensitive behavior
 - If you change SSH or Run proxy behavior, update or add probe/lifecycle tests as needed
-- AutoFill tests must use injected fakes or temporary/in-memory fixtures only; never access real credentials, Keychain items, or the real database. Candidate metadata stays capped at 20 and memory-only; test typed global search only after non-empty input and explicit host-local native-app association behavior.
+- AutoFill tests must use injected fakes or temporary/in-memory fixtures only; never access real credentials, Keychain items, or the real database. Candidate metadata stays capped at 20 and memory-only; test typed global search only after non-empty input and explicit host-local native-app association behavior. Offline AutoFill fallback is host-broker-only; the extension must never receive selection/source/cache diagnostics.
 - For an AutoFill release change, complete owner-operated validation on an isolated account with non-production fixtures. Cover Safari and a native app, exact subdomain-before-parent ranking, typed global search, explicit association opt-in and repeat ranking, host unlock, Cancel, unavailable host, and a passkey request that shows password/TOTP picker content rather than a blank panel. Do not inspect or record credential values.
 
 ## Documentation

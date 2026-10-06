@@ -2,9 +2,6 @@ import AppKit
 import SwiftUI
 import Observation
 
-/// Async closure that fetches a fully-decoded item from pass-cli. Injected into
-/// `QuickAccessViewModel` so tests can stub the secret-bearing call.
-typealias CLIItemFetcher = @Sendable (_ itemId: String, _ shareId: String) async throws -> CLIItem
 typealias LargeTypePresenter = @MainActor @Sendable (LargeTypeDisplay) -> Void
 typealias PasteboardStringWriter = @MainActor @Sendable (String) -> Void
 typealias URLOpener = @MainActor @Sendable (URL) -> Bool
@@ -35,7 +32,9 @@ final class QuickAccessViewModel {
     let onDismiss: () -> Void
     let onActivity: () -> Void
     let defaults: UserDefaults
-    let fetchItem: CLIItemFetcher
+    let secretResolver: any SecretItemResolving
+    let offlineModeCoordinator: OfflineModeCoordinator?
+    let secretReleaseGuard: SecretReleaseGuard
     let presentLargeType: LargeTypePresenter
     let writeStringToPasteboard: PasteboardStringWriter
     let openURL: URLOpener
@@ -43,8 +42,10 @@ final class QuickAccessViewModel {
     private var clearSearchTask: Task<Void, Never>?
     var inFlightCopy: Task<Void, Never>?
     var inFlightLargeType: Task<Void, Never>?
+    var inFlightOfflineOperation: Task<Void, Never>?
     var copyGeneration = 0
     var largeTypeGeneration = 0
+    var offlineOperationGeneration = 0
 
     init(
         searchService: SearchService,
@@ -53,6 +54,9 @@ final class QuickAccessViewModel {
         onDismiss: @escaping () -> Void,
         onActivity: @escaping () -> Void = {},
         defaults: UserDefaults = .standard,
+        secretResolver: (any SecretItemResolving)? = nil,
+        offlineModeCoordinator: OfflineModeCoordinator? = nil,
+        secretReleaseGuard: SecretReleaseGuard = SecretReleaseGuard(),
         fetchItem: CLIItemFetcher? = nil,
         presentLargeType: LargeTypePresenter? = nil,
         writeStringToPasteboard: @escaping PasteboardStringWriter = { value in
@@ -70,15 +74,17 @@ final class QuickAccessViewModel {
         self.onActivity = onActivity
         self.defaults = defaults
         self.cliPath = cliService.cliPath
+        self.offlineModeCoordinator = offlineModeCoordinator
+        self.secretReleaseGuard = secretReleaseGuard
         self.presentLargeType = presentLargeType ?? { _ in }
         self.writeStringToPasteboard = writeStringToPasteboard
         self.openURL = openURL
-        if let fetchItem {
-            self.fetchItem = fetchItem
+        if let secretResolver {
+            self.secretResolver = secretResolver
+        } else if let fetchItem {
+            self.secretResolver = LegacySecretItemResolver(fetchItem: fetchItem, cliService: cliService)
         } else {
-            self.fetchItem = { itemId, shareId in
-                try await cliService.viewItem(itemId: itemId, shareId: shareId)
-            }
+            self.secretResolver = LiveSecretItemResolver(cliService: cliService)
         }
     }
 
@@ -139,10 +145,9 @@ final class QuickAccessViewModel {
     func clearForLock() {
         clearSearchTask?.cancel()
         clearSearchTask = nil
-        inFlightCopy?.cancel()
-        inFlightCopy = nil
-        inFlightLargeType?.cancel()
-        inFlightLargeType = nil
+        cancelSecretActions()
+        inFlightOfflineOperation?.cancel()
+        inFlightOfflineOperation = nil
 
         searchQuery = ""
         searchTask?.cancel()
@@ -158,6 +163,16 @@ final class QuickAccessViewModel {
         skippedSyncItems = nil
         isShowingSkippedSyncItems = false
         isLoading = false
+        offlineOperationGeneration += 1
+    }
+
+    /// Cancels only view-model-owned secret action tasks and advances their
+    /// release generations. Search and offline maintenance remain untouched.
+    func cancelSecretActions() {
+        inFlightCopy?.cancel()
+        inFlightCopy = nil
+        inFlightLargeType?.cancel()
+        inFlightLargeType = nil
         isActionLoading = false
         copyGeneration += 1
         largeTypeGeneration += 1
@@ -177,12 +192,16 @@ final class QuickAccessViewModel {
         onActivity()
         if let item = detailItem {
             let rows = rows(for: item)
-            guard let row = rows[safe: selectedRowIndex], row.isSelectable else { return }
+            guard let row = rows[safe: selectedRowIndex], isDetailRowSelectable(row, for: item) else { return }
             switch row {
             case .namedAction(let action, _, _):
                 handleAction(action, for: item)
             case .field(let key, _, _):
                 copyField(key, from: item)
+            case .offlineAvailability:
+                handleOfflineAvailability(for: item)
+            case .keepOfflineIndividually:
+                handleKeepOfflineIndividually(for: item)
             case .sectionHeader:
                 return
             }
