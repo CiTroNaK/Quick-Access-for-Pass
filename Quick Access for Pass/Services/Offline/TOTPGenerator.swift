@@ -83,7 +83,7 @@ nonisolated enum TOTPGenerator {
         let remainder = symbols.count % 8
         let expectedPadding = [0: 0, 2: 6, 4: 4, 5: 3, 7: 1]
         guard let requiredPadding = expectedPadding[remainder],
-              (!hasPadding || (paddingCount == requiredPadding && remainder != 0)) else {
+              !hasPadding || (paddingCount == requiredPadding && remainder != 0) else {
             return nil
         }
 

@@ -125,7 +125,10 @@ nonisolated extension DatabaseManager {
             vaultIDs: Set(vaults.map(\.id)), itemsByID: Self.offlineIncomingIdentities(items),
             presenceUncertainties: presenceUncertainties))
         return try await writeOfflineMutation(submissionScope: scope) { db in
-            let value = try Self.writeSyncedMetadata(vaults: vaults, items: items, descriptors: descriptors, presenceUncertainties: presenceUncertainties, in: db)
+            let value = try Self.writeSyncedMetadata(
+                vaults: vaults, items: items, descriptors: descriptors,
+                presenceUncertainties: presenceUncertainties, in: db
+            )
             return OfflineMutationUpdate(value: value, manualPromotions: [])
         }
     }

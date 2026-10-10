@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-
 nonisolated extension OfflineSnapshotRepository {
     func selectItemManually(itemID: String, vaultID: String, shareID: String) async throws -> UUID {
         do {
@@ -12,7 +11,9 @@ nonisolated extension OfflineSnapshotRepository {
                 try db.execute(sql: "DELETE FROM offlineItemExclusions WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
                 let generation: UUID
                 let didPromote: Bool
-                if let existing = try Row.fetchOne(db, sql: "SELECT selectionGeneration, isManuallySelected FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]) {
+                if let existing = try Row.fetchOne(db,
+                    sql: "SELECT selectionGeneration, isManuallySelected FROM offlineItems WHERE itemId = ? AND vaultId = ?",
+                    arguments: [itemID, vaultID]) {
                     guard let storedGeneration: String = existing["selectionGeneration"],
                           let value = UUID(uuidString: storedGeneration) else { throw OfflinePersistenceError.persistenceFailed }
                     generation = value
@@ -35,10 +36,8 @@ nonisolated extension OfflineSnapshotRepository {
                     selectionGeneration: generation)]
                 return OfflineMutationUpdate(value: generation, manualPromotions: didPromote ? promotions : [])
             }
-        } catch let error as OfflinePersistenceError { throw error }
-        catch { throw OfflinePersistenceError.persistenceFailed }
+        } catch let error as OfflinePersistenceError { throw error } catch { throw OfflinePersistenceError.persistenceFailed }
     }
-
     func keepItemOfflineIndividually(itemID: String, vaultID: String) async throws {
         do {
             try await database.writeOfflineMutation(submissionScope: .none) { db in
@@ -56,20 +55,22 @@ nonisolated extension OfflineSnapshotRepository {
                 ) == true else {
                     throw OfflinePersistenceError.itemUnavailable
                 }
-                let wasManual = try Bool.fetchOne(db, sql: "SELECT isManuallySelected FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]) == true
+                let wasManual = try Bool.fetchOne(db,
+                    sql: "SELECT isManuallySelected FROM offlineItems WHERE itemId = ? AND vaultId = ?",
+                    arguments: [itemID, vaultID]) == true
                 try db.execute(sql: "UPDATE offlineItems SET isManuallySelected = 1 WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
                 try db.execute(sql: "DELETE FROM offlineItemExclusions WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
-                guard let rawGeneration = try String.fetchOne(db, sql: "SELECT selectionGeneration FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]),
+                guard let rawGeneration = try String.fetchOne(db,
+                    sql: "SELECT selectionGeneration FROM offlineItems WHERE itemId = ? AND vaultId = ?",
+                    arguments: [itemID, vaultID]),
                       let generation = UUID(uuidString: rawGeneration) else { throw OfflinePersistenceError.persistenceFailed }
                 let promotions = [OfflineManualPromotion(
                     key: OfflineSnapshotKey(vaultId: vaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
                     selectionGeneration: generation)]
                 return OfflineMutationUpdate(value: (), manualPromotions: wasManual ? [] : promotions)
             }
-        } catch let error as OfflinePersistenceError { throw error }
-        catch { throw OfflinePersistenceError.persistenceFailed }
+        } catch let error as OfflinePersistenceError { throw error } catch { throw OfflinePersistenceError.persistenceFailed }
     }
-
     func itemPolicy(itemID: String, vaultID: String) async throws -> OfflineItemPolicy? {
         do {
             return try await database.reader.read { db in
@@ -93,7 +94,6 @@ nonisolated extension OfflineSnapshotRepository {
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
     }
-
     func workCandidateForSelectedItem(itemID: String, vaultID: String) async throws -> OfflineSnapshotWorkCandidate? {
         do {
             return try await database.reader.read { db in
@@ -120,12 +120,15 @@ nonisolated extension OfflineSnapshotRepository {
                     intent = .materialize(selectionGeneration: generation)
                 default: return nil
                 }
-                return makeCandidate(vaultID: currentVaultID, itemID: currentItemID, shareID: shareID,
-                                     modifyTime: modifyTime, type: type, intent: intent)
+                return makeCandidate(
+                    key: OfflineSnapshotKey(
+                        vaultId: currentVaultID, itemId: currentItemID, schemaVersion: OfflineSnapshotLimits.schemaVersion
+                    ),
+                    shareID: shareID, modifyTime: modifyTime, type: type, intent: intent
+                )
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
     }
-
     func workCandidates(vaultID: String?, includeNewSelections: Bool, refreshExisting: Bool) async throws -> [OfflineSnapshotWorkCandidate] {
         do {
             return try await database.reader.read { db in
@@ -154,7 +157,8 @@ nonisolated extension OfflineSnapshotRepository {
                             || cacheStatus == OfflineCacheStatus.failed.rawValue
                         if refreshExisting && canRefresh {
                             return makeCandidate(
-                                vaultID: currentVaultID, itemID: itemID, shareID: shareID,
+                                key: OfflineSnapshotKey(vaultId: currentVaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
+                                shareID: shareID,
                                 modifyTime: modifyTime, type: type,
                                 intent: .refresh(selectionGeneration: selectionGeneration)
                             )
@@ -163,7 +167,8 @@ nonisolated extension OfflineSnapshotRepository {
                             || cacheStatus == OfflineCacheStatus.unavailable.rawValue
                         if includeNewSelections && needsMaterialization {
                             return makeCandidate(
-                                vaultID: currentVaultID, itemID: itemID, shareID: shareID,
+                                key: OfflineSnapshotKey(vaultId: currentVaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
+                                shareID: shareID,
                                 modifyTime: modifyTime, type: type,
                                 intent: .materialize(selectionGeneration: selectionGeneration)
                             )
@@ -172,7 +177,8 @@ nonisolated extension OfflineSnapshotRepository {
                     }
                     guard selectedAt == nil, includeNewSelections, !excluded, let policyGeneration else { return nil }
                     return makeCandidate(
-                        vaultID: currentVaultID, itemID: itemID, shareID: shareID,
+                        key: OfflineSnapshotKey(vaultId: currentVaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
+                                shareID: shareID,
                         modifyTime: modifyTime, type: type,
                         intent: .vaultMaterialize(policyGeneration: policyGeneration)
                     )
@@ -180,13 +186,12 @@ nonisolated extension OfflineSnapshotRepository {
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
     }
-
     private func makeCandidate(
-        vaultID: String, itemID: String, shareID: String, modifyTime: Date,
+        key: OfflineSnapshotKey, shareID: String, modifyTime: Date,
         type: ItemType, intent: OfflineSnapshotWorkIntent
     ) -> OfflineSnapshotWorkCandidate {
         OfflineSnapshotWorkCandidate(
-            key: OfflineSnapshotKey(vaultId: vaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
+            key: key,
             shareID: shareID,
             metadataModifyTime: modifyTime,
             itemType: type,

@@ -16,10 +16,12 @@ struct VaultSettingsLayoutTests {
             shareIDForVault: { _ in "share" }
         )
         let actual = try render(OfflineSettingsTab()
-            .environment(\.offlineModeCoordinator, coordinator), size: NSSize(width: 480, height: 260))
+            .environment(\.offlineModeCoordinator, coordinator), size: NSSize(width: 480, height: 440))
         let paragraphs = [
             "Selecting a vault stores encrypted offline copies of all its items on this Mac. New items added to selected vaults will also become available offline after syncing.",
-            "Items removed individually stay excluded until selected again. Turning off a vault keeps individually selected items."
+            "Items removed individually stay excluded until selected again. Turning off a vault keeps individually selected items.",
+            "Items and vaults enabled for Offline Mode use cached values when a usable copy is available. Sync is needed to refresh them. Without a usable cached copy, Quick Access uses Pass CLI.",
+            "Offline copies are used for copy actions, Large Type, and System AutoFill. SSH Agent and Run proxies do not use offline copies."
         ]
         for paragraph in paragraphs {
             let reference = NSHostingView(rootView: Text(paragraph)

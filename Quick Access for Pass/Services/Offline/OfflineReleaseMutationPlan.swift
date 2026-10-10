@@ -47,25 +47,37 @@ nonisolated enum OfflineReleaseMutationScope: Sendable {
             return vaultID == key.vaultId ? .requiresManualSelection : .none
         case .snapshot(let identity, _):
             return identity.key == key ? .invalidate : .none
-        case .upsertItems(let items):
-            return Self.constraint(for: key, incoming: items[key.itemId], absent: .none)
-        case .replaceItems(let items):
-            return Self.constraint(for: key, incoming: items[key.itemId], absent: .invalidate)
+        case .upsertItems(let items), .replaceItems(let items):
+            return itemConstraint(for: key, items: items)
         case .retainVaults(let vaultIDs):
             return vaultIDs.contains(key.vaultId) ? .none : .invalidate
         case .reconcileSelections(let vaultIDs, let parents):
             return vaultIDs.contains(key.vaultId) && parents[key.itemId] == key.vaultId ? .none : .invalidate
         case .replaceMetadata(let replacement):
-            guard replacement.vaultIDs.contains(key.vaultId) else { return .invalidate }
-            // Decoded incoming items take precedence over lossy-list retention evidence.
-            if let incoming = replacement.itemsByID[key.itemId] {
-                return Self.constraint(for: key, incoming: incoming, absent: .invalidate)
-            }
-            let retained = replacement.presenceUncertainties.contains {
-                $0.vaultID == key.vaultId && ($0.hasUnidentifiedSkippedItems || $0.skippedItemIDs.contains(key.itemId))
-            }
-            return retained ? .none : .invalidate
+            return Self.constraint(for: key, replacement: replacement)
         }
+    }
+
+    private func itemConstraint(
+        for key: OfflineSnapshotKey, items: [String: OfflineIncomingItemIdentity]
+    ) -> PreBindConstraint {
+        let absent: PreBindConstraint
+        if case .upsertItems = self { absent = .none } else { absent = .invalidate }
+        return Self.constraint(for: key, incoming: items[key.itemId], absent: absent)
+    }
+
+    private static func constraint(
+        for key: OfflineSnapshotKey, replacement: OfflineMetadataReplacement
+    ) -> PreBindConstraint {
+        guard replacement.vaultIDs.contains(key.vaultId) else { return .invalidate }
+        // Decoded incoming items take precedence over lossy-list retention evidence.
+        if let incoming = replacement.itemsByID[key.itemId] {
+            return Self.constraint(for: key, incoming: incoming, absent: .invalidate)
+    }
+    let retained = replacement.presenceUncertainties.contains {
+        $0.vaultID == key.vaultId && ($0.hasUnidentifiedSkippedItems || $0.skippedItemIDs.contains(key.itemId))
+    }
+    return retained ? .none : .invalidate
     }
 
     func matches(_ proof: OfflineReleaseProof) -> Bool {

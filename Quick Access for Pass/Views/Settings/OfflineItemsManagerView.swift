@@ -107,7 +107,8 @@ struct OfflineItemsManagerView: View {
                         .accessibilityLabel("Username or email: \(identifier)")
                 }
                 if let lastRefreshedAt = item.lastRefreshedAt {
-                    let detail = String(localized: "\(item.itemType.displayName) · Last refreshed \(lastRefreshedAt.formatted(date: .abbreviated, time: .shortened))")
+                    let timestamp = lastRefreshedAt.formatted(date: .abbreviated, time: .shortened)
+                    let detail = String(localized: "\(item.itemType.displayName) · Last refreshed \(timestamp)")
                     Text(detail)
                         .font(.caption2)
                         .foregroundStyle(.secondary)

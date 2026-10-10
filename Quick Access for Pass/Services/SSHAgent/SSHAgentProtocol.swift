@@ -33,17 +33,19 @@ nonisolated enum SSHAgentError: Error, Equatable, Sendable {
 
 // MARK: - Message
 
+nonisolated struct SSHAgentReadObservation: Sendable, Equatable {
+    nonisolated enum Phase: Sendable, Equatable { case header, body }
+    let phase: Phase
+    let requestedCount: Int
+    let resultCount: Int
+    let completedCount: Int
+    let errorNumber: Int32?
+}
+
 nonisolated struct SSHAgentMessage: Sendable {
     /// Nil-default observations contain framing/syscall metadata only, never
     /// buffer contents or descriptor/process identities.
-    nonisolated struct ReadObservation: Sendable, Equatable {
-        nonisolated enum Phase: Sendable, Equatable { case header, body }
-        let phase: Phase
-        let requestedCount: Int
-        let resultCount: Int
-        let completedCount: Int
-        let errorNumber: Int32?
-    }
+    typealias ReadObservation = SSHAgentReadObservation
 
     /// Maximum allowed message payload size (256 KB).
     static let maxMessageLength: UInt32 = 256 * 1024

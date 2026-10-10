@@ -86,12 +86,12 @@ final class OfflineModeCoordinator {
         }
     }
 
-    private let service: any OfflineModeServicing
-    private let observation: any OfflineCatalogObserving
+    let service: any OfflineModeServicing
+    let observation: any OfflineCatalogObserving
     private let shareIDForVault: @Sendable (String) -> String?
-    private var observationTask: Task<Void, Never>?
-    private var observationGeneration = UUID()
-    private var observationIsFresh = false
+    var observationTask: Task<Void, Never>?
+    var observationGeneration = UUID()
+    var observationIsFresh = false
     private var snapshot = OfflinePresentationSnapshot.empty
     private var availabilityVaultIDByItemID: [String: String] = [:]
     private var itemOperationIDs: [String: UUID] = [:]
@@ -103,9 +103,9 @@ final class OfflineModeCoordinator {
     private(set) var vaults: [OfflineVaultSettingsRow] = []
     private(set) var itemGroups: [OfflineItemSettingsGroup] = []
     /// Indicates a non-secret startup-recovery failure. Removal and purge remain available.
-    private(set) var requiresInitializationRetry = false
+    var requiresInitializationRetry = false
     /// A terminal observation error retains display rows but stops new selection until retry.
-    private(set) var observationErrorMessage: String?
+    var observationErrorMessage: String?
 
     var isPerformingTask: Bool {
         !itemOperationIDs.isEmpty || !vaultOperationIDs.isEmpty || purgeOperationID != nil
@@ -123,82 +123,6 @@ final class OfflineModeCoordinator {
         self.service = service
         self.observation = observation
         self.shareIDForVault = shareIDForVault
-    }
-
-
-    /// Starts one owned metadata subscription. A fresh lifecycle entry or explicit retry
-    /// supersedes its predecessor; body evaluation never creates subscriptions.
-    @discardableResult
-    func startObservation() -> Task<Void, Never> {
-        observationTask?.cancel()
-        let generation = UUID()
-        observationGeneration = generation
-        observationIsFresh = false
-        onDetailSelectionInputsChanged?()
-        let service = service
-        let observation = observation
-        let task = Task { [weak self] in
-            guard let self, self.observationGeneration == generation, !Task.isCancelled else { return }
-            await service.updateSelectionObservation(generation: generation, status: .starting)
-            guard self.observationGeneration == generation, !Task.isCancelled else { return }
-
-            let needsRetry = await service.requiresInitializationRetry()
-            guard self.observationGeneration == generation, !Task.isCancelled else { return }
-            if needsRetry {
-                self.requiresInitializationRetry = true
-            } else {
-                do {
-                    try await service.initialize()
-                    guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                    self.requiresInitializationRetry = false
-                } catch is CancellationError {
-                    return
-                } catch {
-                    guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                    let requiresRetry = await service.requiresInitializationRetry()
-                    guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                    self.requiresInitializationRetry = requiresRetry
-                }
-            }
-
-            do {
-                let stream = observation.snapshots()
-                guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                for try await presentation in stream {
-                    guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                    self.apply(presentation)
-                    self.observationErrorMessage = nil
-                    await service.updateSelectionObservation(generation: generation, status: .fresh)
-                    guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                    let isReady = await service.isReady()
-                    guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                    self.observationIsFresh = isReady && !self.requiresInitializationRetry
-                    self.onDetailSelectionInputsChanged?()
-                }
-                guard self.observationGeneration == generation, !Task.isCancelled else { return }
-            } catch is CancellationError {
-                return
-            } catch {
-                guard self.observationGeneration == generation, !Task.isCancelled else { return }
-                self.observationIsFresh = false
-                self.observationErrorMessage = String(localized: "Offline status could not be updated. Retry offline setup.")
-                self.onDetailSelectionInputsChanged?()
-                await service.updateSelectionObservation(generation: generation, status: .failed)
-            }
-        }
-        observationTask = task
-        return task
-    }
-
-    func stopObservation() {
-        observationTask?.cancel()
-        observationTask = nil
-        observationGeneration = UUID()
-    }
-
-    @discardableResult
-    func retryObservation() -> Task<Void, Never> {
-        startObservation()
     }
 
     /// Pure snapshot lookup; it never registers an item or performs I/O.

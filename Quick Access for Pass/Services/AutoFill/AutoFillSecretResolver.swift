@@ -73,8 +73,11 @@ nonisolated struct PassCLIAutoFillSecretResolver: AutoFillSecretResolving {
         try checkDeadline(context)
         let deadline = context.deadlineUptimeNanoseconds.map(CLIExecutionDeadline.init(uptimeNanoseconds:))
         let item: CLIItem
-        if let deadline { item = try await cliService.viewItem(itemId: itemId, shareId: shareId, deadline: deadline) }
-        else { item = try await cliService.viewItem(itemId: itemId, shareId: shareId) }
+        if let deadline {
+            item = try await cliService.viewItem(itemId: itemId, shareId: shareId, deadline: deadline)
+        } else {
+            item = try await cliService.viewItem(itemId: itemId, shareId: shareId)
+        }
         try Task.checkCancellation()
         try checkDeadline(context)
         guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
@@ -87,8 +90,11 @@ nonisolated struct PassCLIAutoFillSecretResolver: AutoFillSecretResolving {
             try Task.checkCancellation()
             try checkDeadline(context)
             let code: String
-            if let deadline { code = try await cliService.getTotp(itemId: itemId, shareId: shareId, deadline: deadline) }
-            else { code = try await cliService.getTotp(itemId: itemId, shareId: shareId) }
+            if let deadline {
+                code = try await cliService.getTotp(itemId: itemId, shareId: shareId, deadline: deadline)
+            } else {
+                code = try await cliService.getTotp(itemId: itemId, shareId: shareId)
+            }
             try Task.checkCancellation()
             try checkDeadline(context)
             return ResolvedSecret(value: code, offlineCapability: nil)

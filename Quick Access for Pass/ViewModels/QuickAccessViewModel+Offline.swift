@@ -11,7 +11,6 @@ extension QuickAccessViewModel {
         inFlightOfflineOperation != nil
     }
 
-
     func handleOfflineAvailability(for item: PassItem) {
         guard let offlineModeCoordinator, !offlineModeCoordinator.isOperating(on: item) else { return }
 
@@ -26,12 +25,7 @@ extension QuickAccessViewModel {
                 }
             }
             do {
-                switch offlineModeCoordinator.availability(for: item) {
-                case .notCached, .unavailable:
-                    try await offlineModeCoordinator.makeAvailableOffline(item)
-                case .available, .stale:
-                    try await offlineModeCoordinator.removeOfflineItem(itemId: item.id)
-                }
+                try await updateOfflineAvailability(for: item, coordinator: offlineModeCoordinator)
             } catch is CancellationError {
                 return
             } catch OfflineModeCoordinator.Error.observationUnavailable {
@@ -44,6 +38,15 @@ extension QuickAccessViewModel {
                 guard self.offlineOperationGeneration == generation, !Task.isCancelled else { return }
                 self.errorMessage = String(localized: "Failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func updateOfflineAvailability(for item: PassItem, coordinator: OfflineModeCoordinator) async throws {
+        switch coordinator.availability(for: item) {
+        case .notCached, .unavailable:
+            try await coordinator.makeAvailableOffline(item)
+        case .available, .stale:
+            try await coordinator.removeOfflineItem(itemId: item.id)
         }
     }
 

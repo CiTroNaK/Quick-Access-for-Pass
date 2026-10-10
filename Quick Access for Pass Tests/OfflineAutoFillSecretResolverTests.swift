@@ -50,21 +50,19 @@ struct OfflineAutoFillSecretResolverTests {
         let clock = OSAllocatedUnfairLock(initialState: UInt64(1_000_000_000))
         let gate = OfflineTestGate()
         let live = GatedExecutorDelayLive(clock: clock, gate: gate)
-        let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } })
+        let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } }, selected: false)
         let resolver = OfflineAutoFillSecretResolver(resolver: fixture.resolver)
         let context = SecretResolutionContext(deadlineUptimeNanoseconds: 10_000_000_000, expectedUsername: "person@example.test")
         let task = Task { try await resolver.resolve(descriptor: totpDescriptor, kind: .oneTimeCode, context: context) }
 
         do {
             try await gate.waitUntilEntered()
-            #expect(await live.observedDeadlines() == [3_000_000_000, 3_000_000_000])
-            #expect(await live.totpBudgetAtQueue() == 500_000_000)
-            clock.withLock { $0 = 3_100_000_000 }
+            #expect(await live.observedDeadlines() == [10_000_000_000, 10_000_000_000])
+            #expect(await live.totpBudgetAtQueue() == 7_500_000_000)
+            clock.withLock { $0 = 10_100_000_000 }
             await gate.open()
-            let result = try await task.value
-            #expect(result.value.count == 8)
-            #expect(result.offlineCapability != nil)
-            #expect(await fixture.codec.decodeCount() == 1)
+            await #expect(throws: SecretResolutionError.deadlineExpired) { _ = try await task.value }
+            #expect(await fixture.codec.decodeCount() == 0)
         } catch {
             task.cancel()
             await gate.open()
@@ -73,7 +71,7 @@ struct OfflineAutoFillSecretResolverTests {
         }
     }
 
-    @Test func controlledOldSeparateCompositionReproducesInsufficientSecondPhaseReserve() async throws {
+    @Test func separateCachedActionsDoNotConsumeLivePhaseBudget() async throws {
         let clock = OSAllocatedUnfairLock(initialState: UInt64(1_000_000_000))
         let live = ShortBudgetAutoFillLive(clock: clock)
         let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } })
@@ -83,14 +81,13 @@ struct OfflineAutoFillSecretResolverTests {
             itemId: "item", vaultId: "vault", shareId: "share", context: context
         )
         #expect(cachedItem.value.id == "item")
-        await #expect(throws: SecretResolutionError.deadlineExpired) {
-            _ = try await fixture.resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share", context: context)
-        }
-        #expect(clock.withLock { $0 } == 3_100_000_000)
+        let code = try await fixture.resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share", context: context)
+        #expect(code.offlineCapability != nil)
+        #expect(clock.withLock { $0 } == 1_000_000_000)
         #expect(await live.totpCalls() == 0)
     }
 
-    @Test func liveItemAndTOTPShareOneDeadlineAndCachedIdentityIsRevalidated() async throws {
+    @Test func cachedTOTPDoesNotStartEitherLiveCommand() async throws {
         let clock = OSAllocatedUnfairLock(initialState: UInt64(1_000_000_000))
         let live = ItemThenTOTPTimeoutLive(clock: clock)
         let fixture = try await makeFixture(
@@ -103,8 +100,8 @@ struct OfflineAutoFillSecretResolverTests {
 
         let result = try await resolver.resolve(descriptor: totpDescriptor, kind: .oneTimeCode, context: context)
         #expect(result.value.count == 8)
-        #expect(await live.observedDeadlines() == [3_000_000_000, 3_000_000_000])
-        #expect(clock.withLock { $0 } == 3_100_000_000)
+        #expect(await live.observedDeadlines().isEmpty)
+        #expect(clock.withLock { $0 } == 1_000_000_000)
     }
 
     @Test func ineligibleItemAndPostPhaseTOTPFailuresNeverDecodeSnapshot() async throws {
@@ -114,7 +111,7 @@ struct OfflineAutoFillSecretResolverTests {
         for failure in errors {
             let clock = OSAllocatedUnfairLock(initialState: UInt64(1_000_000_000))
             let live = PhaseFailureAutoFillLive(clock: clock, itemFailure: failure)
-            let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } })
+            let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } }, selected: false)
             let resolver = OfflineAutoFillSecretResolver(resolver: fixture.resolver)
             let context = SecretResolutionContext(deadlineUptimeNanoseconds: 4_000_000_000, expectedUsername: "person@example.test")
             await #expect(throws: CLIError.self) {
@@ -127,7 +124,7 @@ struct OfflineAutoFillSecretResolverTests {
         for failure in errors {
             let clock = OSAllocatedUnfairLock(initialState: UInt64(1_000_000_000))
             let live = PhaseFailureAutoFillLive(clock: clock, totpFailure: failure)
-            let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } })
+            let fixture = try await makeFixture(totp: cachedTOTPURI, live: live, now: { clock.withLock { $0 } }, selected: false)
             let resolver = OfflineAutoFillSecretResolver(resolver: fixture.resolver)
             let context = SecretResolutionContext(deadlineUptimeNanoseconds: 4_000_000_000, expectedUsername: "person@example.test")
             await #expect(throws: CLIError.self) {
@@ -138,10 +135,10 @@ struct OfflineAutoFillSecretResolverTests {
         }
     }
 
-    @Test func originalExpiryAndInsufficientReserveDoNotDecodeOrRelease() async throws {
+    @Test func originalExpiryIsTerminalWhileCacheNeedsNoReserve() async throws {
         let originalExpiryClock = OSAllocatedUnfairLock(initialState: UInt64(1_000_000_000))
         let expiredLive = PhaseFailureAutoFillLive(clock: originalExpiryClock, itemFailure: .timeout, expireOriginalDeadline: true)
-        let expiredFixture = try await makeFixture(totp: cachedTOTPURI, live: expiredLive, now: { originalExpiryClock.withLock { $0 } })
+        let expiredFixture = try await makeFixture(totp: cachedTOTPURI, live: expiredLive, now: { originalExpiryClock.withLock { $0 } }, selected: false)
         let expiredResolver = OfflineAutoFillSecretResolver(resolver: expiredFixture.resolver)
         let context = SecretResolutionContext(deadlineUptimeNanoseconds: 4_000_000_000, expectedUsername: "person@example.test")
         await #expect(throws: SecretResolutionError.deadlineExpired) {
@@ -155,12 +152,11 @@ struct OfflineAutoFillSecretResolverTests {
         let reserveFixture = try await makeFixture(totp: cachedTOTPURI, live: reserveLive, now: { reserveClock.withLock { $0 } })
         let reserveResolver = OfflineAutoFillSecretResolver(resolver: reserveFixture.resolver)
         let insufficient = SecretResolutionContext(deadlineUptimeNanoseconds: 2_000_000_000, expectedUsername: "person@example.test")
-        await #expect(throws: SecretResolutionError.deadlineExpired) {
-            _ = try await reserveResolver.resolve(descriptor: totpDescriptor, kind: .oneTimeCode, context: insufficient)
-        }
+        let result = try await reserveResolver.resolve(descriptor: totpDescriptor, kind: .oneTimeCode, context: insufficient)
+        #expect(result.offlineCapability != nil)
         #expect(await reserveLive.itemCalls() == 0)
-        #expect(await reserveFixture.codec.decodeCount() == 0)
-        #expect(reserveFixture.repository.releaseAuthority.registrationCount == 0)
+        #expect(await reserveFixture.codec.decodeCount() == 1)
+        #expect(reserveFixture.repository.releaseAuthority.registrationCount == 1)
     }
 
     @Test func liveIdentityCannotAuthorizeMismatchedCachedTOTPIdentity() async throws {
@@ -246,30 +242,28 @@ struct OfflineAutoFillSecretResolverTests {
         #expect(try await resolver.resolve(descriptor: totpDescriptor, kind: .oneTimeCode).value == "123456")
     }
 
-    @Test func selectedSnapshotReservesOneSecondForFallbackButLiveOnlyKeepsRemainingBudget() throws {
+    @Test func liveBudgetDoesNotReserveTimeForCacheFallback() throws {
         let deadline: UInt64 = 10_000_000_000
         let context = SecretResolutionContext(deadlineUptimeNanoseconds: deadline, expectedUsername: "user")
-        #expect(try OfflineAutoFillLiveBudget.timeout(context: context, hasSnapshot: true, now: 6_000_000_000) == 2)
-        #expect(try OfflineAutoFillLiveBudget.timeout(context: context, hasSnapshot: false, now: 6_000_000_000) == 4)
-        #expect(throws: SecretResolutionError.deadlineExpired) {
-            _ = try OfflineAutoFillLiveBudget.timeout(context: context, hasSnapshot: true, now: 9_000_000_000)
-        }
+        #expect(try OfflineAutoFillLiveBudget.timeout(context: context, now: 6_000_000_000) == 4)
+        #expect(try OfflineAutoFillLiveBudget.timeout(context: context, now: 9_000_000_000) == 1)
     }
 
     private func makeFixture(
         totp: String = "",
         username: String = "person@example.test",
         live: any OfflineSecretResolvingLive = AutoFillLive(),
-        now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+        now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        selected: Bool = true
     ) async throws -> AutoFillFixture {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
         let codec = fixture.codec()
         let service = OfflineModeService(repository: fixture.repository, codec: codec, cliService: AutoFillViewer(totp: totp, username: username))
         try await initializeOfflineFixtureService(service)
-        try await service.makeAvailableOffline(item: item, shareId: "share")
+        if selected { try await service.makeAvailableOffline(item: item, shareId: "share") }
         #expect(try await fixture.repository.offlineVaultIds().isEmpty)
-        #expect(try await fixture.repository.offlineItemSelection(itemId: "item")?.isManuallySelected == true)
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "item")?.isManuallySelected == (selected ? true : nil))
         let countingCodec = CountingAutoFillCodec(codec: codec)
         return AutoFillFixture(resolver: OfflineSecretResolver(
             live: live, repository: fixture.repository, codec: countingCodec, readiness: service, now: now
@@ -335,7 +329,6 @@ private actor GatedExecutorDelayLive: OfflineSecretResolvingLive {
         deadlines.append(deadline.uptimeNanoseconds)
         totpRemainingAtQueue = deadline.uptimeNanoseconds - now
         try await gate.wait()
-        clock.withLock { $0 = 3_100_000_000 }
         throw CLIError.timeout
     }
     func observedDeadlines() -> [UInt64] { deadlines }
@@ -418,7 +411,7 @@ private actor ShortBudgetAutoFillLive: OfflineSecretResolvingLive {
     func viewItem(itemId: String, shareId: String, timeout: TimeInterval) async throws -> CLIItem { throw CLIError.timeout }
     func getTotp(itemId: String, shareId: String, timeout: TimeInterval) async throws -> String { totpCallCount += 1; throw CLIError.timeout }
     func viewItem(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> CLIItem {
-        #expect(deadline.uptimeNanoseconds == 3_000_000_000)
+        #expect(deadline.uptimeNanoseconds == 4_000_000_000)
         clock.withLock { $0 = 3_100_000_000 }
         throw CLIError.timeout
     }

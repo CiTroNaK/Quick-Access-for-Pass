@@ -90,18 +90,13 @@ struct OfflineSecretResolverTests {
         #expect(await codec.decodeCount() == 0)
     }
 
-    @Test func selectedLivePhaseDeadlineRetainsFallbackReserveWithoutClockRefresh() throws {
+    @Test func liveDeadlinePreservesOriginalBudgetWithoutClockRefresh() throws {
         let context = SecretResolutionContext(deadlineUptimeNanoseconds: 5_000_000_000, expectedUsername: nil)
-        #expect(try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: false, now: 1_000_000_000)?.uptimeNanoseconds == 5_000_000_000)
-        #expect(try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: true, now: 1_000_000_000)?.uptimeNanoseconds == 3_000_000_000)
+        #expect(try OfflineAutoFillLiveBudget.deadline(context: context, now: 1_000_000_000)?.uptimeNanoseconds == 5_000_000_000)
         let nearOverflow = SecretResolutionContext(deadlineUptimeNanoseconds: UInt64.max, expectedUsername: nil)
-        #expect(try OfflineAutoFillLiveBudget.deadline(context: nearOverflow, hasSnapshot: true, now: UInt64.max - 1_500_000_000)?.uptimeNanoseconds == UInt64.max - 1_000_000_000)
-        let noReserve = SecretResolutionContext(deadlineUptimeNanoseconds: 2_000_000_000, expectedUsername: nil)
-        do {
-            _ = try OfflineAutoFillLiveBudget.deadline(context: noReserve, hasSnapshot: true, now: 1_000_000_000)
-            Issue.record("selected deadline without fallback reserve should fail")
-        } catch let error as SecretResolutionError {
-            guard case .deadlineExpired = error else { Issue.record("unexpected secret resolution error"); return }
+        #expect(try OfflineAutoFillLiveBudget.deadline(context: nearOverflow, now: UInt64.max - 1_500_000_000)?.uptimeNanoseconds == UInt64.max)
+        #expect(throws: SecretResolutionError.deadlineExpired) {
+            _ = try OfflineAutoFillLiveBudget.deadline(context: context, now: 5_000_000_000)
         }
     }
 
@@ -130,7 +125,8 @@ struct OfflineSecretResolverTests {
     @Test func typeTransitionDuringDecodeDoesNotReauthorizeObsoletePayload() async throws {
         let fixture = try await selectedFixture()
         let gate = OfflineTestGate()
-        let resolver = OfflineSecretResolver(live: ResolverLive(error: .notLoggedIn), repository: fixture.repository,
+        let live = ResolverLive(error: .notLoggedIn)
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
             codec: PostDecodeGateCodec(codec: fixture.codec, gate: gate), readiness: fixture.service)
         let task = Task { try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share") }
         do {
@@ -148,12 +144,14 @@ struct OfflineSecretResolverTests {
             _ = await task.result
             throw error
         }
+        #expect(live.callCount() == 0)
     }
 
     @Test func replacementDuringDecodeRetriesWithFreshCaptureAndPayload() async throws {
         let fixture = try await selectedFixture()
         let gate = OfflineTestGate()
-        let resolver = OfflineSecretResolver(live: ResolverLive(error: .notLoggedIn), repository: fixture.repository,
+        let live = ResolverLive(error: .notLoggedIn)
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
             codec: PostDecodeGateCodec(codec: fixture.codec, gate: gate), readiness: fixture.service)
         let task = Task { try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share") }
         do {
@@ -174,6 +172,7 @@ struct OfflineSecretResolverTests {
             _ = await task.result
             throw error
         }
+        #expect(live.callCount() == 0)
     }
 
     @Test @MainActor func liveAndUnrelatedCachedValuesSurvivePendingRealRemoval() async throws {
@@ -183,7 +182,7 @@ struct OfflineSecretResolverTests {
         }))
         let service = fixture.service()
         try await initializeOfflineFixtureService(service)
-        for item in fixture.items { try await service.makeAvailableOffline(item: item, shareId: "share") }
+        for item in fixture.items where item.id == "neighbor" { try await service.makeAvailableOffline(item: item, shareId: "share") }
         let cached = try await OfflineSecretResolver(live: ResolverLive(error: .notLoggedIn), repository: fixture.repository,
             codec: fixture.codec(), readiness: service).resolveItem(itemId: "neighbor", vaultId: "vault", shareId: "share")
         let live = try await OfflineSecretResolver(live: ResolverLive(item: offlineTestCLIItem(id: "target", vaultID: "vault", shareID: "share", password: "live")),
@@ -238,27 +237,284 @@ struct OfflineSecretResolverTests {
         #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == before)
     }
 
-    @Test func liveItemWinsOverAuthorizedSnapshot() async throws {
+    @Test func authorizedSnapshotWinsWithoutLiveCalls() async throws {
         let fixture = try await selectedFixture()
-        let resolver = OfflineSecretResolver(
-            live: ResolverLive(item: try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "live")),
-            repository: fixture.repository,
-            codec: fixture.codec,
-            readiness: fixture.service
-        )
-
-        let value = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
-        guard case .login(let login) = value.value.content.content else { Issue.record("expected login"); return }
-        #expect(login.password == "live")
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
+            codec: fixture.codec, readiness: fixture.service)
+        let result = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        #expect(result.offlineCapability != nil)
+        try result.release(validating: {}, effect: { item in
+            guard case .login(let login) = item.content.content else { Issue.record("expected login"); return }
+            #expect(login.password == "cached")
+        })
+        #expect(await live.callCount() == 0)
     }
 
-    @Test func unavailableLiveTOTPUsesAuthorizedEncryptedSnapshot() async throws {
+    @Test func authorizedSnapshotIgnoresGenericSanitizedLiveFailure() async throws {
+        let fixture = try await selectedFixture()
+        let live = ResolverLive(error: .secretFetchFailed)
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository, codec: fixture.codec, readiness: fixture.service)
+        let result = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        #expect(result.offlineCapability != nil)
+        try result.release(validating: {}, effect: { item in
+            guard case .login(let login) = item.content.content else { Issue.record("expected login"); return }
+            #expect(login.password == "cached")
+        })
+        #expect(live.callCount() == 0)
+    }
+
+    @Test("cached missing and malformed TOTP fields never select live", arguments: ["", "<<MALFORMED_TOTP_MARKER>>"])
+    func unusableCachedTOTPFieldIsTerminal(uri: String) async throws {
+        let fixture = try await selectedFixture(totp: uri)
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository, codec: fixture.codec, readiness: fixture.service)
+        await #expect { _ = try await resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share") } throws: { error in
+            uri.isEmpty ? (error as? OfflineSecretResolver.Error) == .unavailable : (error as? TOTPGenerator.Error) == .unsupportedURI
+        }
+        await #expect {
+            _ = try await resolver.resolveAutoFillValue(itemId: "item", vaultId: "vault", shareId: "share", kind: .oneTimeCode,
+                context: .init(deadlineUptimeNanoseconds: nil, expectedUsername: "person@example.test"))
+        } throws: { error in
+            uri.isEmpty ? (error as? AutoFillSecretResolverError) == .descriptorDoesNotSupportValue : (error as? TOTPGenerator.Error) == .unsupportedURI
+        }
+        #expect(await live.callCount() == 0)
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
+    @Test func cachedTOTPUsesCurrentTimeWithoutLiveCalls() async throws {
         let fixture = try await selectedFixture(totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8")
-        let resolver = OfflineSecretResolver(
-            live: ResolverLive(error: .notLoggedIn), repository: fixture.repository,
-            codec: fixture.codec, readiness: fixture.service
-        )
-        #expect(try await resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share").value.count == 8)
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
+            codec: fixture.codec, readiness: fixture.service, totpDate: { Date(timeIntervalSince1970: 59) })
+        let result = try await resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share")
+        #expect(result.offlineCapability != nil)
+        try result.release(validating: {}, effect: { #expect($0 == "94287082") })
+        #expect(await live.callCount() == 0)
+    }
+
+    @Test func cachedAutoFillValuesSkipLiveResolution() async throws {
+        let fixture = try await selectedFixture(totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8")
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
+            codec: fixture.codec, readiness: fixture.service, totpDate: { Date(timeIntervalSince1970: 59) })
+        for (kind, expected) in [(AutoFillValueKind.password, "cached"), (.oneTimeCode, "94287082")] {
+            let result = try await resolver.resolveAutoFillValue(itemId: "item", vaultId: "vault", shareId: "share",
+                kind: kind, context: .init(deadlineUptimeNanoseconds: nil, expectedUsername: "person@example.test"))
+            #expect(result.offlineCapability != nil)
+            try result.release(validating: {}, effect: { #expect($0 == expected) })
+        }
+        #expect(await live.callCount() == 0)
+    }
+
+    @Test("key availability uses live once without removing ciphertext or selection", arguments: [false, true])
+    func keyUnavailableUsesLiveWithoutDeletingSnapshot(wrongKey: Bool) async throws {
+        let fixture = try await selectedFixture()
+        let before = try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item")
+        let keys = OfflineFixtureKeys(initialMaterial: wrongKey ? Data(repeating: 8, count: 32) : nil)
+        let codec = DecodeCountingCodec(codec: OfflineSnapshotCodec(keyMaterialProvider: keys, hasPersistedSnapshots: { true }))
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository, codec: codec, readiness: fixture.service)
+        let result = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        #expect(result.offlineCapability == nil)
+        try result.release(validating: {}, effect: { item in
+            guard case .login(let login) = item.content.content else { Issue.record("expected login"); return }
+            #expect(login.password == "live")
+        })
+        #expect(await codec.decodeCount() == 2)
+        #expect(await live.callCount() == 1)
+        #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == before)
+        #expect(try await keys.existingSnapshotKey() == (wrongKey ? Data(repeating: 8, count: 32) : nil))
+    }
+
+    @Test func corruptSnapshotUsesLiveAndRetainsSelectionAndKey() async throws {
+        let fixture = try await selectedFixture()
+        let key = OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: OfflineSnapshotLimits.schemaVersion)
+        let snapshot = try #require(try await fixture.repository.authorizedSnapshot(for: key))
+        let cipher = try OfflineSnapshotCipher(keyData: Data(repeating: 7, count: 32))
+        let payload = try cipher.seal(Data("not-json-<<CACHE_MARKER>>".utf8), for: snapshot.identity)
+        try await fixture.database.writer.write { db in
+            try db.execute(sql: "UPDATE offlineSnapshots SET encryptedPayload = ? WHERE itemId = ?", arguments: [payload, "item"])
+        }
+        let live = TimedLiveRecorder()
+        let codec = DecodeCountingCodec(codec: fixture.codec)
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository, codec: codec, readiness: fixture.service)
+        let result = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        #expect(result.offlineCapability == nil)
+        try result.release(validating: {}, effect: { item in
+            guard case .login(let login) = item.content.content else { Issue.record("expected login"); return }
+            #expect(login.password == "live")
+        })
+        #expect(await codec.decodeCount() == 1)
+        #expect(await live.callCount() == 1)
+        #expect(try await fixture.repository.authorizedSnapshot(for: key) == nil)
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "item") != nil)
+        // The same device-bound fixture key remains usable; no key cleanup occurred.
+        let request = try #require(try await fixture.repository.beginRequest(itemID: "item", vaultID: "vault", shareID: "share", kind: .selection))
+        let replacement = try await fixture.codec.prepareSnapshot(from: offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "replacement"), for: request)
+        #expect(replacement.identity.keyFingerprint == snapshot.identity.keyFingerprint)
+    }
+
+    @Test("admitted snapshot and proof disappearance stay cache-only", arguments: [false, true])
+    func admittedAuthorizationRaceNeverStartsLive(removeBeforeProof: Bool) async throws {
+        let fixture = try await selectedFixture()
+        let repository = RemovalRaceRepository(base: fixture.repository, removeBeforeProof: removeBeforeProof)
+        let live = ResolverLive(item: try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "live"), error: .notLoggedIn)
+        let codec = DecodeCountingCodec(codec: fixture.codec)
+        let resolver = OfflineSecretResolver(live: live, repository: repository, codec: codec, readiness: fixture.service)
+        await #expect(throws: OfflineSecretResolver.Error.unavailable) {
+            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        }
+        #expect(live.callCount() == 0)
+        #expect(await repository.snapshotReads() == 2)
+        #expect(await codec.decodeCount() == 0)
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
+    @Test("non-availability decode errors are terminal", arguments: [OfflineSnapshotCodec.Error.invalidIdentity, .payloadTooLarge, .unsupportedSchemaVersion])
+    func terminalDecodeFailureNeverStartsLive(error: OfflineSnapshotCodec.Error) async throws {
+        let fixture = try await selectedFixture()
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
+            codec: FailingResolverCodec(error: error), readiness: fixture.service)
+        await #expect(throws: OfflineSecretResolver.Error.unavailable) {
+            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        }
+        #expect(await live.callCount() == 0)
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
+    @Test func unknownCacheFailureNeverStartsLiveOrLeaksPayload() async throws {
+        let fixture = try await selectedFixture()
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
+            codec: FailingResolverCodec(error: CLIError.parseError("<<UNKNOWN_CACHE_ERROR_MARKER>>")), readiness: fixture.service)
+        await #expect(throws: OfflineSecretResolver.Error.unavailable) {
+            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        }
+        #expect(await live.callCount() == 0)
+    }
+
+    @Test("selection removal at retry eligibility never becomes live availability", arguments: [false, true])
+    func removalAtSecondEligibilityReadRejectsLiveAvailability(corrupt: Bool) async throws {
+        let fixture = try await selectedFixture()
+        let key = OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: OfflineSnapshotLimits.schemaVersion)
+        let codec: any OfflineSnapshotCoding
+        if corrupt {
+            let snapshot = try #require(try await fixture.repository.authorizedSnapshot(for: key))
+            let cipher = try OfflineSnapshotCipher(keyData: Data(repeating: 7, count: 32))
+            let payload = try cipher.seal(Data("not-json-<<RETRY_ELIGIBILITY_MARKER>>".utf8), for: snapshot.identity)
+            try await fixture.database.writer.write { db in
+                try db.execute(sql: "UPDATE offlineSnapshots SET encryptedPayload = ? WHERE itemId = ?", arguments: [payload, "item"])
+            }
+            codec = fixture.codec
+        } else {
+            codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(initialMaterial: nil), hasPersistedSnapshots: { true })
+        }
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        let repository = OfflineSnapshotRepository(database: fixture.database, beforeEligibilityRead: {
+            let shouldRemove = reads.withLock { count in count += 1; return count == 2 }
+            if shouldRemove { try await fixture.repository.removeItem("item") }
+        })
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: repository, codec: codec, readiness: fixture.service)
+        await #expect(throws: OfflineSecretResolver.Error.unavailable) {
+            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        }
+        #expect(reads.withLock { $0 } == 2)
+        #expect(await live.callCount() == 0)
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "item") == nil)
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
+    @Test("rollback invalidation at retry eligibility never becomes live availability", arguments: [false, true])
+    func rollbackAtSecondEligibilityReadRejectsLiveAvailability(corrupt: Bool) async throws {
+        let fixture = try await selectedFixture()
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        let repository = OfflineSnapshotRepository(database: fixture.database, beforeEligibilityRead: {
+            let shouldInvalidate = reads.withLock { count in count += 1; return count == 2 }
+            if shouldInvalidate {
+                let mutation = fixture.repository.releaseAuthority.beginMutation(.itemID("item"))
+                fixture.repository.releaseAuthority.finishMutation(mutation, outcome: .rolledBack)
+            }
+        })
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: repository,
+            codec: FailingResolverCodec(error: corrupt ? OfflineSnapshotCodec.Error.corruptSnapshot : .keyUnavailable), readiness: fixture.service)
+        await #expect(throws: OfflineSecretResolver.Error.unavailable) {
+            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        }
+        #expect(await live.callCount() == 0)
+        #expect(try await fixture.repository.hasPersistedSnapshots())
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
+    @Test func keyAvailabilityRetryCannotForgetOriginalReplacementInvalidation() async throws {
+        let fixture = try await selectedFixture()
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        let repository = OfflineSnapshotRepository(database: fixture.database, beforeEligibilityRead: {
+            let shouldReplace = reads.withLock { count in count += 1; return count == 2 }
+            if shouldReplace {
+                let request = try #require(try await fixture.repository.beginRequest(itemID: "item", vaultID: "vault", shareID: "share", kind: .refresh))
+                let replacement = try await fixture.codec.prepareSnapshot(
+                    from: offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "replacement"), for: request)
+                #expect(try await fixture.repository.publish(replacement, for: request, refreshedAt: Date()))
+            }
+        })
+        let codec = DecodeCountingCodec(codec: OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(initialMaterial: nil), hasPersistedSnapshots: { true }))
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: repository, codec: codec, readiness: fixture.service)
+        await #expect(throws: OfflineSecretResolver.Error.unavailable) {
+            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+        }
+        #expect(await codec.decodeCount() == 2)
+        #expect(await live.callCount() == 0)
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
+    @Test func revocationDuringKeyFailureIsTerminalWithoutLiveRetry() async throws {
+        let fixture = try await selectedFixture()
+        let gate = OfflineTestGate()
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository,
+            codec: PostDecodeGateCodec(codec: fixture.codec, gate: gate, failure: .keyUnavailable), readiness: fixture.service)
+        let task = Task { try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share") }
+        do {
+            try await gate.waitUntilEntered()
+            try await fixture.repository.removeItem("item")
+            await gate.open()
+            await #expect(throws: OfflineSecretResolver.Error.unavailable) { _ = try await task.value }
+            #expect(await live.callCount() == 0)
+            #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+        } catch {
+            task.cancel()
+            await gate.open()
+            _ = await task.result
+            throw error
+        }
+    }
+
+    @Test func failedRefreshKeepsPreferredValueAndSuccessfulRefreshChangesIt() async throws {
+        let fixture = try await selectedFixture()
+        let item = try #require(try fixture.database.allActiveItems().first)
+        let live = TimedLiveRecorder()
+        let resolver = OfflineSecretResolver(live: live, repository: fixture.repository, codec: fixture.codec, readiness: fixture.service)
+        for (viewer, expected) in [
+            (ResolverLive(error: .notLoggedIn), "cached"),
+            (ResolverLive(item: try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "refreshed")), "refreshed")
+        ] {
+            let refresh = OfflineModeService(repository: fixture.repository, codec: fixture.codec, cliService: viewer)
+            try await refresh.initialize()
+            await refresh.refreshSelectedSnapshots(vaults: [PassVault(id: "vault", name: "Vault", shareId: "share")], items: [item])
+            await refresh.waitUntilIdle()
+            let result = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share")
+            #expect(result.offlineCapability != nil)
+            try result.release(validating: {}, effect: { item in
+                guard case .login(let login) = item.content.content else { Issue.record("expected login"); return }
+                #expect(login.password == expected)
+            })
+        }
+        #expect(await live.callCount() == 0)
     }
 
     @Test func fallbackRequiresReadinessAndCurrentRepositoryAuthorization() async throws {
@@ -300,7 +556,7 @@ struct OfflineSecretResolverTests {
         }
         #expect(returnedValue == false)
         #expect(await codec.decodeCount() == 1)
-        #expect(live.deadlines().count == 1)
+        #expect(live.deadlines().isEmpty)
         #expect(fixture.repository.releaseAuthority.registrationCount == 0)
         // The same injected clock remains authoritative when it really expires.
         clock.withLock { $0 = 5_000_000_000 }
@@ -308,7 +564,7 @@ struct OfflineSecretResolverTests {
             _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share", context: context)
         }
         #expect(await codec.decodeCount() == 1)
-        #expect(live.deadlines().count == 1)
+        #expect(live.deadlines().isEmpty)
     }
 
     @Test func unselectedLiveAttemptReceivesWholeRemainingDeadline() async throws {
@@ -349,24 +605,24 @@ struct OfflineSecretResolverTests {
         #expect(await codec.decodeCount() == 0)
     }
 
-    @Test func insufficientSelectedReserveStartsNeitherLiveNorSnapshotDecode() async throws {
+    @Test func selectedSnapshotNeedsNoLiveFallbackReserve() async throws {
         let fixture = try await selectedFixture(totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
         let live = TimedLiveRecorder()
         let codec = DecodeCountingCodec(codec: fixture.codec)
         let resolver = OfflineSecretResolver(
             live: live, repository: fixture.repository, codec: codec, readiness: fixture.service, now: { 4_000_000_000 }
         )
-        let context = SecretResolutionContext(deadlineUptimeNanoseconds: 5_000_000_000, expectedUsername: "user")
+        let context = SecretResolutionContext(deadlineUptimeNanoseconds: 5_000_000_000, expectedUsername: "person@example.test")
 
-        await #expect(throws: SecretResolutionError.deadlineExpired) {
-            _ = try await resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share", context: context)
-        }
+        let result = try await resolver.resolveTOTP(itemId: "item", vaultId: "vault", shareId: "share", context: context)
+        #expect(result.offlineCapability != nil)
         #expect(await live.timeouts().isEmpty)
-        #expect(await codec.decodeCount() == 0)
+        #expect(await codec.decodeCount() == 1)
     }
 
     @Test func deadlineExpiringBetweenIdentityAndTOTPNeverStartsFallback() async throws {
         let fixture = try await selectedFixture(totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+        try await fixture.repository.removeItem("item")
         let clock = OSAllocatedUnfairLock<UInt64>(initialState: 1_000_000_000)
         let live = AdvancingTimedLive(clock: clock)
         let codec = DecodeCountingCodec(codec: fixture.codec)
@@ -383,7 +639,7 @@ struct OfflineSecretResolverTests {
         await #expect(throws: SecretResolutionError.deadlineExpired) {
             _ = try await adapter.resolve(descriptor: descriptor, kind: .oneTimeCode, context: context)
         }
-        #expect(await live.timeouts() == [2])
+        #expect(await live.timeouts() == [4])
         #expect(await codec.decodeCount() == 0)
     }
 
@@ -391,6 +647,7 @@ struct OfflineSecretResolverTests {
         let fixture = try await selectedFixture(
             totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=999999999"
         )
+        try await fixture.repository.removeItem("item")
         let clock = OSAllocatedUnfairLock<UInt64>(initialState: 1_000_000_000)
         let live = ComposedTOTPParseFailureLive(clock: clock)
         let codec = DecodeCountingCodec(codec: fixture.codec)
@@ -407,7 +664,7 @@ struct OfflineSecretResolverTests {
         await #expect(throws: CLIError.self) {
             _ = try await adapter.resolve(descriptor: descriptor, kind: .oneTimeCode, context: context)
         }
-        #expect(await live.deadlines() == [3_000_000_000, 3_000_000_000])
+        #expect(await live.deadlines() == [4_000_000_000, 4_000_000_000])
         #expect(await codec.decodeCount() == 0)
         #expect(fixture.repository.releaseAuthority.registrationCount == 0)
     }
@@ -439,7 +696,7 @@ struct OfflineSecretResolverTests {
         #expect(try cached.release(validating: {}, effect: { $0 }) == expected)
         #expect(throws: OfflineReleaseError.alreadyConsumed) { try cached.release(validating: {}, effect: { $0 }) }
         #expect(await codec.decodeCount() == 1)
-        #expect(live.deadlines().count == 1)
+        #expect(live.deadlines().isEmpty)
     }
 
     @Test func cachedTOTPRetryValidatesReplacementUsernameIndependently() async throws {
@@ -483,7 +740,7 @@ struct OfflineSecretResolverTests {
             #expect(await codec.decodedRevisions() == [stale.identity.revision, replacement.identity.revision])
             #expect(await codec.usernameMatches() == [true, false])
             #expect(returnedValue.withLock { $0 } == false)
-            #expect(live.deadlines().count == 1)
+            #expect(live.deadlines().isEmpty)
             #expect(fixture.repository.releaseAuthority.registrationCount == 0)
         } catch {
             task.cancel()
@@ -518,7 +775,7 @@ struct OfflineSecretResolverTests {
             #expect(returnedValue == false)
         }
         #expect(await codec.decodeCount() == 2)
-        #expect(live.deadlines().count == 2)
+        #expect(live.deadlines().isEmpty)
         #expect(fixture.repository.releaseAuthority.registrationCount == 0)
     }
 
@@ -526,8 +783,9 @@ struct OfflineSecretResolverTests {
         let fixture = try await selectedFixture()
         let gate = OfflineTestGate()
         let codec = PostDecodeGateCodec(codec: fixture.codec, gate: gate)
+        let live = ResolverLive(error: .notLoggedIn)
         let resolver = OfflineSecretResolver(
-            live: ResolverLive(error: .notLoggedIn), repository: fixture.repository,
+            live: live, repository: fixture.repository,
             codec: codec, readiness: fixture.service
         )
         let task = Task {
@@ -544,6 +802,7 @@ struct OfflineSecretResolverTests {
             _ = await task.result
             throw error
         }
+        #expect(live.callCount() == 0)
     }
 
     @Test func authenticatedMarkerPayloadDecodeFailureIsClassifiedWithoutLeakage() async throws {
@@ -570,6 +829,7 @@ struct OfflineSecretResolverTests {
 
     @Test func malformedLiveFailureDoesNotUseSnapshot() async throws {
         let fixture = try await selectedFixture()
+        try await fixture.repository.removeItem("item")
         let resolver = OfflineSecretResolver(
             live: ResolverLive(error: .parseError("malformed")), repository: fixture.repository,
             codec: fixture.codec, readiness: fixture.service
@@ -634,9 +894,10 @@ struct OfflineSecretResolverTests {
         #expect(try await fixture.repository.authorizedSnapshot(for: key)?.identity.revision == replacement.identity.revision)
     }
 
-    @Test("native overflow during timeout refuses selected snapshot decode and release", arguments: [false, true])
-    func nativeTimeoutOverflowNeverDecodesOrReleasesSelectedSnapshot(delayedNotification: Bool) async throws {
+    @Test("no-cache native overflow during timeout refuses decode and release", arguments: [false, true])
+    func nativeTimeoutOverflowWithoutCacheNeverDecodesOrReleases(delayedNotification: Bool) async throws {
         let selected = try await selectedFixture()
+        try await selected.repository.removeItem("item")
         let native = NativeTimeoutOverflowFixture(delayedNotification: delayedNotification)
         defer { native.removeMarkers() }
         let codec = DecodeCountingCodec(codec: selected.codec)
@@ -653,7 +914,7 @@ struct OfflineSecretResolverTests {
         }
         #expect(await codec.decodeCount() == 0)
         #expect(released.withLock { $0 } == false)
-        #expect(try await selected.repository.hasPersistedSnapshots())
+        #expect(try await selected.repository.hasPersistedSnapshots() == false)
         native.expectTimeoutTrapAndSingleCompletion()
         #expect(native.observedDeadlines().incoming.count == 1)
         #expect(native.observedDeadlines().incoming == native.observedDeadlines().forwarded)
@@ -730,11 +991,12 @@ private struct SelectedResolverFixture {
     let service: OfflineModeService
 }
 
-private struct ResolverLive: OfflineSecretResolvingLive {
+private struct ResolverLive: OfflineSecretResolvingLive, OfflineItemViewing {
     let item: CLIItem?
     let error: CLIError?
     private let now: @Sendable () -> UInt64
     private let recordedDeadlines = OSAllocatedUnfairLock<[CLIExecutionDeadline]>(initialState: [])
+    private let calls = OSAllocatedUnfairLock(initialState: 0)
     init(item: CLIItem? = nil, error: CLIError? = nil,
          now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }) {
         self.item = item
@@ -742,6 +1004,7 @@ private struct ResolverLive: OfflineSecretResolvingLive {
         self.now = now
     }
     func deadlines() -> [CLIExecutionDeadline] { recordedDeadlines.withLock { $0 } }
+    func callCount() -> Int { calls.withLock { $0 } }
     func viewItem(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> CLIItem {
         try Task.checkCancellation()
         _ = try deadline.remainingSeconds(at: now())
@@ -754,8 +1017,8 @@ private struct ResolverLive: OfflineSecretResolvingLive {
         recordedDeadlines.withLock { $0.append(deadline) }
         return try await getTotp(itemId: itemId, shareId: shareId)
     }
-    func viewItem(itemId: String, shareId: String) async throws -> CLIItem { if let error { throw error }; return item! }
-    func getTotp(itemId: String, shareId: String) async throws -> String { if let error { throw error }; return "live" }
+    func viewItem(itemId: String, shareId: String) async throws -> CLIItem { calls.withLock { $0 += 1 }; if let error { throw error }; return item! }
+    func getTotp(itemId: String, shareId: String) async throws -> String { calls.withLock { $0 += 1 }; if let error { throw error }; return "live" }
     func viewItem(itemId: String, shareId: String, timeout: TimeInterval) async throws -> CLIItem { try await viewItem(itemId: itemId, shareId: shareId) }
     func getTotp(itemId: String, shareId: String, timeout: TimeInterval) async throws -> String { try await getTotp(itemId: itemId, shareId: shareId) }
 }
@@ -879,10 +1142,12 @@ private actor ComposedTOTPParseFailureLive: OfflineSecretResolvingLive {
 private actor PostDecodeGateCodec: OfflineSnapshotCoding {
     private let codec: OfflineSnapshotCodec
     private let gate: OfflineTestGate
+    private let failure: OfflineSnapshotCodec.Error?
 
-    init(codec: OfflineSnapshotCodec, gate: OfflineTestGate) {
+    init(codec: OfflineSnapshotCodec, gate: OfflineTestGate, failure: OfflineSnapshotCodec.Error? = nil) {
         self.codec = codec
         self.gate = gate
+        self.failure = failure
     }
 
     func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
@@ -892,15 +1157,16 @@ private actor PostDecodeGateCodec: OfflineSnapshotCoding {
     func decodeSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws -> CLIItem {
         let item = try await codec.decodeSnapshot(snapshot)
         try await gate.wait()
+        if let failure { throw failure }
         return item
     }
 }
 
 private actor DecodeCountingCodec: OfflineSnapshotCoding {
-    private let codec: OfflineSnapshotCodec
+    private let codec: any OfflineSnapshotCoding
     private var decodes = 0
 
-    init(codec: OfflineSnapshotCodec) { self.codec = codec }
+    init(codec: any OfflineSnapshotCoding) { self.codec = codec }
 
     func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
         try await codec.prepareSnapshot(from: item, for: request)
@@ -1091,4 +1357,58 @@ private actor LiveOnlyDeadlineRunner: CLIRunning {
 
     func observedDeadlines() -> [CLIExecutionDeadline] { deadlines }
     func relativeCallCount() -> Int { relativeCalls }
+}
+
+private struct FailingResolverCodec: OfflineSnapshotCoding {
+    let error: any Error & Sendable
+    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot { throw error }
+    func decodeSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws -> CLIItem { throw error }
+}
+
+/// Uses real removal authority at the requested read boundary; never invents an authorization proof.
+private actor RemovalRaceRepository: OfflineSnapshotPersisting {
+    private let base: OfflineSnapshotRepository
+    nonisolated var releaseAuthority: OfflineReleaseAuthority { base.releaseAuthority }
+    private let removeBeforeProof: Bool
+    private var removed = false
+    private var reads = 0
+    init(base: OfflineSnapshotRepository, removeBeforeProof: Bool) {
+        self.base = base
+        self.removeBeforeProof = removeBeforeProof
+    }
+    func snapshotReads() -> Int { reads }
+    private func removeOnce() async throws {
+        if !removed { removed = true; try await base.removeItem("item") }
+    }
+    func authorizedSnapshot(for key: OfflineSnapshotKey) async throws -> EncryptedOfflineSnapshot? {
+        reads += 1
+        if !removeBeforeProof { try await removeOnce() }
+        return try await base.authorizedSnapshot(for: key)
+    }
+    func releaseProof(for snapshot: EncryptedOfflineSnapshot) async throws -> OfflineReleaseProof? {
+        if removeBeforeProof { try await removeOnce() }
+        return try await base.releaseProof(for: snapshot)
+    }
+    func beginRequest(itemID: String, vaultID: String, shareID: String, kind: OfflineRequestKind,
+        expectations: OfflineRequestExpectations) async throws -> OfflineRequestToken? {
+        try await base.beginRequest(itemID: itemID, vaultID: vaultID, shareID: shareID, kind: kind,
+            expectations: expectations)
+    }
+    func publish(_ snapshot: EncryptedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool { try await base.publish(snapshot, for: request, refreshedAt: refreshedAt) }
+    func finishRequest(_ request: OfflineRequestToken, failed: Bool) async throws { try await base.finishRequest(request, failed: failed) }
+    func setVaultSelected(_ selected: Bool, vaultID: String) async throws -> OfflineVaultSelection? { try await base.setVaultSelected(selected, vaultID: vaultID) }
+    func selectItemManually(itemID: String, vaultID: String, shareID: String) async throws -> UUID { try await base.selectItemManually(itemID: itemID, vaultID: vaultID, shareID: shareID) }
+    func keepItemOfflineIndividually(itemID: String, vaultID: String) async throws { try await base.keepItemOfflineIndividually(itemID: itemID, vaultID: vaultID) }
+    func itemPolicy(itemID: String, vaultID: String) async throws -> OfflineItemPolicy? { try await base.itemPolicy(itemID: itemID, vaultID: vaultID) }
+    func workCandidates(vaultID: String?, includeNewSelections: Bool, refreshExisting: Bool) async throws -> [OfflineSnapshotWorkCandidate] { try await base.workCandidates(vaultID: vaultID, includeNewSelections: includeNewSelections, refreshExisting: refreshExisting) }
+    func removeItem(_ itemID: String) async throws { try await base.removeItem(itemID) }
+    func purge() async throws { try await base.purge() }
+    func recoverAbandonedRequests() async throws { try await base.recoverAbandonedRequests() }
+    func hasAuthorizedSnapshot(for key: OfflineSnapshotKey) async throws -> Bool { try await base.hasAuthorizedSnapshot(for: key) }
+    func isAuthorized(_ snapshot: EncryptedOfflineSnapshot) async throws -> Bool { try await base.isAuthorized(snapshot) }
+    func discardCorruptSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws { try await base.discardCorruptSnapshot(snapshot) }
+    func hasPersistedSnapshots() async throws -> Bool { try await base.hasPersistedSnapshots() }
+    func offlineVaultIds() async throws -> Set<String> { try await base.offlineVaultIds() }
+    func offlineItemSelection(itemId: String) async throws -> OfflineItemSelection? { try await base.offlineItemSelection(itemId: itemId) }
+    func offlineItemSelections() async throws -> [OfflineItemSelection] { try await base.offlineItemSelections() }
 }

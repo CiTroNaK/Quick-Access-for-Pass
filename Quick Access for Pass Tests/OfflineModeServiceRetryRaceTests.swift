@@ -168,10 +168,9 @@ private actor SelectionCandidateGatedRepository: OfflineSnapshotPersisting {
 
     func releaseProof(for snapshot: EncryptedOfflineSnapshot) async throws -> OfflineReleaseProof? { try await base.releaseProof(for: snapshot) }
     func beginRequest(itemID: String, vaultID: String, shareID: String, kind: OfflineRequestKind,
-                      expectedSelectionGeneration: UUID?, expectedMetadataModifyTime: Date?, expectedItemType: ItemType?) async throws -> OfflineRequestToken? {
+                      expectations: OfflineRequestExpectations) async throws -> OfflineRequestToken? {
         try await base.beginRequest(itemID: itemID, vaultID: vaultID, shareID: shareID, kind: kind,
-                                    expectedSelectionGeneration: expectedSelectionGeneration,
-                                    expectedMetadataModifyTime: expectedMetadataModifyTime, expectedItemType: expectedItemType)
+                                    expectations: expectations)
     }
     func publish(_ snapshot: EncryptedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool {
         try await base.publish(snapshot, for: request, refreshedAt: refreshedAt)

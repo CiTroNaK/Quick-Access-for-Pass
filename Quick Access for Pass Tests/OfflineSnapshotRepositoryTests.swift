@@ -415,16 +415,12 @@ extension OfflineSnapshotRepositoryTests {
         let metadata = try #require(f.items.first)
         let reserved = try #require(try await f.repository.beginRequest(
             itemID: "item", vaultID: "vault", shareID: "share", kind: .materialization,
-            expectedSelectionGeneration: manualGeneration,
-            expectedMetadataModifyTime: metadata.modifyTime,
-            expectedItemType: metadata.itemType
+            expectations: .init(selectionGeneration: manualGeneration, metadataModifyTime: metadata.modifyTime, itemType: metadata.itemType)
         ))
         #expect(reserved.selectionGeneration == manualGeneration)
         #expect(try await f.repository.beginRequest(
             itemID: "item", vaultID: "vault", shareID: "share", kind: .materialization,
-            expectedSelectionGeneration: manualGeneration,
-            expectedMetadataModifyTime: metadata.modifyTime,
-            expectedItemType: metadata.itemType
+            expectations: .init(selectionGeneration: manualGeneration, metadataModifyTime: metadata.modifyTime, itemType: metadata.itemType)
         ) == nil)
         try await f.repository.finishRequest(reserved, failed: false)
         _ = try await f.repository.setVaultSelected(true, vaultID: "vault")
@@ -434,7 +430,7 @@ extension OfflineSnapshotRepositoryTests {
         #expect(currentPolicy.generation != oldPolicy.generation)
         #expect(try await f.repository.beginRequest(
             itemID: "item", vaultID: "vault", shareID: "share", kind: .vaultSelection(policyGeneration: oldPolicy.generation),
-            expectedMetadataModifyTime: metadata.modifyTime, expectedItemType: metadata.itemType
+            expectations: .init(metadataModifyTime: metadata.modifyTime, itemType: metadata.itemType)
         ) == nil)
     }
 
@@ -443,8 +439,7 @@ extension OfflineSnapshotRepositoryTests {
         let metadata = try #require(f.items.first)
         #expect(try await f.repository.beginRequest(
             itemID: "item", vaultID: "vault", shareID: "share", kind: .selection,
-            expectedMetadataModifyTime: metadata.modifyTime.addingTimeInterval(1),
-            expectedItemType: metadata.itemType
+            expectations: .init(metadataModifyTime: metadata.modifyTime.addingTimeInterval(1), itemType: metadata.itemType)
         ) == nil)
         #expect(try await f.repository.offlineItemSelection(itemId: "item") == nil)
         let pending = try await f.database.reader.read { db in

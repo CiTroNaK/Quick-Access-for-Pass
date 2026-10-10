@@ -138,26 +138,30 @@ actor OfflineStorageMaintenance {
 
         while isCurrentWorker(id), !Task.isCancelled {
             let batchGeneration = requestedGeneration
-            var batchFinished = false
-            for attempt in 0..<3 {
-                guard isCurrentWorker(id), !Task.isCancelled else { return }
-                do {
-                    switch try await checkpointer.checkpoint() {
-                    case .complete:
-                        batchFinished = true
-                    case .busy:
-                        guard attempt < 2 else { batchFinished = true; continue }
-                        try Task.checkCancellation()
-                        try await retryDelay()
-                    }
-                } catch {
-                    batchFinished = true
-                }
-                if batchFinished { break }
-            }
+            await attemptBatch(id: id)
             guard isCurrentWorker(id), !Task.isCancelled else { return }
             if requestedGeneration != batchGeneration { continue }
             return
+        }
+    }
+
+    private func attemptBatch(id: UUID) async {
+        var batchFinished = false
+        for attempt in 0..<3 {
+            guard isCurrentWorker(id), !Task.isCancelled else { return }
+            do {
+                switch try await checkpointer.checkpoint() {
+                case .complete:
+                    batchFinished = true
+                case .busy:
+                    guard attempt < 2 else { batchFinished = true; continue }
+                    try Task.checkCancellation()
+                    try await retryDelay()
+                }
+            } catch {
+                batchFinished = true
+            }
+            if batchFinished { break }
         }
     }
 

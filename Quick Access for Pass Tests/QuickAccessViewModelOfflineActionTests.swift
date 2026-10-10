@@ -381,7 +381,7 @@ struct QuickAccessViewModelOfflineActionTests {
         #expect(!(commandFailure.errorMessage ?? "").contains("<<TASK7_SECRET_MARKER>>"))
     }
 
-    @Test @MainActor func manualOnlySnapshotFallbackReachesHostCopyAndLargeType() async throws {
+    @Test @MainActor func manualOnlyCacheFirstSnapshotReachesHostCopyAndLargeType() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
         let service = fixture.service()
@@ -403,14 +403,14 @@ struct QuickAccessViewModelOfflineActionTests {
         viewModel.handleAction(.copyPassword, for: item)
         await viewModel.inFlightCopy?.value
         #expect(clipboard.lastCopiedValue == "fake-password")
-        #expect(await live.itemCallCount() == 1)
+        #expect(await live.itemCallCount() == 0)
 
         viewModel.detailItem = item
         viewModel.selectedRowIndex = 1
         viewModel.showSelectedRowInLargeType()
         await viewModel.inFlightLargeType?.value
         #expect(displayedValue == "fake-password")
-        #expect(await live.itemCallCount() == 2)
+        #expect(await live.itemCallCount() == 0)
     }
 
     @Test @MainActor func authenticatedDecoderMarkerUsesSafeUIAndNoDiagnostics() async throws {

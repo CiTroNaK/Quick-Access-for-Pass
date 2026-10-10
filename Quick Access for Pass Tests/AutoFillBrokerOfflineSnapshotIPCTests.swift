@@ -78,7 +78,7 @@ struct AutoFillBrokerOfflineSnapshotIPCTests {
     }
 
     @Test("verified broker returns manual-only password and TOTP snapshots as value-only responses")
-    func manualOnlySnapshotFallbackReturnsOnlyRequestedValues() async throws {
+    func manualOnlyCacheFirstSnapshotReturnsOnlyRequestedValues() async throws {
         let offline = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(offline.items.first)
         let totpURI = "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=999999999"
@@ -139,10 +139,8 @@ struct AutoFillBrokerOfflineSnapshotIPCTests {
             }
             let itemCallCount = await live.itemCallCount()
             let totpCallCount = await live.totpCallCount()
-            // Each request resolves the live item once. Since both item requests
-            // fail, the TOTP request uses its cached item and never starts a second
-            // live TOTP command.
-            #expect(itemCallCount == 2)
+            // Authorized cached requests launch neither native item nor TOTP work.
+            #expect(itemCallCount == 0)
             #expect(totpCallCount == 0)
             await broker.stop()
         } catch {

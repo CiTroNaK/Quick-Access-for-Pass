@@ -64,7 +64,6 @@ nonisolated struct OfflineSnapshotCipher: Sendable {
         }
     }
 
-
     private func validate(identity: OfflineSnapshotIdentity) throws {
         guard identity.key.schemaVersion == OfflineSnapshotLimits.schemaVersion else {
             throw Error.unsupportedSchemaVersion

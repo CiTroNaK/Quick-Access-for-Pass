@@ -667,10 +667,9 @@ private actor CountingRecoveryRepository: OfflineSnapshotPersisting {
     init(base: OfflineSnapshotRepository) { self.base = base }
     func recoveryCount() -> Int { recoveries }
     func beginRequest(itemID: String, vaultID: String, shareID: String, kind: OfflineRequestKind,
-                      expectedSelectionGeneration: UUID?, expectedMetadataModifyTime: Date?, expectedItemType: ItemType?) async throws -> OfflineRequestToken? {
+                      expectations: OfflineRequestExpectations) async throws -> OfflineRequestToken? {
         try await base.beginRequest(itemID: itemID, vaultID: vaultID, shareID: shareID, kind: kind,
-                                    expectedSelectionGeneration: expectedSelectionGeneration,
-                                    expectedMetadataModifyTime: expectedMetadataModifyTime, expectedItemType: expectedItemType)
+                                    expectations: expectations)
     }
     func publish(_ snapshot: EncryptedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool {
         try await base.publish(snapshot, for: request, refreshedAt: refreshedAt)

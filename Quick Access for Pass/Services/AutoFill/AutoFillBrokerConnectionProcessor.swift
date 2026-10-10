@@ -211,15 +211,9 @@ nonisolated extension AutoFillBrokerConnectionProcessor {
                     try await dependencies.registry.transition(requestID: request.requestID, to: state)
                 }, appAssociationIntent)
             }
-            if try await dependencies.registry.complete(
-                requestID: request.requestID,
-                connectionID: connectionID
-            ) {
-                if let completionGate = dependencies.completionGate { await completionGate() }
-                try await delivery.release.deliver(delivery.value, toFileDescriptor: fd)
-            } else if await dependencies.registry.terminalResult(for: request.requestID) == .timedOut {
-                try? writeFailure(.expired, requestID: request.requestID, to: fd)
-            }
+            try await completeCredentialDelivery(
+                delivery, request: request, connectionID: connectionID, fd: fd, dependencies: dependencies
+            )
         } catch AutoFillWireDeliveryError.partialFrame {
             // Credential bytes are already on this stream. Do not append a
             // failure frame; the accepted-connection owner closes its fd after
@@ -257,6 +251,24 @@ nonisolated extension AutoFillBrokerConnectionProcessor {
             )) == true {
                 try? writeFailure(.resolutionFailed, requestID: request.requestID, to: fd)
             }
+        }
+    }
+
+    private static func completeCredentialDelivery(
+        _ delivery: AutoFillCredentialDelivery,
+        request: AutoFillRegisteredRequest,
+        connectionID: UUID,
+        fd: Int32,
+        dependencies: Dependencies
+    ) async throws {
+        if try await dependencies.registry.complete(
+            requestID: request.requestID,
+            connectionID: connectionID
+        ) {
+            if let completionGate = dependencies.completionGate { await completionGate() }
+            try await delivery.release.deliver(delivery.value, toFileDescriptor: fd)
+        } else if await dependencies.registry.terminalResult(for: request.requestID) == .timedOut {
+            try? writeFailure(.expired, requestID: request.requestID, to: fd)
         }
     }
 

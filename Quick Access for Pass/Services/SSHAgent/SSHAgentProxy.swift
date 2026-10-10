@@ -8,24 +8,26 @@ nonisolated enum SSHAuthorizationResult: Sendable {
 
 typealias SSHAuthorizationHandler = @Sendable (Data, VerifiedConnection) async -> SSHAuthorizationResult
 
+nonisolated struct SSHAgentProxyLifecycleTesting: Sendable {
+    nonisolated enum CloseReason: Sendable {
+        case peerUnavailable, upstreamSocketFailed, upstreamConnectFailed
+        case clientReadFailed, upstreamWriteFailed, upstreamReadFailed, clientWriteFailed
+    }
+    nonisolated enum Event: Sendable {
+        case accepted, verificationCompleted(peerAvailable: Bool), clientLoopEntered
+        case upstreamSocketFailed(errorNumber: Int32), upstreamConnectFailed(errorNumber: Int32)
+        case upstreamConnected, clientRequestRead(SSHAgentMessage.ReadObservation)
+        case clientReadCompleted(isSignRequest: Bool), clientReadFailed
+        case authorizationEntered, authorizationCompleted(allowed: Bool), authorizationWaitFinished(timedOut: Bool)
+        case denialWriteFinished(succeeded: Bool), stopRequested, closed(CloseReason)
+    }
+    let observe: @Sendable (Event) -> Void
+}
+
 actor SSHAgentProxy {
     /// Nil in production. Events describe boundaries, not peer identities,
     /// payloads, descriptor values or arbitrary error-associated text.
-    nonisolated struct LifecycleTesting: Sendable {
-        nonisolated enum CloseReason: Sendable {
-            case peerUnavailable, upstreamSocketFailed, upstreamConnectFailed
-            case clientReadFailed, upstreamWriteFailed, upstreamReadFailed, clientWriteFailed
-        }
-        nonisolated enum Event: Sendable {
-            case accepted, verificationCompleted(peerAvailable: Bool), clientLoopEntered
-            case upstreamSocketFailed(errorNumber: Int32), upstreamConnectFailed(errorNumber: Int32)
-            case upstreamConnected, clientRequestRead(SSHAgentMessage.ReadObservation)
-            case clientReadCompleted(isSignRequest: Bool), clientReadFailed
-            case authorizationEntered, authorizationCompleted(allowed: Bool), authorizationWaitFinished(timedOut: Bool)
-            case denialWriteFinished(succeeded: Bool), stopRequested, closed(CloseReason)
-        }
-        let observe: @Sendable (Event) -> Void
-    }
+    typealias LifecycleTesting = SSHAgentProxyLifecycleTesting
 
     private struct AcceptContext {
         let verifier: @Sendable (Int32) -> VerifiedConnection
@@ -203,25 +205,36 @@ actor SSHAgentProxy {
             DispatchQueue.global().async {
                 Self.runClientLoop(
                     connection: connection,
-                    upstreamPath: upstreamPath,
-                    authorizationHandler: authorizationHandler,
-                    failureSignal: failureSignal,
-                    lifecycleTesting: lifecycleTesting,
+                    context: ClientLoopContext(
+                        upstreamPath: upstreamPath, authorizationHandler: authorizationHandler,
+                        failureSignal: failureSignal, lifecycleTesting: lifecycleTesting
+                    ),
                     completion: { continuation.resume() }
                 )
             }
         }
     }
 
+}
+
+private extension SSHAgentProxy {
+    struct ClientLoopContext: Sendable {
+        let upstreamPath: String
+        let authorizationHandler: SSHAuthorizationHandler
+        let failureSignal: @Sendable (SSHClientLoopFailure) -> Void
+        let lifecycleTesting: LifecycleTesting?
+    }
+
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private static func runClientLoop(
         connection: VerifiedConnection,
-        upstreamPath: String,
-        authorizationHandler: @escaping SSHAuthorizationHandler,
-        failureSignal: @escaping @Sendable (SSHClientLoopFailure) -> Void,
-        lifecycleTesting: LifecycleTesting?,
+        context: ClientLoopContext,
         completion: @escaping @Sendable () -> Void
     ) {
+        let upstreamPath = context.upstreamPath
+        let authorizationHandler = context.authorizationHandler
+        let failureSignal = context.failureSignal
+        let lifecycleTesting = context.lifecycleTesting
         var closeReason: LifecycleTesting.CloseReason = .clientReadFailed
         defer {
             close(connection.fd)

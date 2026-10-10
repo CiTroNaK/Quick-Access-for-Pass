@@ -114,8 +114,7 @@ actor PassCLIService {
     func viewItem(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> CLIItem {
         let uri = "pass://\(shareId)/\(itemId)"
         let data = try await runSecret(arguments: ["item", "view", "--output", "json", uri], deadline: deadline)
-        do { return try JSONDecoder().decode(CLIItemViewResponse.self, from: data).item }
-        catch { throw CLIError.secretFetchFailed }
+        do { return try JSONDecoder().decode(CLIItemViewResponse.self, from: data).item } catch { throw CLIError.secretFetchFailed }
     }
 
     /// Secret reads always use the bounded runner, including ordinary actions.
@@ -136,8 +135,7 @@ actor PassCLIService {
     func getTotp(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> String {
         let uri = "pass://\(shareId)/\(itemId)"
         let data = try await runSecret(arguments: ["item", "totp", "--output", "json", uri], deadline: deadline)
-        do { return try JSONDecoder().decode(CLITotpResponse.self, from: data).totp }
-        catch { throw CLIError.secretFetchFailed }
+        do { return try JSONDecoder().decode(CLITotpResponse.self, from: data).totp } catch { throw CLIError.secretFetchFailed }
     }
 
     /// Secret reads always use the bounded runner, including ordinary actions.
@@ -149,41 +147,6 @@ actor PassCLIService {
         } catch {
             throw CLIError.secretFetchFailed
         }
-    }
-
-    func fetchAllItems(
-        progress: SyncProgressHandler? = nil
-    ) async throws -> (
-        vaults: [CLIVault],
-        items: [(item: CLIItem, vaultId: String)],
-        skippedItems: [SkippedSyncItem],
-        presenceUncertainties: [SyncItemPresenceUncertainty]
-    ) {
-        let vaults = try await listVaults()
-        let syncResult = try await withThrowingTaskGroup(
-            of: (items: [(item: CLIItem, vaultId: String)], skippedItems: [SkippedSyncItem], presenceUncertainty: SyncItemPresenceUncertainty).self
-        ) { group in
-            for vault in vaults {
-                group.addTask {
-                    let result = try await self.listItemsForSync(vault: vault, progress: progress)
-                    return (
-                        items: result.items.map { (item: $0, vaultId: vault.vaultId) },
-                        skippedItems: result.skippedItems,
-                        presenceUncertainty: result.presenceUncertainty
-                    )
-                }
-            }
-            var items: [(item: CLIItem, vaultId: String)] = []
-            var skippedItems: [SkippedSyncItem] = []
-            var presenceUncertainties: [SyncItemPresenceUncertainty] = []
-            for try await batch in group {
-                items.append(contentsOf: batch.items)
-                skippedItems.append(contentsOf: batch.skippedItems)
-                presenceUncertainties.append(batch.presenceUncertainty)
-            }
-            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties)
-        }
-        return (vaults, syncResult.items, syncResult.skippedItems, syncResult.presenceUncertainties)
     }
 
     // MARK: - CLI Capabilities
@@ -308,5 +271,40 @@ actor PassCLIService {
     static func codingPathDescription(_ path: [CodingKey]) -> String {
         guard !path.isEmpty else { return "<root>" }
         return path.map(\.stringValue).joined(separator: ".")
+    }
+}
+
+extension PassCLIService {
+    func fetchAllItems(
+        progress: SyncProgressHandler? = nil
+    ) async throws -> CLISyncFetchResult {
+        let vaults = try await listVaults()
+        let syncResult = try await withThrowingTaskGroup(
+            of: (items: [(item: CLIItem, vaultId: String)], skippedItems: [SkippedSyncItem], presenceUncertainty: SyncItemPresenceUncertainty).self
+        ) { group in
+            for vault in vaults {
+                group.addTask {
+                    let result = try await self.listItemsForSync(vault: vault, progress: progress)
+                    return (
+                        items: result.items.map { (item: $0, vaultId: vault.vaultId) },
+                        skippedItems: result.skippedItems,
+                        presenceUncertainty: result.presenceUncertainty
+                    )
+                }
+            }
+            var items: [(item: CLIItem, vaultId: String)] = []
+            var skippedItems: [SkippedSyncItem] = []
+            var presenceUncertainties: [SyncItemPresenceUncertainty] = []
+            for try await batch in group {
+                items.append(contentsOf: batch.items)
+                skippedItems.append(contentsOf: batch.skippedItems)
+                presenceUncertainties.append(batch.presenceUncertainty)
+            }
+            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties)
+        }
+        return CLISyncFetchResult(
+            vaults: vaults, items: syncResult.items, skippedItems: syncResult.skippedItems,
+            presenceUncertainties: syncResult.presenceUncertainties
+        )
     }
 }

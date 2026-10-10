@@ -254,9 +254,9 @@ struct AutoFillBrokerCoordinatorTests {
 }
 
 extension AutoFillBrokerCoordinatorTests {
-    @Test("selected encrypted TOTP snapshot returns within the shared live phase after a native item stall")
+    @Test("selected encrypted TOTP snapshot bypasses a stalling native adapter")
     @MainActor
-    func composedNativeStallTOTPUsesFallbackWithinOriginalDeadline() async throws {
+    func cachedTOTPBypassesNativeStallWithinOriginalDeadline() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
         let totpURI = "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=999999999"
@@ -284,9 +284,9 @@ extension AutoFillBrokerCoordinatorTests {
         #expect(start.duration(to: .now) < .seconds(4.5))
     }
 
-    @Test("original deadline rejects cached TOTP after a native live stall")
+    @Test("original deadline rejects cached TOTP when decode expires it")
     @MainActor
-    func composedNativeStallTOTPOriginalDeadlineRejectsFallback() async throws {
+    func cachedTOTPDecodeHonorsOriginalDeadline() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
         let totpURI = "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=999999999"
@@ -317,15 +317,16 @@ extension AutoFillBrokerCoordinatorTests {
         #expect(fixture.repository.releaseAuthority.registrationCount == 0)
     }
 
-    @Test("selected encrypted snapshot returns before the broker's original deadline after a timed native live stall")
+    @Test("no-cache native stall terminates within the broker's original deadline")
     @MainActor
-    func composedNativeStallFallsBackBeforeOriginalDeadline() async throws {
+    func noCacheNativeStallHonorsOriginalDeadline() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
         let snapshotCodec = fixture.codec()
         let service = OfflineModeService(repository: fixture.repository, codec: snapshotCodec, cliService: BrokerSnapshotViewer())
         try await initializeOfflineFixtureService(service)
         try await service.makeAvailableOffline(item: item, shareId: "share")
+        try await fixture.repository.removeItem("item")
         let live = PassCLIService(runner: NativeStallingCLIRunner())
         let resolver = OfflineAutoFillSecretResolver(resolver: OfflineSecretResolver(
             cliService: live, repository: fixture.repository, codec: snapshotCodec, readiness: service
@@ -341,10 +342,12 @@ extension AutoFillBrokerCoordinatorTests {
         )
 
         let start = ContinuousClock.now
-        let value = try await coordinator.resolve(request: request)
-
-        #expect(value.value == "cached-password")
-        #expect(start.duration(to: .now) < .seconds(3.5))
+        await #expect { _ = try await coordinator.resolve(request: request) } throws: { error in
+            if let error = error as? CLIError, case .timeout = error { return true }
+            return (error as? AutoFillBrokerCoordinator.Error) == .deadlineExpired
+        }
+        #expect(start.duration(to: .now) < .seconds(5.5))
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
     }
 
     @Test("external cancellation of a composed native live stall releases no snapshot value", arguments: [AutoFillValueKind.password, .oneTimeCode])
@@ -359,6 +362,7 @@ extension AutoFillBrokerCoordinatorTests {
         )
         try await initializeOfflineFixtureService(service)
         try await service.makeAvailableOffline(item: item, shareId: "share")
+        try await fixture.repository.removeItem("item")
         let codec = BrokerDecodeCountingCodec(codec: snapshotCodec)
         let started = FileManager.default.temporaryDirectory
             .appendingPathComponent("qa-native-stall-\(UUID().uuidString).started")

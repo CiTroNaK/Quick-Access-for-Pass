@@ -37,7 +37,7 @@ Quick Access for Pass is designed around a few core invariants:
 - **Ordinary database tables are metadata-only** — the primary GRDB/SQLCipher database persists search metadata, not secret values outside the dedicated snapshot table
 - **Offline persistence is opt-in and single-database** — a user may select an individual item or explicitly select a whole vault, including future items after successful sync. Removing an item under a selected vault excludes it from automatic caching until selected again; turning off a vault preserves individually selected items, and **Keep offline individually** promotes a vault-only copy without refetching. Only selected full snapshots are persisted in `offlineSnapshots`, encrypted before SQLite receives them; there is no second offline database, legacy import, or compatibility reader. On v11 upgrade, prior explicit item copies remain selected individually, while old permission-only vault rows do not become whole-vault consent.
 - **Offline snapshot keys are device-bound** — the distinct snapshot-cipher key is stored in the data-protection Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; snapshots are additionally authenticated with their vault, item, revision, and key fingerprint. Snapshot cipher/key use is operation-scoped, SQLCipher passphrase use is connection-lifetime, and row purge deliberately retains keys rather than racing Keychain deletion/rotation
-- **Live access remains first** — selected snapshots are read only when live Pass CLI access is unavailable. Settings can list and remove selected items, show stale cache state, or purge all offline data. The snapshot can serve ordinary host copy/Large Type or the existing verified host-broker AutoFill password/TOTP request, never SSH or Run proxy resolution
+- **Authorized usable cache comes first** — selected snapshots are preferred for supported secret actions, without a live request or connectivity probe. Sync refreshes cached values; without a usable cached copy, Quick Access uses Pass CLI. Settings can list and remove selected items, show stale cache state, or purge all offline data. The snapshot can serve ordinary host copy/Large Type or the existing verified host-broker AutoFill password/TOTP request, never SSH or Run proxy resolution
 - **Database encryption is mandatory** — the unified database, including encrypted selected snapshots, uses GRDB/SQLCipher with a Keychain-backed passphrase
 - **Backup and deletion limits are explicit** — backup exclusion applies to the entire unified file, including local Run profiles and remembered decisions. Device-bound snapshot keys make offline data non-portable; after committed deletion, bounded out-of-transaction WAL maintenance may reduce active-file remnants, but logical deletion does not claim forensic secure erasure, cryptographic shredding, APFS snapshot removal, or deletion from manual/third-party backups
 - **Optional Proton Pass CLI personal access tokens stay in Keychain** — PATs use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and are never written to UserDefaults, SQLite, logs, notifications, or captured CLI output
@@ -55,7 +55,7 @@ The main app is the only component that invokes Pass CLI. The extension sends an
 
 The provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the AutoFill broker socket directory and socket. The directory is owner-only (`0700`) and the socket is owner-only (`0600`). The extension has no database or Keychain Sharing entitlement: it sends only the system identity's opaque descriptor ID and fixed value kind over the verified broker. The host alone opens the local SQLCipher metadata database and accesses its `H23TXL6LPT.codes.petr.quick-access-for-pass` Keychain Sharing group with the data-protection Keychain and `WhenUnlockedThisDeviceOnly` accessibility.
 
-Passwords, TOTP seeds, and generated TOTP codes are not persisted in ordinary metadata tables, the system identity store, App Group files, logs, or launch URLs. The sole exception is an explicitly selected encrypted `offlineSnapshots` record in the host-owned unified database. It is never exposed to the extension and is excluded from SSH and Run proxy resolution. For the existing host-only, verified AutoFill broker boundary, a selected snapshot may provide only the requested password or TOTP value when live access is unavailable; unselected, missing, or unusable items fail generically without cache diagnostics. Values returned to the verified extension are returned once and discarded.
+Passwords, TOTP seeds, and generated TOTP codes are not persisted in ordinary metadata tables, the system identity store, App Group files, logs, or launch URLs. The sole exception is an explicitly selected encrypted `offlineSnapshots` record in the host-owned unified database. It is never exposed to the extension and is excluded from SSH and Run proxy resolution. For the existing host-only, verified AutoFill broker boundary, a selected snapshot is preferred for only the requested password or TOTP value when authorized and usable. Without a usable cached copy, the host uses Pass CLI; failures remain generic without cache diagnostics. Values returned to the verified extension are returned once and discarded.
 
 ## Offline Storage Lifecycle and Limits
 
@@ -128,15 +128,18 @@ receives only the requested final password/TOTP value, never storage access,
 selection state, or fallback diagnostics. SSH and Run never use snapshots.
 AutoFill preserves its original broker deadline and peer verification. The absolute
 deadline includes queue time and applies across every native CLI command in one
-AutoFill request. When a usable selected snapshot exists, the live phase defaults
-to at most two seconds per request, reserving one second for fallback; uncached
-requests keep the original remaining budget. Invalidation cannot recall a value
-already released to the verified caller. External cancellation, parse errors, and ordinary command failures do not
-authorize fallback. Native cleanup uses up to 250 ms SIGTERM grace, then SIGKILL,
+AutoFill request. An authorized usable selected snapshot resolves without native
+CLI work; live/no-cache requests keep the original remaining budget, with no
+cache-fallback reserve. Invalidation cannot recall a value
+already released to the verified caller. Cancellation, deadline expiry, identity mismatch, and admitted cache authorization
+or release failure remain terminal; they do not authorize a live retry. Explicit
+key/decode availability failures may select live access only after current
+authority checks. TOTP is generated locally from the cached seed and current time,
+never from a stored code. Native cleanup uses up to 250 ms SIGTERM grace, then SIGKILL,
 nonblocking bounded pipe draining, and exactly-once completion; it is a monotonic
 policy bound, not a hard real-time OS guarantee. Secret-facing stdout is capped at
 4 MiB plus 4 KiB framing and stderr at 256 KiB; overflow/errors expose no captured
-output. Ordinary host actions retain their existing live-attempt policy.
+output. Ordinary host actions use the same cache-first resolver and final release guards.
 
 ## Sensitive Components
 

@@ -1,15 +1,17 @@
 import Darwin
 import Foundation
 
+nonisolated struct RunSecretResolverLifecycleTesting: Sendable {
+    nonisolated enum Event: Sendable, Equatable {
+        case readerScheduled, readerEntered, cliSubmitted, cliFinished
+        case keepAliveClosed, readerFinished, resolverFinished
+    }
+    let marker: @Sendable (Event) -> Void
+}
+
 nonisolated enum RunSecretResolver {
     /// Internal, nil-default diagnostics expose lifecycle metadata only.
-    nonisolated struct LifecycleTesting: Sendable {
-        nonisolated enum Event: Sendable, Equatable {
-            case readerScheduled, readerEntered, cliSubmitted, cliFinished
-            case keepAliveClosed, readerFinished, resolverFinished
-        }
-        let marker: @Sendable (Event) -> Void
-    }
+    typealias LifecycleTesting = RunSecretResolverLifecycleTesting
 
     static func resolve(
         mappings: [RunProfileEnvMapping],

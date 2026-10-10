@@ -27,12 +27,12 @@ struct OfflineCatalogObservationTests {
         let vaultSelection = try #require(try await fixture.repository.setVaultSelected(true, vaultID: "vault"))
         _ = try #require(try await fixture.repository.beginRequest(
             itemID: "manual", vaultID: "vault", shareID: "share", kind: .materialization,
-            expectedSelectionGeneration: manualGeneration, expectedMetadataModifyTime: nil, expectedItemType: nil
+            expectations: .init(selectionGeneration: manualGeneration, metadataModifyTime: nil, itemType: nil)
         ))
         _ = try #require(try await fixture.repository.beginRequest(
             itemID: "vault-only", vaultID: "vault", shareID: "share",
             kind: .vaultSelection(policyGeneration: vaultSelection.generation),
-            expectedSelectionGeneration: nil, expectedMetadataModifyTime: nil, expectedItemType: nil
+            expectations: .init(selectionGeneration: nil, metadataModifyTime: nil, itemType: nil)
         ))
 
         let projection = try await fixture.database.reader.read { db in
@@ -52,7 +52,7 @@ struct OfflineCatalogObservationTests {
         let generation = try await fixture.repository.selectItemManually(itemID: "item", vaultID: "vault", shareID: "share")
         _ = try #require(try await fixture.repository.beginRequest(
             itemID: "item", vaultID: "vault", shareID: "share", kind: .materialization,
-            expectedSelectionGeneration: generation, expectedMetadataModifyTime: nil, expectedItemType: nil
+            expectations: .init(selectionGeneration: generation, metadataModifyTime: nil, itemType: nil)
         ))
 
         let projection = try await fixture.database.reader.read { db in

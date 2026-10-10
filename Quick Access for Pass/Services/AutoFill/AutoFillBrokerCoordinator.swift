@@ -156,37 +156,12 @@ final class AutoFillBrokerCoordinator {
         guard let descriptor else { throw Error.descriptorNotFound }
         try requireCurrentGuard(releaseToken)
 
-        if let appAssociationIntent {
-            guard appAssociationIntent.service.kind == .app,
-                  let associationStore else {
-                throw AutoFillProtocolError.malformedMessage
-            }
-            try await beforeDeadline(request.deadline) {
-                try await associationStore.save(
-                    service: appAssociationIntent.service,
-                    descriptorID: descriptor.id,
-                    createdAt: Date()
-                )
-            }
-            try requireCurrentGuard(releaseToken)
-        }
+        try await saveAssociationIfRequested(
+            appAssociationIntent, descriptor: descriptor, request: request, releaseToken: releaseToken
+        )
 
         try Task.checkCancellation()
-        if isAppLocked() {
-            accessibility.announce(.unlockRequired)
-            try await transition(.awaitingUnlock)
-            try requireCurrentGuard(releaseToken)
-            let timeout = try remainingSeconds(until: request.deadline)
-            let unlocked = try await beforeDeadline(request.deadline) {
-                await self.showLockedPanel(timeout)
-            }
-            try Task.checkCancellation()
-            try requireCurrentGuard(releaseToken)
-            guard unlocked else {
-                accessibility.recoverFocusAfterAuthenticationFailure()
-                throw Error.unlockFailed
-            }
-        }
+        try await unlockIfNeeded(request: request, releaseToken: releaseToken, transition: transition)
 
         try requireRemainingTime(until: request.deadline)
         try requireCurrentGuard(releaseToken)
@@ -233,6 +208,52 @@ final class AutoFillBrokerCoordinator {
             accessibility.announce(.cliFailure)
             throw error
         }
+    }
+
+    private func unlockIfNeeded(
+        request: AutoFillRegisteredRequest,
+        releaseToken: UUID,
+        transition: AutoFillBrokerStateTransition
+    ) async throws {
+        if isAppLocked() {
+            accessibility.announce(.unlockRequired)
+            try await transition(.awaitingUnlock)
+            try requireCurrentGuard(releaseToken)
+            let timeout = try remainingSeconds(until: request.deadline)
+            let unlocked = try await beforeDeadline(request.deadline) {
+                await self.showLockedPanel(timeout)
+            }
+            try Task.checkCancellation()
+            try requireCurrentGuard(releaseToken)
+            guard unlocked else {
+                accessibility.recoverFocusAfterAuthenticationFailure()
+                throw Error.unlockFailed
+            }
+        }
+
+    }
+
+    private func saveAssociationIfRequested(
+        _ appAssociationIntent: AutoFillAppAssociationIntent?,
+        descriptor: AutoFillCredentialDescriptor,
+        request: AutoFillRegisteredRequest,
+        releaseToken: UUID
+    ) async throws {
+        if let appAssociationIntent {
+            guard appAssociationIntent.service.kind == .app,
+                  let associationStore else {
+                throw AutoFillProtocolError.malformedMessage
+            }
+            try await beforeDeadline(request.deadline) {
+                try await associationStore.save(
+                    service: appAssociationIntent.service,
+                    descriptorID: descriptor.id,
+                    createdAt: Date()
+                )
+            }
+            try requireCurrentGuard(releaseToken)
+        }
+
     }
 
     private func requireRemainingTime(until deadline: UInt64) throws {

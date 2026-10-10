@@ -273,20 +273,7 @@ private extension AppDelegate {
         autoFillDatabaseURL = prepared.2
         autoFillSocketPath = prepared.3
 
-        let offlineStorageMaintenance = OfflineStorageMaintenance(
-            checkpointer: DatabaseWALCheckpointer(writer: prepared.1.writer)
-        )
-        let offlineSnapshotRepository = OfflineSnapshotRepository(
-            database: prepared.1,
-            maintenance: offlineStorageMaintenance
-        )
-        let offlineSnapshotCodec = OfflineSnapshotCodec(
-            keyMaterialProvider: OfflineKeyMaterialStore(),
-            hasPersistedSnapshots: { try await offlineSnapshotRepository.hasPersistedSnapshots() }
-        )
-        self.offlineSnapshotRepository = offlineSnapshotRepository
-        self.offlineSnapshotCodec = offlineSnapshotCodec
-        self.offlineStorageMaintenance = offlineStorageMaintenance
+        let (offlineStorageMaintenance, offlineSnapshotRepository, offlineSnapshotCodec) = configureOfflineStorage(database: prepared.1)
 
         let rawClipboardTimeout = UserDefaults.standard.double(forKey: DefaultsKey.clipboardClearTimeout)
         let clipboardTimeout = rawClipboardTimeout > 0 ? rawClipboardTimeout : 30
@@ -310,7 +297,7 @@ private extension AppDelegate {
         )
         self.offlineModeService = offlineModeService
         // Recovery failure keeps normal live setup usable. Offline selection and
-        // fallback remain unavailable until an explicit retry succeeds.
+        // cached resolution remain unavailable until an explicit retry succeeds.
         try? await offlineModeService.initialize()
         try Task.checkCancellation()
         offlineSecretResolver = OfflineSecretResolver(
@@ -321,6 +308,26 @@ private extension AppDelegate {
         )
         searchService = SearchService(databaseManager: databaseManager!)
         clipboardManager = ClipboardManager(autoClearSeconds: clipboardTimeout)
+    }
+
+    private func configureOfflineStorage(database: DatabaseManager) -> (
+        OfflineStorageMaintenance, OfflineSnapshotRepository, OfflineSnapshotCodec
+    ) {
+        let offlineStorageMaintenance = OfflineStorageMaintenance(
+            checkpointer: DatabaseWALCheckpointer(writer: database.writer)
+        )
+        let offlineSnapshotRepository = OfflineSnapshotRepository(
+            database: database,
+            maintenance: offlineStorageMaintenance
+        )
+        let offlineSnapshotCodec = OfflineSnapshotCodec(
+            keyMaterialProvider: OfflineKeyMaterialStore(),
+            hasPersistedSnapshots: { try await offlineSnapshotRepository.hasPersistedSnapshots() }
+        )
+        self.offlineSnapshotRepository = offlineSnapshotRepository
+        self.offlineSnapshotCodec = offlineSnapshotCodec
+        self.offlineStorageMaintenance = offlineStorageMaintenance
+        return (offlineStorageMaintenance, offlineSnapshotRepository, offlineSnapshotCodec)
     }
 
     func setupUI() {
@@ -404,6 +411,10 @@ private extension AppDelegate {
 
         guard let viewModel else { return }
 
+        configureQuickAccessPanel(viewModel: viewModel)
+    }
+
+    private func configureQuickAccessPanel(viewModel: QuickAccessViewModel) {
         syncIssueWindowController = SyncIssueWindowController(actions: .init(
             copyReport: { [weak viewModel] presentation in
                 viewModel?.copySyncIssueReport(presentation)

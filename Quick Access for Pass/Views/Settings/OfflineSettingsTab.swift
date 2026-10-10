@@ -50,16 +50,7 @@ struct OfflineSettingsTab: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Offline vaults")
                 .font(.body)
-            Text("Selecting a vault stores encrypted offline copies of all its items on this Mac. New items added to selected vaults will also become available offline after syncing.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Items removed individually stay excluded until selected again. Turning off a vault keeps individually selected items.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
+            offlineSelectionExplanation
             if coordinator.requiresInitializationRetry {
                 Text("Offline access could not be initialized. Live access and removal remain available.")
                     .font(.caption)
@@ -99,6 +90,41 @@ struct OfflineSettingsTab: View {
                     }
                 }
             }
+        }
+    }
+
+    private var offlineSelectionExplanation: some View {
+        Group {
+            Text("""
+                Selecting a vault stores encrypted offline copies of all its items on this Mac. \
+                New items added to selected vaults will also become available offline after syncing.
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Items removed individually stay excluded until selected again. Turning off a vault keeps individually selected items.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("""
+                Items and vaults enabled for Offline Mode use cached values when a usable copy is available. \
+                Sync is needed to refresh them. \
+                Without a usable cached copy, Quick Access uses Pass CLI.
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("""
+                Offline copies are used for copy actions, Large Type, and System AutoFill. \
+                SSH Agent and Run proxies do not use offline copies.
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

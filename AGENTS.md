@@ -196,10 +196,10 @@ Before changing Offline Mode documentation, confirm it states all of the followi
 
 - Offline access is opt-in by individual item or whole vault; whole-vault selection covers future items after successful sync, exclusions persist until re-selection, and turning off a vault retains manual selections.
 - Full secrets are stored only in the dedicated encrypted `offlineSnapshots` table in the host-only unified database, protected by a device-bound key.
-- Cached content is used only when live Pass CLI access is unavailable.
+- Authorized usable cached content is preferred without a live request or connectivity probe. Sync refreshes cached values; without a usable cached copy, Quick Access uses Pass CLI.
 - Settings lists and removes selected items and can purge all offline data.
 - Offline cache data is excluded from SSH and Run proxies.
-- Ordinary host copy and Large Type may use a selected snapshot only after live access is unavailable; the only external integration is the existing verified host-broker System AutoFill password/TOTP request. The extension never receives cache access or fallback diagnostics.
+- Ordinary host copy and Large Type prefer an authorized usable selected snapshot; the only external integration is the existing verified host-broker System AutoFill password/TOTP request. The extension never receives cache access or fallback diagnostics.
 - Maintenance requests a bounded out-of-transaction WAL checkpoint after committed offline deletion. It reduces active-file remnants but does not promise secure erase, cryptographic shredding, APFS/manual-backup removal, or forced-termination cleanup.
 
 When changing schema:

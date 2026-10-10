@@ -27,8 +27,7 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
             case .requiresManualSelection:
                 requiresManualSelection = true
             case .itemType(let type):
-                if let requiredItemType, requiredItemType != type { isValid = false }
-                else { requiredItemType = type }
+                if let requiredItemType, requiredItemType != type { isValid = false } else { requiredItemType = type }
             }
         }
 

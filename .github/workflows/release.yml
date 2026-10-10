@@ -319,6 +319,12 @@ jobs:
           VERSION="${TAG#v}"
           DMG_NAME="Quick.Access.for.Pass-${VERSION}.dmg"
           cat > "$RUNNER_TEMP/release-body.md" << 'BODY'
+          ### Offline Mode
+
+          Items and vaults enabled for Offline Mode use cached values when a usable copy is available. Sync is needed to refresh them. Without a usable cached copy, Quick Access uses Pass CLI.
+
+          Offline copies are used for copy actions, Large Type, and System AutoFill. SSH Agent and Run proxies do not use offline copies.
+
           <details>
           <summary>Installation</summary>
 

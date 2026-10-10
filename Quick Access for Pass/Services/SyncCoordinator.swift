@@ -4,11 +4,11 @@ import os
 @MainActor
 final class SyncCoordinator {
     private let cliService: PassCLIService
-    private let databaseManager: DatabaseManager
-    private let identitySynchronizer: any AutoFillIdentitySynchronizing
-    private let offlineModeService: OfflineModeService?
+    let databaseManager: DatabaseManager
+    let identitySynchronizer: any AutoFillIdentitySynchronizing
+    let offlineModeService: OfflineModeService?
     /// Shared metadata-only remnant maintenance; it does not affect sync success.
-    private let maintenance: OfflineStorageMaintenance?
+    let maintenance: OfflineStorageMaintenance?
     private let onResetInitiated: @MainActor @Sendable () -> Void
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
@@ -59,11 +59,12 @@ final class SyncCoordinator {
             var skippedDiagnosticFileURL: URL?
 
             do {
-                let (vaults, cliItems, skippedItems, presenceUncertainties) = try await cliService.fetchAllItems { progress in
+                let fetchResult = try await cliService.fetchAllItems { progress in
                     await MainActor.run {
                         viewModel.syncProgress = progress
                     }
                 }
+                let skippedItems = fetchResult.skippedItems
                 skippedItemsForDiagnostics = skippedItems
                 if !skippedItems.isEmpty {
                     AppLogger.sync.warning("sync completed with \(skippedItems.count, privacy: .public) skipped item(s)")
@@ -72,32 +73,7 @@ final class SyncCoordinator {
                         AppLogger.sync.warning("skipped sync item: \(skipped.diagnosticSummary, privacy: .private(mask: .hash))")
                     }
                 }
-                let projection = projectSyncMetadata(vaults: vaults, cliItems: cliItems)
-                let db = databaseManager
-                let synchronization = try await db.synchronizeMetadata(
-                    vaults: projection.vaults,
-                    items: projection.items,
-                    descriptors: projection.descriptorInputs,
-                    presenceUncertainties: presenceUncertainties
-                )
-                // This registration happens only after the metadata transaction
-                // commits; checkpoint busy/error never changes sync success.
-                if synchronization.didDeleteOfflineData {
-                    await maintenance?.requestCheckpoint()
-                }
-                try Task.checkCancellation()
-                try await identitySynchronizer.reconcile(descriptors: synchronization.descriptors)
-                try Task.checkCancellation()
-                // Queue only metadata-backed work after trusted reconciliation.
-                // Admission is nonblocking; secret preparation is independent of
-                // ordinary metadata sync completion and loading state.
-                await offlineModeService?.metadataDidSynchronize(
-                    allowMembershipExpansion: skippedItems.isEmpty && presenceUncertainties.allSatisfy {
-                        $0.skippedItemIDs.isEmpty && !$0.hasUnidentifiedSkippedItems
-                    },
-                    eligibleItemIDs: Set(projection.items.map(\.id))
-                )
-                try Task.checkCancellation()
+                try await synchronizeFetchedMetadata(fetchResult)
 
                 finishSuccessfulSync(
                     skippedItems: skippedItems,
@@ -129,31 +105,6 @@ final class SyncCoordinator {
                 onSyncIssueChanged(.syncError(presentation))
             }
         }
-    }
-
-    private func projectSyncMetadata(
-        vaults: [CLIVault],
-        cliItems: [(item: CLIItem, vaultId: String)]
-    ) -> (vaults: [PassVault], items: [PassItem], descriptorInputs: [AutoFillDescriptorInput]) {
-        let passVaults = vaults.map { PassVault(from: $0) }
-        let shareIDsByVaultID = Dictionary(
-            uniqueKeysWithValues: passVaults.map { ($0.id, $0.shareId) }
-        )
-        var passItems: [PassItem] = []
-        var descriptorInputs: [AutoFillDescriptorInput] = []
-        passItems.reserveCapacity(cliItems.count)
-        for cliItem in cliItems {
-            let metadata = PassItem(from: cliItem.item, vaultId: cliItem.vaultId)
-            passItems.append(metadata)
-            if let shareID = shareIDsByVaultID[cliItem.vaultId] {
-                descriptorInputs.append(contentsOf: AutoFillCredentialDescriptor.inputs(
-                    from: cliItem.item,
-                    metadata: metadata,
-                    shareID: shareID
-                ))
-            }
-        }
-        return (passVaults, passItems, descriptorInputs)
     }
 
     private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) async {

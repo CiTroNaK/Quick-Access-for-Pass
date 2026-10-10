@@ -6,7 +6,9 @@ typealias CLIItemFetcher = @Sendable (_ itemId: String, _ shareId: String) async
 nonisolated protocol SecretItemResolving: Sendable {
     func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<CLIItem>
     func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<String>
-    func resolveAutoFillValue(itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> ResolvedSecret<String>
+    func resolveAutoFillValue(
+        itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext
+    ) async throws -> ResolvedSecret<String>
 }
 
 extension SecretItemResolving {
@@ -39,62 +41,8 @@ extension OfflineSecretResolvingLive {
 
 extension PassCLIService: OfflineSecretResolvingLive {}
 
-/// Live-only resolver used when offline mode has not been composed at a call site.
-nonisolated struct LiveSecretItemResolver: SecretItemResolving {
-    let cliService: PassCLIService
-
-    func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<CLIItem> {
-        if let deadline = try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: false, now: DispatchTime.now().uptimeNanoseconds) {
-            return ResolvedSecret(value: try await cliService.viewItem(itemId: itemId, shareId: shareId, deadline: deadline), offlineCapability: nil)
-        }
-        return ResolvedSecret(value: try await cliService.viewItem(itemId: itemId, shareId: shareId), offlineCapability: nil)
-    }
-
-    func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
-        if let deadline = try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: false, now: DispatchTime.now().uptimeNanoseconds) {
-            return ResolvedSecret(value: try await cliService.getTotp(itemId: itemId, shareId: shareId, deadline: deadline), offlineCapability: nil)
-        }
-        return ResolvedSecret(value: try await cliService.getTotp(itemId: itemId, shareId: shareId), offlineCapability: nil)
-    }
-
-    func resolveAutoFillValue(itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
-        try await PassCLIAutoFillSecretResolver(cliService: cliService).resolveLiveValue(
-            itemId: itemId, shareId: shareId, kind: kind, context: context
-        )
-    }
-}
-
-/// Compatibility adapter for existing focused ordinary-action tests. It cannot
-/// serve a broker deadline because a closure cannot enforce native cancellation.
-nonisolated struct LegacySecretItemResolver: SecretItemResolving {
-    let fetchItem: CLIItemFetcher
-    let cliService: PassCLIService
-
-    func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<CLIItem> {
-        guard context.deadlineUptimeNanoseconds == nil else { throw SecretResolutionError.deadlineExpired }
-        return ResolvedSecret(value: try await fetchItem(itemId, shareId), offlineCapability: nil)
-    }
-
-    func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
-        guard context.deadlineUptimeNanoseconds == nil else { throw SecretResolutionError.deadlineExpired }
-        return ResolvedSecret(value: try await cliService.getTotp(itemId: itemId, shareId: shareId), offlineCapability: nil)
-    }
-
-    func resolveAutoFillValue(itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
-        throw AutoFillSecretResolverError.unsupportedResolver
-    }
-}
-
-/// Resolves live values first, then conditionally decrypts a repository-authorized snapshot.
+/// Prefers repository-authorized snapshots; live access is used only without a usable copy.
 actor OfflineSecretResolver: SecretItemResolving {
-    enum Error: Swift.Error, LocalizedError, Equatable, Sendable {
-        case unavailable
-
-        var errorDescription: String? {
-            String(localized: "Not available offline. Sign in to Proton Pass or reconnect, then try again.")
-        }
-    }
-
     private let live: any OfflineSecretResolvingLive
     private let repository: any OfflineSnapshotPersisting
     private let releaseAuthority: OfflineReleaseAuthority
@@ -120,86 +68,34 @@ actor OfflineSecretResolver: SecretItemResolving {
         self.totpDate = totpDate
     }
 
-    init(
-        cliService: PassCLIService,
-        repository: any OfflineSnapshotPersisting,
-        codec: any OfflineSnapshotCoding,
-        readiness: any OfflineInitializationProviding
-    ) {
-        self.init(live: cliService, repository: repository, codec: codec, readiness: readiness)
-    }
-
     func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<CLIItem> {
-        let key = OfflineSnapshotKey(vaultId: vaultId, itemId: itemId, schemaVersion: OfflineSnapshotLimits.schemaVersion)
-        let hasSnapshot = try await usableSnapshotExists(for: key)
-        let phaseDeadline = try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: hasSnapshot, now: now())
-        do {
-            let item: CLIItem
-            if let phaseDeadline {
-                item = try await live.viewItem(itemId: itemId, shareId: shareId, deadline: phaseDeadline)
-            } else { item = try await live.viewItem(itemId: itemId, shareId: shareId) }
-            try checkDeadline(context)
-            return ResolvedSecret(value: item, offlineCapability: nil)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try checkDeadline(context)
-            guard hasSnapshot, eligibleFallback(error) else { throw error }
-            return try await cachedItem(itemId: itemId, vaultId: vaultId, context: context)
-        }
+        let lookup = try await preferredCachedItem(itemId: itemId, vaultId: vaultId, context: context)
+        if let cached = lookup.item { return cached }
+        let deadline = try liveDeadline(context)
+        let item = try await liveItem(itemId: itemId, shareId: shareId, deadline: deadline, context: context, cacheUnavailable: lookup.cacheUnavailable)
+        return ResolvedSecret(value: item, offlineCapability: nil)
     }
 
-    func resolveAutoFillValue(itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
-        try Task.checkCancellation()
-        let key = OfflineSnapshotKey(vaultId: vaultId, itemId: itemId, schemaVersion: OfflineSnapshotLimits.schemaVersion)
-        let hasSnapshot = try await usableSnapshotExists(for: key)
-        let phaseDeadline = try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: hasSnapshot, now: now())
-        try Task.checkCancellation()
-        let item: CLIItem
-        do {
-            if let phaseDeadline { item = try await live.viewItem(itemId: itemId, shareId: shareId, deadline: phaseDeadline) }
-            else { item = try await live.viewItem(itemId: itemId, shareId: shareId) }
-            try Task.checkCancellation()
-            try checkDeadline(context)
-            if let phaseDeadline, now() >= phaseDeadline.uptimeNanoseconds { throw CLIError.timeout }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Task.checkCancellation()
-            try checkOriginalDeadline(context)
-            guard hasSnapshot, eligibleFallback(error) else { throw error }
-            let cached = try await cachedItem(itemId: itemId, vaultId: vaultId, context: context)
-            return try cached.map { item in try autoFillValue(item, kind: kind, context: context) }
+    func resolveAutoFillValue(
+        itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext
+    ) async throws -> ResolvedSecret<String> {
+        let lookup = try await preferredCachedItem(itemId: itemId, vaultId: vaultId, context: context)
+        if let cached = lookup.item {
+            let result = try cached.map { try autoFillValue($0, kind: kind, context: context) }
+            try checkRequest(context)
+            return result
         }
+        let deadline = try liveDeadline(context)
+        let item = try await liveItem(itemId: itemId, shareId: shareId, deadline: deadline, context: context, cacheUnavailable: lookup.cacheUnavailable)
         guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
         try validateAutoFillUsername(login, expectedUsername: context.expectedUsername)
         switch kind {
         case .password:
-            try Task.checkCancellation()
-            try checkDeadline(context)
             return ResolvedSecret(value: login.password, offlineCapability: nil)
         case .oneTimeCode:
             guard !login.totpUri.isEmpty else { throw AutoFillSecretResolverError.descriptorDoesNotSupportValue }
-            do {
-                if let phaseDeadline, now() >= phaseDeadline.uptimeNanoseconds {
-                    throw CLIError.timeout
-                }
-                let value: String
-                if let phaseDeadline { value = try await live.getTotp(itemId: itemId, shareId: shareId, deadline: phaseDeadline) }
-                else { value = try await live.getTotp(itemId: itemId, shareId: shareId) }
-                try Task.checkCancellation()
-                try checkDeadline(context)
-                if let phaseDeadline, now() >= phaseDeadline.uptimeNanoseconds { throw CLIError.timeout }
-                return ResolvedSecret(value: value, offlineCapability: nil)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                try Task.checkCancellation()
-                try checkOriginalDeadline(context)
-                guard hasSnapshot, eligibleFallback(error) else { throw error }
-                let cached = try await cachedItem(itemId: itemId, vaultId: vaultId, context: context)
-                return try cached.map { item in try autoFillValue(item, kind: kind, context: context) }
-            }
+            let value = try await liveTOTP(itemId: itemId, shareId: shareId, deadline: deadline, context: context, cacheUnavailable: lookup.cacheUnavailable)
+            return ResolvedSecret(value: value, offlineCapability: nil)
         }
     }
 
@@ -214,35 +110,101 @@ actor OfflineSecretResolver: SecretItemResolving {
         }
     }
 
-    private func checkOriginalDeadline(_ context: SecretResolutionContext) throws {
-        guard let deadline = context.deadlineUptimeNanoseconds else { return }
-        guard deadline > now() else { throw SecretResolutionError.deadlineExpired }
-    }
-
     func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
-        let key = OfflineSnapshotKey(vaultId: vaultId, itemId: itemId, schemaVersion: OfflineSnapshotLimits.schemaVersion)
-        let hasSnapshot = try await usableSnapshotExists(for: key)
-        let phaseDeadline = try OfflineAutoFillLiveBudget.deadline(context: context, hasSnapshot: hasSnapshot, now: now())
-        do {
-            let code: String
-            if let phaseDeadline {
-                code = try await live.getTotp(itemId: itemId, shareId: shareId, deadline: phaseDeadline)
-            } else { code = try await live.getTotp(itemId: itemId, shareId: shareId) }
-            try checkDeadline(context)
-            return ResolvedSecret(value: code, offlineCapability: nil)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try checkDeadline(context)
-            guard hasSnapshot, eligibleFallback(error) else { throw error }
-            let item = try await cachedItem(itemId: itemId, vaultId: vaultId, context: context)
-            let code = try item.map { item in
+        let lookup = try await preferredCachedItem(itemId: itemId, vaultId: vaultId, context: context)
+        if let cached = lookup.item {
+            let result = try cached.map { item in
                 guard case .login(let login) = item.content.content, !login.totpUri.isEmpty else { throw Error.unavailable }
                 return try TOTPGenerator.code(from: login.totpUri, at: totpDate())
             }
-            try checkDeadline(context)
-            return code
+            try checkRequest(context)
+            return result
         }
+        let deadline = try liveDeadline(context)
+        let value = try await liveTOTP(itemId: itemId, shareId: shareId, deadline: deadline, context: context, cacheUnavailable: lookup.cacheUnavailable)
+        return ResolvedSecret(value: value, offlineCapability: nil)
+    }
+
+    private func liveItem(
+        itemId: String, shareId: String, deadline: CLIExecutionDeadline?, context: SecretResolutionContext, cacheUnavailable: Bool
+    ) async throws -> CLIItem {
+        do {
+            let item: CLIItem
+            if let deadline {
+                item = try await live.viewItem(itemId: itemId, shareId: shareId, deadline: deadline)
+            } else {
+                item = try await live.viewItem(itemId: itemId, shareId: shareId)
+            }
+            try checkRequest(context)
+            return item
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try checkRequest(context)
+            if cacheUnavailable { throw Error.unavailable }
+            throw error
+        }
+    }
+
+    private func liveTOTP(
+        itemId: String, shareId: String, deadline: CLIExecutionDeadline?, context: SecretResolutionContext, cacheUnavailable: Bool
+    ) async throws -> String {
+        do {
+            let value: String
+            if let deadline {
+                value = try await live.getTotp(itemId: itemId, shareId: shareId, deadline: deadline)
+            } else {
+                value = try await live.getTotp(itemId: itemId, shareId: shareId)
+            }
+            try checkRequest(context)
+            return value
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try checkRequest(context)
+            if cacheUnavailable { throw Error.unavailable }
+            throw error
+        }
+    }
+
+    private struct CacheLookup {
+        let item: ResolvedSecret<CLIItem>?
+        let cacheUnavailable: Bool
+    }
+
+    private enum CacheAvailability: Swift.Error { case unusable }
+
+    private struct CacheDecodeFailure: Swift.Error {
+        let snapshot: EncryptedOfflineSnapshot
+        let error: OfflineSnapshotCodec.Error
+        let capability: OfflineReleaseCapability
+    }
+
+    private func preferredCachedItem(
+        itemId: String, vaultId: String, context: SecretResolutionContext
+    ) async throws -> CacheLookup {
+        try checkRequest(context)
+        let key = OfflineSnapshotKey(vaultId: vaultId, itemId: itemId, schemaVersion: OfflineSnapshotLimits.schemaVersion)
+        let admitted = try await usableSnapshotExists(for: key)
+        try checkRequest(context)
+        guard admitted else { return CacheLookup(item: nil, cacheUnavailable: false) }
+        do {
+            return CacheLookup(item: try await cachedItem(itemId: itemId, vaultId: vaultId, context: context), cacheUnavailable: false)
+        } catch is CacheAvailability {
+            // Only explicit key/decode availability may cross back to live after admission.
+            try checkRequest(context)
+            return CacheLookup(item: nil, cacheUnavailable: true)
+        }
+    }
+
+    private func liveDeadline(_ context: SecretResolutionContext) throws -> CLIExecutionDeadline? {
+        try checkRequest(context)
+        return try OfflineAutoFillLiveBudget.deadline(context: context, now: now())
+    }
+
+    private func checkRequest(_ context: SecretResolutionContext) throws {
+        try Task.checkCancellation()
+        try checkDeadline(context)
     }
 
     private func usableSnapshotExists(for key: OfflineSnapshotKey) async throws -> Bool {
@@ -263,57 +225,69 @@ actor OfflineSecretResolver: SecretItemResolving {
     }
 
     private func cachedItem(itemId: String, vaultId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<CLIItem> {
-        try Task.checkCancellation()
-        try checkDeadline(context)
-        guard await readiness.isReady() else { throw Error.unavailable }
+        try checkRequest(context)
+        let ready = await readiness.isReady()
+        try checkRequest(context)
+        guard ready else { throw Error.unavailable }
         let key = OfflineSnapshotKey(vaultId: vaultId, itemId: itemId, schemaVersion: OfflineSnapshotLimits.schemaVersion)
+        var availabilityEvidence: OfflineReleaseCapability?
+        var cacheOnly = false
         for attempt in 0...1 {
-            let capture = releaseAuthority.capture(for: key)
-            guard let snapshot = try await repository.authorizedSnapshot(for: key) else {
-                if attempt == 0 { continue }
-                throw Error.unavailable
-            }
+            try checkRequest(context)
             do {
-                guard let initialProof = try await repository.releaseProof(for: snapshot) else {
-                    if attempt == 0 { continue }
-                    throw Error.unavailable
-                }
-                try releaseAuthority.bind(capture, proof: initialProof)
-                let item = try await codec.decodeSnapshot(snapshot)
-                try Task.checkCancellation()
-                try checkDeadline(context)
-                try validateCachedUsername(item, context: context)
-                guard item.content.content.itemType == initialProof.itemType,
-                      let proof = try await repository.releaseProof(for: snapshot) else {
-                    if attempt == 0 { continue }
-                    throw Error.unavailable
-                }
-                let capability = try releaseAuthority.authorize(capture, proof: proof)
-                try Task.checkCancellation()
-                try checkDeadline(context)
-                return ResolvedSecret(value: item, offlineCapability: capability)
+                if let result = try await cachedAttempt(key: key, context: context) { return result }
+                cacheOnly = true
             } catch is OfflineReleaseError {
-                if attempt == 0 { continue }
-                throw Error.unavailable
+                // Fresh capture and proofs may resolve a replacement, but never permit live.
+                cacheOnly = true
             } catch is CancellationError {
                 throw CancellationError()
             } catch SecretResolutionError.deadlineExpired {
                 throw SecretResolutionError.deadlineExpired
-            } catch let error as OfflineSnapshotCodec.Error {
-                if shouldDiscard(error) { try? await repository.discardCorruptSnapshot(snapshot) }
-                if attempt == 0, try await repository.hasAuthorizedSnapshot(for: key) { continue }
-                throw Error.unavailable
+            } catch let failure as CacheDecodeFailure {
+                do {
+                    try await retryDecodeFailure(failure, attempt: attempt, context: context,
+                        evidence: cacheOnly ? nil : (availabilityEvidence ?? failure.capability))
+                    availabilityEvidence = availabilityEvidence ?? failure.capability
+                } catch is OfflineReleaseError {
+                    cacheOnly = true
+                    availabilityEvidence = nil
+                }
             } catch let error as AutoFillSecretResolverError {
-                // Identity mismatch is an authorization failure, not a cache
-                // decoder failure. The broker maps it to generic IPC failure.
                 throw error
             } catch {
-                // Decoder and cache failures are intentionally classified at
-                // this boundary; payload/error dictionaries never reach UI or logs.
+                try checkRequest(context)
                 throw Error.unavailable
             }
         }
+        try checkRequest(context)
         throw Error.unavailable
+    }
+
+    private func cachedAttempt(
+        key: OfflineSnapshotKey, context: SecretResolutionContext
+    ) async throws -> ResolvedSecret<CLIItem>? {
+        let capture = releaseAuthority.capture(for: key)
+        guard let snapshot = try await repository.authorizedSnapshot(for: key),
+              let initialProof = try await repository.releaseProof(for: snapshot) else { return nil }
+        try releaseAuthority.bind(capture, proof: initialProof)
+        let item: CLIItem
+        do {
+            item = try await codec.decodeSnapshot(snapshot)
+        } catch let error as OfflineSnapshotCodec.Error {
+            try checkRequest(context)
+            // Decode availability cannot override a concurrent authorization loss.
+            guard let proof = try await repository.releaseProof(for: snapshot) else { throw OfflineReleaseError.revoked }
+            let capability = try releaseAuthority.authorize(capture, proof: proof)
+            throw CacheDecodeFailure(snapshot: snapshot, error: error, capability: capability)
+        }
+        try checkRequest(context)
+        try validateCachedUsername(item, context: context)
+        guard item.content.content.itemType == initialProof.itemType,
+              let proof = try await repository.releaseProof(for: snapshot) else { return nil }
+        let capability = try releaseAuthority.authorize(capture, proof: proof)
+        try checkRequest(context)
+        return ResolvedSecret(value: item, offlineCapability: capability)
     }
 
     private func checkDeadline(_ context: SecretResolutionContext) throws {
@@ -328,6 +302,46 @@ actor OfflineSecretResolver: SecretItemResolving {
         guard case .login(let login) = item.content.content else { throw Error.unavailable }
         try validateAutoFillUsername(login, expectedUsername: context.expectedUsername)
     }
+}
+
+extension OfflineSecretResolver {
+    private func retryDecodeFailure(
+        _ failure: CacheDecodeFailure, attempt: Int, context: SecretResolutionContext, evidence: OfflineReleaseCapability?
+    ) async throws {
+        try checkRequest(context)
+        switch failure.error {
+        case .keyUnavailable, .corruptSnapshot:
+            if try await shouldRetryDecodeFailure(failure, attempt: attempt, context: context) { return }
+            guard let evidence else { throw Error.unavailable }
+            // Linearize only the non-secret source choice while original authority is valid.
+            // No repository work or suspension may run in this one-shot effect.
+            try evidence.withRelease(validating: { try checkRequest(context) }, effect: {})
+            // Owned cleanup follows the completed source choice, never precedes its authorization.
+            if failure.error == .corruptSnapshot { try? await repository.discardCorruptSnapshot(failure.snapshot) }
+            try checkRequest(context)
+            throw CacheAvailability.unusable
+        case .invalidIdentity, .payloadTooLarge, .unsupportedSchemaVersion:
+            if shouldDiscard(failure.error) { try? await repository.discardCorruptSnapshot(failure.snapshot) }
+            try checkRequest(context)
+            throw Error.unavailable
+        }
+    }
+
+    private func shouldRetryDecodeFailure(
+        _ failure: CacheDecodeFailure, attempt: Int, context: SecretResolutionContext
+    ) async throws -> Bool {
+        do {
+            guard try await repository.hasAuthorizedSnapshot(for: failure.snapshot.identity.key) else { throw Error.unavailable }
+            guard attempt == 0 else { return false }
+            if failure.error == .keyUnavailable { return true }
+            return try await !repository.isAuthorized(failure.snapshot)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try checkRequest(context)
+            throw Error.unavailable
+        }
+    }
 
     private nonisolated func shouldDiscard(_ error: OfflineSnapshotCodec.Error) -> Bool {
         switch error {
@@ -336,10 +350,20 @@ actor OfflineSecretResolver: SecretItemResolving {
         }
     }
 
-    private nonisolated func eligibleFallback(_ error: Swift.Error) -> Bool {
-        switch error {
-        case CLIError.notInstalled, CLIError.notLoggedIn, CLIError.timeout: true
-        default: false
+    enum Error: Swift.Error, LocalizedError, Equatable, Sendable {
+        case unavailable
+
+        var errorDescription: String? {
+            String(localized: "Not available offline. Sign in to Proton Pass or reconnect, then try again.")
         }
+    }
+
+    init(
+        cliService: PassCLIService,
+        repository: any OfflineSnapshotPersisting,
+        codec: any OfflineSnapshotCoding,
+        readiness: any OfflineInitializationProviding
+    ) {
+        self.init(live: cliService, repository: repository, codec: codec, readiness: readiness)
     }
 }

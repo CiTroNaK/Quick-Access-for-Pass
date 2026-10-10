@@ -917,13 +917,11 @@ private actor RecoveryControlledRepository: OfflineSnapshotPersisting {
 
     func beginRequest(
         itemID: String, vaultID: String, shareID: String, kind: OfflineRequestKind,
-        expectedSelectionGeneration: UUID?, expectedMetadataModifyTime: Date?, expectedItemType: ItemType?
+        expectations: OfflineRequestExpectations
     ) async throws -> OfflineRequestToken? {
         try await reservationGate?.wait()
         return try await base.beginRequest(itemID: itemID, vaultID: vaultID, shareID: shareID, kind: kind,
-                                    expectedSelectionGeneration: expectedSelectionGeneration,
-                                    expectedMetadataModifyTime: expectedMetadataModifyTime,
-                                    expectedItemType: expectedItemType)
+                                    expectations: expectations)
     }
 
     func publish(

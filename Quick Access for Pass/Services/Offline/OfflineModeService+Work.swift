@@ -16,7 +16,7 @@ extension OfflineModeService {
         func overlaps(_ other: Self) -> Bool {
             switch (self, other) {
             case (.all, _), (_, .all): true
-            case (.vault(let a), .vault(let b)), (.item(let a), .item(let b)): a == b
+            case (.vault(let lhs), .vault(let rhs)), (.item(let lhs), .item(let rhs)): lhs == rhs
             // Item permits also carry their vault separately in OwnedPermit.
             default: false
             }
@@ -159,14 +159,17 @@ extension OfflineModeService {
             return
         }
         submittedKeys.insert(candidate.key)
-        do { try await ownedScheduler().submitAndWait(candidate) }
-        catch let failure as OfflineSnapshotWorkScheduler.Failure {
-            switch failure {
-            case .selectionSuspended: throw Error.selectionSuspended
-            case .unavailable: throw Error.snapshotUnavailable
-            case .superseded: throw Error.requestSuperseded
-            case .cancelled: throw CancellationError()
-            }
+        do { try await ownedScheduler().submitAndWait(candidate) } catch let failure as OfflineSnapshotWorkScheduler.Failure {
+            try Self.rethrowSchedulerFailure(failure)
+        }
+    }
+
+    private static func rethrowSchedulerFailure(_ failure: OfflineSnapshotWorkScheduler.Failure) throws {
+        switch failure {
+        case .selectionSuspended: throw Error.selectionSuspended
+        case .unavailable: throw Error.snapshotUnavailable
+        case .superseded: throw Error.requestSuperseded
+        case .cancelled: throw CancellationError()
         }
     }
 
@@ -195,8 +198,7 @@ extension OfflineModeService {
     func keepOfflineIndividually(_ item: PassItem) async throws {
         let permit = try grantPermit(scope: .item(item.id), vaultID: item.vaultId)
         defer { releasePermit(permit) }
-        do { try await repository.keepItemOfflineIndividually(itemID: item.id, vaultID: item.vaultId) }
-        catch { throw Error.persistenceFailed }
+        do { try await repository.keepItemOfflineIndividually(itemID: item.id, vaultID: item.vaultId) } catch { throw Error.persistenceFailed }
         // Promotion owns no secret work and preserves any existing reservation.
     }
 
@@ -280,6 +282,22 @@ extension OfflineModeService {
         guard lifecycle == lifecycleGeneration, submissionsAllowed,
               !isBlocked(scope: .item(candidate.key.itemId), vaultID: candidate.key.vaultId,
                          manualWork: manualWork) else { throw Error.requestSuperseded }
+        let request = try await reserve(candidate, manualWork: manualWork)
+        guard let request else { throw Error.requestSuperseded }
+        reservations[candidate.key] = OwnedReservation(candidate: candidate, request: request)
+        defer {
+            if reservations[candidate.key]?.request.id == request.id { reservations.removeValue(forKey: candidate.key) }
+        }
+        guard lifecycle == lifecycleGeneration, submissionsAllowed, !Task.isCancelled else {
+            await finish(request, failed: false)
+            throw Error.requestSuperseded
+        }
+        try await prepareAndPublish(request: request, lifecycle: lifecycle)
+    }
+
+    private func reserve(
+        _ candidate: OfflineSnapshotWorkCandidate, manualWork: ManualWorkProof?
+    ) async throws -> OfflineRequestToken? {
         let kind: OfflineRequestKind
         let selectionGeneration: UUID?
         let permit: OfflineSelectionPermit?
@@ -298,110 +316,16 @@ extension OfflineModeService {
         do {
             request = try await repository.beginRequest(
                 itemID: candidate.key.itemId, vaultID: candidate.key.vaultId, shareID: candidate.shareID, kind: kind,
-                expectedSelectionGeneration: selectionGeneration,
-                expectedMetadataModifyTime: candidate.metadataModifyTime, expectedItemType: candidate.itemType)
+                expectations: .init(
+                    selectionGeneration: selectionGeneration,
+                    metadataModifyTime: candidate.metadataModifyTime, itemType: candidate.itemType
+                )
+            )
             if let permit { releasePermit(permit) }
         } catch {
             if let permit { releasePermit(permit) }
             throw Error.snapshotUnavailable
         }
-        guard let request else { throw Error.requestSuperseded }
-        reservations[candidate.key] = OwnedReservation(candidate: candidate, request: request)
-        defer {
-            if reservations[candidate.key]?.request.id == request.id { reservations.removeValue(forKey: candidate.key) }
-        }
-        guard lifecycle == lifecycleGeneration, submissionsAllowed, !Task.isCancelled else {
-            await finish(request, failed: false)
-            throw Error.requestSuperseded
-        }
-        try await prepareAndPublish(request: request, lifecycle: lifecycle)
-    }
-
-    func waitUntilIdle() async { await scheduler?.waitUntilIdle() }
-
-    func removeOfflineItem(itemId: String) async throws {
-        try await revoke(.item(itemId)) { [repository] in try await repository.removeItem(itemId) }
-    }
-
-    func removeAllOfflineData() async throws {
-        try await revoke(.all) { [repository] in try await repository.purge() }
-    }
-
-    /// A scope is blocked before yielding. Drain only short metadata ownership,
-    /// never fetch lifetimes; revoke persisted authority before cancellation/join.
-    func revoke(_ scope: WorkScope, mutation: @Sendable () async throws -> Void) async throws {
-        let releaseScope: OfflineReleaseMutationScope
-        switch scope {
-        case .item(let id): releaseScope = .itemID(id)
-        case .vault(let id): releaseScope = .vaultOnly(vaultID: id)
-        case .all: releaseScope = .all
-        }
-        let authority = repository.releaseAuthority
-        let admission = authority.beginMutation(releaseScope)
-        defer { authority.finishMutation(admission, outcome: .admissionFinished) }
-        let id = UUID()
-        revocations[id] = scope
-        workGeneration = UUID()
-        if case .all = scope { lifecycleGeneration = UUID() }
-        defer { revocations.removeValue(forKey: id) }
-        while permits.values.contains(where: { scope.overlaps($0.scope) || scope.overlaps(.vault($0.vaultID)) }) {
-            await withCheckedContinuation { permitDrainWaiters.append($0) }
-        }
-        // Only vault deselection needs survivor metadata. Capture it after
-        // promotions drain and before mutation; read failure must delete nothing.
-        // Conflicting admissions stay blocked throughout this transaction boundary.
-        let survivors: Set<OfflineSnapshotKey>
-        if case .vault(let vaultID) = scope {
-            do {
-                survivors = Set(try await repository.offlineItemSelections().filter {
-                    $0.vaultId == vaultID && $0.isManuallySelected
-                }.map {
-                    OfflineSnapshotKey(vaultId: $0.vaultId, itemId: $0.itemId,
-                                       schemaVersion: OfflineSnapshotLimits.schemaVersion)
-                })
-            } catch { throw Error.persistenceFailed }
-        } else {
-            survivors = []
-        }
-        do { try await mutation() }
-        catch { throw Error.persistenceFailed }
-        let scheduler = self.scheduler
-        if case .all = scope {
-            await scheduler?.invalidateAll()
-            submittedKeys.removeAll()
-            return
-        }
-        // Include metadata candidates as well as active reservations, so queued
-        // vault-only jobs are invalidated even before they have selection rows.
-        let knownKeys = Set(reservations.keys).union(submittedKeys)
-        let revoked = Set(knownKeys.filter { scope.contains($0) && !survivors.contains($0) })
-        await scheduler?.invalidate(revoked)
-        submittedKeys.subtract(revoked)
-    }
-
-    func prepareForMetadataReset() async throws {
-        resetSuspended = true
-        try await removeAllOfflineData()
-    }
-
-    func finishMetadataReset() async {
-        guard !stopped else { return }
-        resetSuspended = false
-        try? await submitCurrent(vaultID: nil, includeNew: selectionAdmissionOpen, refreshExisting: false)
-    }
-
-    func stop() async {
-        stopped = true
-        observationIsFresh = false
-        workGeneration = UUID()
-        lifecycleGeneration = UUID()
-        let task = initializationTask
-        let scheduler = self.scheduler
-        task?.cancel()
-        if let task { _ = await task.result }
-        while !permits.isEmpty { await withCheckedContinuation { permitDrainWaiters.append($0) } }
-        await scheduler?.stop()
-        initializationTask = nil
-        initializationAttemptID = nil
+        return request
     }
 }
