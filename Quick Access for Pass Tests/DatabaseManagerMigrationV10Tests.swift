@@ -128,6 +128,21 @@ struct DatabaseManagerMigrationV10Tests {
                     UNIQUE (serviceKind, serviceIdentifier)
                 );
                 CREATE INDEX autoFillAppAssociations_service ON autoFillAppAssociations(serviceKind, serviceIdentifier);
+                CREATE TABLE sshAuthDecisions (
+                    appIdentifier TEXT NOT NULL,
+                    keyFingerprint TEXT NOT NULL,
+                    expiresAt DATETIME,
+                    appTeamID TEXT,
+                    PRIMARY KEY (appIdentifier, keyFingerprint)
+                );
+                CREATE TABLE runAuthDecisions (
+                    appIdentifier TEXT NOT NULL,
+                    subcommand TEXT NOT NULL,
+                    profileSlug TEXT NOT NULL,
+                    expiresAt DATETIME,
+                    appTeamID TEXT,
+                    PRIMARY KEY (appIdentifier, subcommand, profileSlug)
+                );
                 CREATE TABLE grdb_migrations (identifier TEXT PRIMARY KEY);
                 """)
             for version in 1...9 {
