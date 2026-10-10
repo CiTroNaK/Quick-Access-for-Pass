@@ -49,7 +49,7 @@ Quick Access uses two layers to reduce prompt fatigue:
 
 Both layers use the same authorization context, including for queued requests. An approval for another command or host cannot override a matching remembered denial.
 
-Remembered decisions can be reviewed and cleared from **Settings → SSH**.
+Open **Settings → SSH → Manage SSH decisions…** to review remembered approvals and denials in a separate management sheet. Each decision retains its context, key fingerprint, expiration, and Remove action. Use **Done** or Escape to close the sheet. SSH probe decisions remain in the main SSH settings.
 
 ## BatchMode handling
 

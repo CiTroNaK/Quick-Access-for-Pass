@@ -5,6 +5,7 @@ struct SSHSettingsTab: View {
     @Binding var sshUpstreamSocketPath: String
     @Environment(ProxyHealthStore.self) private var healthStore
     @Environment(\.databaseManager) private var databaseManager
+    @State private var isDecisionsManagerPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,7 +58,14 @@ struct SSHSettingsTab: View {
 
                 Divider()
 
-                SSHAuthDecisionsView(databaseManager: databaseManager)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Remembered SSH decisions")
+                        .font(.body)
+                    Button("Manage SSH decisions…") {
+                        isDecisionsManagerPresented = true
+                    }
+                    .font(.body)
+                }
 
                 Divider()
             }
@@ -92,5 +100,12 @@ struct SSHSettingsTab: View {
             SSHStatusRow(state: healthStore.sshHealth)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $isDecisionsManagerPresented) {
+            if let databaseManager {
+                RememberedDecisionsManagerView {
+                    SSHAuthDecisionsView(databaseManager: databaseManager)
+                }
+            }
+        }
     }
 }

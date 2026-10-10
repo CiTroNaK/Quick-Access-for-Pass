@@ -7,6 +7,36 @@ import Testing
 @Suite("Vault settings layout", .serialized)
 @MainActor
 struct VaultSettingsLayoutTests {
+    @Test("Proxy Settings renders a launcher for remembered-decision management", arguments: ["SSH", "Run"])
+    func rememberedDecisionManagementLauncher(proxy: String) throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: [])
+        let suiteName = "RememberedDecisionSettingsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let content: AnyView
+        if proxy == "SSH" {
+            content = AnyView(SSHSettingsTab(sshProxyEnabled: .constant(false), sshUpstreamSocketPath: .constant("")))
+        } else {
+            content = AnyView(RunSettingsTab(runProxyEnabled: .constant(false)))
+        }
+        let actual = try render(content
+            .environment(ProxyHealthStore())
+            .environment(\.databaseManager, fixture.database)
+            .defaultAppStorage(defaults), size: NSSize(width: 480, height: 620))
+        let label = proxy == "SSH" ? "Manage SSH decisions…" : "Manage Run decisions…"
+        // Match the Settings content width to bound the glyph matcher's leading-offset
+        // search. The expected text and complete-glyph assertion stay unchanged.
+        let reference = NSHostingView(rootView: Text(verbatim: label)
+            .font(.body)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: 440, alignment: .leading))
+        let expected = try render(reference.rootView, size: reference.fittingSize)
+        let referenceRendered = expected.containsText(from: expected)
+        let launcherRendered = actual.containsText(from: expected)
+        #expect(referenceRendered, "Reference must contain rendered glyphs")
+        #expect(launcherRendered, "Settings must render the management launcher")
+    }
+
     @Test("Offline consent descriptions remain fully rendered at Settings width")
     func offlineDescriptionsWrap() throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: [])
@@ -396,11 +426,15 @@ private struct RenderedFixture {
         for y in 0...(height - reference.height) {
             for x in 0...(width - reference.width) {
                 var matched = 0
-                for index in ink {
+                for (position, index) in ink.enumerated() {
                     let row = index / reference.width
                     let column = index % reference.width
                     let offset = ((y + row) * width + x + column) * 4
                     if pixels[offset] < 225 { matched += 1 }
+                    // Stop only when even matching every remaining pixel cannot satisfy
+                    // the existing complete-pattern threshold; acceptance is unchanged.
+                    let maximumMatches = matched + ink.count - position - 1
+                    if Double(maximumMatches) / Double(ink.count) <= 0.90 { break }
                 }
                 if Double(matched) / Double(ink.count) > 0.90 { return true }
             }

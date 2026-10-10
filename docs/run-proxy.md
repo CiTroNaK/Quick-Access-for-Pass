@@ -105,7 +105,7 @@ Run Proxy authorization decisions are context-aware. They can remember either an
 
 Matching checks the most specific subcommand scope first across both session and persistent decisions. A broader session approval cannot override a more specific remembered denial. Within the same scope, a current session decision takes precedence.
 
-Remembered decisions can be reviewed and cleared from **Settings → Run**.
+Open **Settings → Run → Manage Run decisions…** to review remembered approvals and denials in a separate management sheet. Each decision retains its app, subcommand, profile, expiration, and Remove action. Use **Done** or Escape to close the sheet. Run profiles remain in the main Run settings.
 
 ## Secret cache duration
 
