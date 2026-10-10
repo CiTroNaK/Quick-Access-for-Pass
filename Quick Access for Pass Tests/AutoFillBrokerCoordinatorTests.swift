@@ -39,11 +39,18 @@ struct AutoFillBrokerCoordinatorTests {
     @MainActor
     func lockedRequestUsesRemainingDeadline() async throws {
         let descriptor = makeDescriptor(hasTOTP: true)
+        let request = makeRequest(kind: .oneTimeCode, lifetime: ordinaryPathLifetime)
+        let initialNow = request.deadline - UInt64(ordinaryPathLifetime * 1_000_000_000)
+        let clock = OSAllocatedUnfairLock(initialState: initialNow)
         let observedTimeout = OSAllocatedUnfairLock<Double?>(initialState: nil)
         let states = OSAllocatedUnfairLock(initialState: [AutoFillRequestState]())
         let locked = OSAllocatedUnfairLock(initialState: true)
+        // Test remaining-budget forwarding, not whether an unrelated MainActor
+        // workload happens to fit inside a one-second successful-path fixture.
         let coordinator = AutoFillBrokerCoordinator(
-            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor),
+            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor) {
+                clock.withLock { $0 = initialNow + 5_000_000_000 }
+            },
             secretResolver: FakeAutoFillSecretResolver { _, kind in
                 #expect(kind == .oneTimeCode)
                 return "123456"
@@ -53,18 +60,20 @@ struct AutoFillBrokerCoordinatorTests {
                 observedTimeout.withLock { $0 = timeout }
                 locked.withLock { $0 = false }
                 return true
-            }
+            },
+            now: { clock.withLock { $0 } }
         )
 
         let result = try await coordinator.resolve(
-            request: makeRequest(kind: .oneTimeCode, lifetime: 1),
+            request: request,
             transition: { state in states.withLock { $0.append(state) } }
         )
 
         #expect(result.value == "123456")
         #expect(states.withLock { $0 } == [.awaitingUnlock, .resolving])
         let timeout = try #require(observedTimeout.withLock { $0 })
-        #expect(timeout > 0 && timeout <= 1)
+        // A reset to the original budget now fails deterministically.
+        #expect(timeout == ordinaryPathLifetime - 5)
     }
 
     @Test("expired deadline never invokes unlock or Pass CLI resolution")

@@ -140,12 +140,19 @@ enum BrokerTestSocketIO {
             }
         }
         defer { close(fd) }
-        return try await readUntilEOF(from: fd)
+        return try await readUntilEOF(from: fd, deadlineUptimeNanoseconds: message.deadlineUptimeNanoseconds)
     }
 
-    static func readUntilEOF(from fd: Int32) async throws -> Data {
+    static func readUntilEOF(from fd: Int32, deadlineUptimeNanoseconds: UInt64? = nil) async throws -> Data {
+        try await readUntilEOF(from: fd, makeDeadline: { deadlineUptimeNanoseconds })
+    }
+
+    /// Successful synthetic transports may create their budget at worker admission;
+    /// callers carrying an original request deadline use the absolute overload above.
+    static func readUntilEOF(from fd: Int32, makeDeadline: @escaping @Sendable () -> UInt64?) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
+                let deadlineUptimeNanoseconds = makeDeadline()
                 let flags = fcntl(fd, F_GETFL, 0)
                 guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
                     continuation.resume(throwing: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EINVAL))
@@ -154,6 +161,17 @@ enum BrokerTestSocketIO {
                 var bytes = Data()
                 var buffer = [UInt8](repeating: 0, count: 4096)
                 while true {
+                    var pollTimeout: Int32 = 1_000
+                    if let deadlineUptimeNanoseconds {
+                        let now = DispatchTime.now().uptimeNanoseconds
+                        guard deadlineUptimeNanoseconds > now else {
+                            continuation.resume(throwing: POSIXError(.ETIMEDOUT))
+                            return
+                        }
+                        let remaining = deadlineUptimeNanoseconds - now
+                        let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
+                        pollTimeout = Int32(min(milliseconds, 1_000))
+                    }
                     let result = Darwin.read(fd, &buffer, buffer.count)
                     if result > 0 { bytes.append(buffer, count: result); continue }
                     if result == 0 { continuation.resume(returning: bytes); return }
@@ -162,10 +180,13 @@ enum BrokerTestSocketIO {
                         return
                     }
                     var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                    guard Darwin.poll(&ready, 1, 1_000) > 0 else {
-                        continuation.resume(throwing: POSIXError(.ETIMEDOUT))
-                        return
-                    }
+                    let polled = Darwin.poll(&ready, 1, pollTimeout)
+                    if polled > 0 || (polled < 0 && errno == EINTR) { continue }
+                    // An idle poll is not expiry of a still-valid original request.
+                    if polled == 0, deadlineUptimeNanoseconds != nil { continue }
+                    let error = polled == 0 ? POSIXError(.ETIMEDOUT) : POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    continuation.resume(throwing: error)
+                    return
                 }
             }
         }

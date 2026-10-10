@@ -55,9 +55,16 @@ struct AutoFillBrokerOfflineSnapshotIPCTests {
             try await broker.start()
             let request = AutoFillBrokerRequest(requestID: UUID(), descriptorID: descriptor.id, valueKind: kind,
                 deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 10_000_000_000)
-            let client = Task { try await BrokerTestSocketIO.requestBytesUntilEOF(at: fixture.socketPath, message: request) }
+            let admission = Task { try await gate.waitUntilEntered() }
+            defer { admission.cancel() }
+            let client = Task {
+                // A transport/expiry failure before admission must not strand the test
+                // waiting for a handler gate that can no longer be reached.
+                defer { admission.cancel() }
+                return try await BrokerTestSocketIO.requestBytesUntilEOF(at: fixture.socketPath, message: request)
+            }
             do {
-                try await gate.waitUntilEntered()
+                try await admission.value
                 try await mutate()
                 await gate.open()
                 let bytes = try await client.value
@@ -70,8 +77,9 @@ struct AutoFillBrokerOfflineSnapshotIPCTests {
             } catch {
                 await gate.open()
                 client.cancel()
-                _ = await client.result
+                let clientResult = await client.result
                 await broker.stop()
+                if case .failure(let clientError) = clientResult { throw clientError }
                 throw error
             }
         }
