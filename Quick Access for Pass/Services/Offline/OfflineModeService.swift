@@ -1,6 +1,11 @@
 import Foundation
 
 /// UI-facing availability derived only from non-secret offline catalog metadata.
+nonisolated enum OfflineItemRetryResult: Sendable, Equatable {
+    case submitted
+    case unavailable
+}
+
 nonisolated enum OfflineItemAvailability: Sendable, Equatable {
     case notCached
     case available(lastRefreshedAt: Date?)

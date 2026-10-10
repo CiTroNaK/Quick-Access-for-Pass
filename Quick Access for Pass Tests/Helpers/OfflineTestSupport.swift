@@ -1,4 +1,10 @@
 import Foundation
+
+extension SecretItemResolving {
+    func resolveAutoFillValue(itemId: String, vaultId: String, shareId: String, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
+        throw OfflineSecretResolver.Error.unavailable
+    }
+}
 import GRDB
 import os
 import Testing
@@ -145,8 +151,8 @@ struct OfflineLifecycleFixture {
     let repository: OfflineSnapshotRepository
     let items: [PassItem]
 
-    init(itemIDs: [String]) throws {
-        database = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
+    init(itemIDs: [String], offlineMutationTesting: OfflineMutationTesting? = nil) throws {
+        database = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8), offlineMutationTesting: offlineMutationTesting)
         items = itemIDs.map { offlineTestMetadata(id: $0, vaultID: "vault") }
         try database.upsertVaults([PassVault(id: "vault", name: "Vault", shareId: "share")])
         try database.upsertItems(items)
@@ -201,7 +207,9 @@ func offlineTestCLIItem(
     shareID: String,
     password: String,
     username: String = "person@example.test",
-    totp: String = ""
+    totp: String = "",
+    email: String = "",
+    note: String = ""
 ) throws -> CLIItem {
     let object: [String: Any] = [
         "id": id,
@@ -209,7 +217,7 @@ func offlineTestCLIItem(
         "share_id": shareID,
         "content": [
             "title": "Offline example",
-            "note": "",
+            "note": note,
             // This deliberately differs from the API item ID. Snapshot identity
             // is bound to the API response, not this content field.
             "item_uuid": "content-\(id)",
@@ -217,6 +225,7 @@ func offlineTestCLIItem(
                 "Login": [
                     "username": username,
                     "password": password,
+                    "email": email,
                     "totp_uri": totp,
                     "urls": []
                 ]
@@ -236,57 +245,49 @@ func offlineTestCLIItem(
 /// A finite native command emits test bytes only from its armed TERM trap.
 /// Markers and hooks carry lifecycle metadata, never output or process handles.
 nonisolated struct NativeTimeoutOverflowFixture: Sendable {
-    private struct MarkerSnapshot: Sendable {
-        let label: String
-        let clock: UInt64
-        let readyExists: Bool
-        let trapEntryExists: Bool
-        let postHeadExists: Bool
-    }
     private struct State: Sendable {
+        var incomingDeadlines: [CLIExecutionDeadline] = []
+        var forwardedDeadlines: [CLIExecutionDeadline] = []
         var events: [CLIRunner.LifecycleTesting.Event] = []
         var notificationEntered = false
-        var diagnosticPhases: [(CLIRunner.LifecycleTesting.Event, UInt64)] = []
-        var diagnosticSnapshots: [MarkerSnapshot] = []
-        var droppedDiagnosticPhases = 0
-        var droppedDiagnosticSnapshots = 0
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let notificationGate = OfflineTestGate()
     private let readyMarker = FileManager.default.temporaryDirectory.appendingPathComponent("qa-overflow-ready-\(UUID().uuidString)")
     private let termMarker = FileManager.default.temporaryDirectory.appendingPathComponent("qa-overflow-term-\(UUID().uuidString)")
-    private let trapEntryMarker = FileManager.default.temporaryDirectory.appendingPathComponent("qa-overflow-entry-\(UUID().uuidString)")
     private let stderr: Bool
     private let delayedNotification: Bool
+
+    private enum Budget: Sendable { case relative(TimeInterval), absolute(CLIExecutionDeadline) }
 
     init(stderr: Bool = false, delayedNotification: Bool = false) {
         self.stderr = stderr
         self.delayedNotification = delayedNotification
     }
 
+    func observedDeadlines() -> (incoming: [CLIExecutionDeadline], forwarded: [CLIExecutionDeadline]) {
+        state.withLock { ($0.incomingDeadlines, $0.forwardedDeadlines) }
+    }
+
     func run(timeout: TimeInterval, maximumOutputBytes: Int) async throws -> Data {
+        try await run(budget: .relative(timeout), maximumOutputBytes: maximumOutputBytes)
+    }
+
+    func run(deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data {
+        state.withLock { $0.incomingDeadlines.append(deadline) }
+        return try await run(budget: .absolute(deadline), maximumOutputBytes: maximumOutputBytes)
+    }
+
+    private func run(budget: Budget, maximumOutputBytes: Int) async throws -> Data {
         // The head child is finite and waited by the shell trap. The shell's
         // otherwise finite builtin loop avoids deferred traps while waiting
         // for sleep or leaving an inherited writer behind.
         let byteCount = stderr ? 256 * 1024 + 4096 : maximumOutputBytes + 4096
         let redirect = stderr ? " >&2" : ""
-        let script = "trap 'printf entry > \"\(trapEntryMarker.path)\"; /usr/bin/head -c \(byteCount) /dev/zero\(redirect); printf term > \"\(termMarker.path)\"; exit 0' TERM; " +
+        let script = "trap '/usr/bin/head -c \(byteCount) /dev/zero\(redirect); printf term > \"\(termMarker.path)\"; exit 0' TERM; " +
             "printf ready > '\(readyMarker.path)'; i=0; while [ $i -lt 10000000 ]; do i=$((i+1)); done"
         let lifecycle = CLIRunner.LifecycleTesting(
-            marker: { event in
-                let clock = DispatchTime.now().uptimeNanoseconds
-                self.state.withLock { state in
-                    state.events.append(event)
-                    if state.diagnosticPhases.count < 64 {
-                        state.diagnosticPhases.append((event, clock))
-                    } else {
-                        state.droppedDiagnosticPhases += 1
-                    }
-                }
-                if event == .finalizationOwned || event == .completed {
-                    self.recordMarkerSnapshot(label: "\(event)")
-                }
-            },
+            marker: { event in self.state.withLock { $0.events.append(event) } },
             suspension: { point in
                 guard point == .beforeOutputLimitNotification else { return }
                 self.state.withLock { $0.notificationEntered = true }
@@ -295,33 +296,40 @@ nonisolated struct NativeTimeoutOverflowFixture: Sendable {
         )
         let result: Result<Data, any Error>
         do {
-            result = .success(try await CLIRunner.run(
-                executablePath: "/bin/sh", arguments: ["-c", script], timeout: timeout,
-                maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
-            ))
+            switch budget {
+            case .relative(let timeout):
+                result = .success(try await CLIRunner.run(
+                    executablePath: "/bin/sh", arguments: ["-c", script], timeout: timeout,
+                    maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
+                ))
+            case .absolute(let deadline):
+                let forwarded = deadline
+                state.withLock { $0.forwardedDeadlines.append(forwarded) }
+                result = .success(try await CLIRunner.run(
+                    executablePath: "/bin/sh", arguments: ["-c", script], deadline: forwarded,
+                    maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
+                ))
+            }
         } catch {
             result = .failure(error)
         }
-        recordMarkerSnapshot(label: "callerResult")
-        // Always release and join the existing notification task, including
-        // expected RED errors or caller cancellation. A missing notification
-        // is bounded failed evidence, not an unbounded test wait.
-        let notificationJoin = Task {
+        // Release the gate and observe the completion event even if the caller
+        // was cancelled. This joins only our bounded observer task, not the
+        // production notification task whose handle is owned by CLIRunner.
+        let notificationObservation = Task {
             await notificationGate.open()
             for _ in 0..<100 {
                 if state.withLock({ $0.events.contains(.outputLimitNotificationCompleted) }) { break }
                 try? await Task.sleep(for: .milliseconds(10))
             }
         }
-        await notificationJoin.value
-        recordMarkerSnapshot(label: "notificationJoined")
+        await notificationObservation.value
         #expect(state.withLock { $0.notificationEntered })
         #expect(state.withLock { $0.events.filter { $0 == .outputLimitNotificationCompleted }.count } == 1)
         return try result.get()
     }
 
     func expectTimeoutTrapAndSingleCompletion() {
-        defer { reportDiagnosticMetadata() }
         #expect(FileManager.default.fileExists(atPath: readyMarker.path))
         #expect(FileManager.default.fileExists(atPath: termMarker.path))
         let events = state.withLock { $0.events }
@@ -336,46 +344,16 @@ nonisolated struct NativeTimeoutOverflowFixture: Sendable {
         }
     }
 
-    private func recordMarkerSnapshot(label: String) {
-        // Filesystem observations stay outside the metadata lock. They are
-        // host observation times, not native child exit or write timestamps.
-        let snapshot = MarkerSnapshot(
-            label: label, clock: DispatchTime.now().uptimeNanoseconds,
-            readyExists: FileManager.default.fileExists(atPath: readyMarker.path),
-            trapEntryExists: FileManager.default.fileExists(atPath: trapEntryMarker.path),
-            postHeadExists: FileManager.default.fileExists(atPath: termMarker.path)
-        )
-        state.withLock { state in
-            if state.diagnosticSnapshots.count < 8 {
-                state.diagnosticSnapshots.append(snapshot)
-            } else {
-                state.droppedDiagnosticSnapshots += 1
-            }
-        }
-    }
-
-    private func reportDiagnosticMetadata() {
-        recordMarkerSnapshot(label: "assertionsFinished")
-        let snapshot = state.withLock {
-            ($0.diagnosticPhases, $0.diagnosticSnapshots,
-             $0.droppedDiagnosticPhases, $0.droppedDiagnosticSnapshots)
-        }
-        let phases = snapshot.0.map { "\($0.0)@\($0.1)" }.joined(separator: ",")
-        let markers = snapshot.1.map {
-            "\($0.label)@\($0.clock):ready=\($0.readyExists):trapEntry=\($0.trapEntryExists):postHead=\($0.postHeadExists)"
-        }.joined(separator: ",")
-        print("CLIRunner timeout-overflow metadata [stderr=\(stderr),delayed=\(delayedNotification)]: " +
-              "phases=\(phases); markers=\(markers); droppedPhases=\(snapshot.2); droppedSnapshots=\(snapshot.3)")
-    }
-
     func removeMarkers() {
         try? FileManager.default.removeItem(at: readyMarker)
         try? FileManager.default.removeItem(at: termMarker)
-        try? FileManager.default.removeItem(at: trapEntryMarker)
     }
 }
 
 nonisolated struct NativeTimeoutOverflowRunner: CLIRunning {
+    func run(executablePath: String, arguments: [String], deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data {
+        try await fixture.run(deadline: deadline, maximumOutputBytes: maximumOutputBytes)
+    }
     let fixture: NativeTimeoutOverflowFixture
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
         try await run(executablePath: executablePath, arguments: arguments, timeout: timeout, maximumOutputBytes: 4 * 1024 * 1024 + 4096)

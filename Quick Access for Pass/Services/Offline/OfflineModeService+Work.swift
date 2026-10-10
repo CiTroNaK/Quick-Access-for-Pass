@@ -205,12 +205,44 @@ extension OfflineModeService {
         try await submitCurrent(vaultID: vaultID, includeNew: selectionAdmissionOpen, refreshExisting: true)
     }
 
+    func retryOfflineItem(itemID: String, vaultID: String) async throws -> OfflineItemRetryResult {
+        try requireReady()
+        let epoch = workGeneration
+        let candidate: OfflineSnapshotWorkCandidate?
+        do {
+            candidate = try await repository.workCandidateForSelectedItem(itemID: itemID, vaultID: vaultID)
+        } catch { throw Error.persistenceFailed }
+        guard epoch == workGeneration,
+              let candidate, candidate.key.itemId == itemID, candidate.key.vaultId == vaultID,
+              submissionsAllowed, !Task.isCancelled,
+              !isBlocked(scope: .item(itemID), vaultID: vaultID) else {
+            return .unavailable
+        }
+        let current = reservationAwareCandidate(candidate)
+        submittedKeys.insert(current.key)
+        await ownedScheduler().submit([current])
+        return .submitted
+    }
+
     func metadataDidSynchronize(allowMembershipExpansion: Bool, eligibleItemIDs: Set<String>) async {
         guard submissionsAllowed, !Task.isCancelled, !eligibleItemIDs.isEmpty else { return }
         try? await submitCurrent(vaultID: nil,
                                  includeNew: allowMembershipExpansion && selectionAdmissionOpen,
                                  refreshExisting: true,
                                  eligibleItemIDs: eligibleItemIDs)
+    }
+
+    private func reservationAwareCandidate(_ candidate: OfflineSnapshotWorkCandidate) -> OfflineSnapshotWorkCandidate {
+        guard let owned = reservations[candidate.key],
+              candidate.shareID == owned.request.shareID,
+              candidate.metadataModifyTime == owned.request.metadataModifyTime,
+              candidate.itemType == owned.request.itemType else { return candidate }
+        switch candidate.intent {
+        case .materialize(let generation), .refresh(let generation):
+            return generation == owned.request.selectionGeneration ? owned.candidate : candidate
+        case .vaultMaterialize:
+            return candidate
+        }
     }
 
     func submitCurrent(vaultID: String?, includeNew: Bool, refreshExisting: Bool, eligibleItemIDs: Set<String>? = nil) async throws {
@@ -225,17 +257,7 @@ extension OfflineModeService {
         let current = candidates.filter { candidate in
             guard eligibleItemIDs.map({ $0.contains(candidate.key.itemId) }) ?? true else { return false }
             return !isBlocked(scope: .item(candidate.key.itemId), vaultID: candidate.key.vaultId)
-        }.map { candidate in
-            guard let owned = reservations[candidate.key],
-                  candidate.shareID == owned.request.shareID,
-                  candidate.metadataModifyTime == owned.request.metadataModifyTime,
-                  candidate.itemType == owned.request.itemType else { return candidate }
-            switch candidate.intent {
-            case .materialize(let generation), .refresh(let generation):
-                return generation == owned.request.selectionGeneration ? owned.candidate : candidate
-            case .vaultMaterialize: return candidate
-            }
-        }
+        }.map(reservationAwareCandidate)
         submittedKeys.formUnion(current.map(\.key))
         await ownedScheduler().submit(current)
     }
@@ -308,6 +330,15 @@ extension OfflineModeService {
     /// A scope is blocked before yielding. Drain only short metadata ownership,
     /// never fetch lifetimes; revoke persisted authority before cancellation/join.
     func revoke(_ scope: WorkScope, mutation: @Sendable () async throws -> Void) async throws {
+        let releaseScope: OfflineReleaseMutationScope
+        switch scope {
+        case .item(let id): releaseScope = .itemID(id)
+        case .vault(let id): releaseScope = .vaultOnly(vaultID: id)
+        case .all: releaseScope = .all
+        }
+        let authority = repository.releaseAuthority
+        let admission = authority.beginMutation(releaseScope)
+        defer { authority.finishMutation(admission, outcome: .admissionFinished) }
         let id = UUID()
         revocations[id] = scope
         workGeneration = UUID()

@@ -5,7 +5,6 @@ extension QuickAccessViewModel {
         onActivity()
         guard let item = items[safe: selectedIndex] else { return }
         detailItem = item
-        selectedRowIndex = 0
     }
 
     func hideDetail() {
@@ -16,30 +15,28 @@ extension QuickAccessViewModel {
         inFlightLargeType = nil
         inFlightOfflineOperation?.cancel()
         inFlightOfflineOperation = nil
-        isActionLoading = false
         copyGeneration += 1
         largeTypeGeneration += 1
         offlineOperationGeneration += 1
         detailItem = nil
-        selectedRowIndex = 0
     }
 
     func moveRowSelection(by offset: Int) {
         onActivity()
-        guard let item = detailItem else { return }
+        guard offset != 0, let item = detailItem else { return }
         let rows = rows(for: item)
+        reconcileDetailSelection(for: item)
         guard !rows.isEmpty else { return }
-
-        let proposed = max(0, min(rows.count - 1, selectedRowIndex + offset))
-        let direction = offset >= 0 ? 1 : -1
-        var index = proposed
-        while index >= 0 && index < rows.count && !isDetailRowSelectable(rows[index], for: item) {
-            let next = index + direction
-            if next < 0 || next >= rows.count { break }
-            index = next
-        }
-        if index >= 0 && index < rows.count && isDetailRowSelectable(rows[index], for: item) {
-            selectedRowIndex = index
+        let currentIndex = rows.firstIndex(where: { $0.id == detailSelectionState.selectedID }) ?? (offset > 0 ? -1 : rows.count)
+        let proposedIndex = max(0, min(rows.count - 1, currentIndex + offset))
+        let direction = offset > 0 ? 1 : -1
+        var index = proposedIndex
+        while rows.indices.contains(index) {
+            if isDetailRowSelectable(rows[index], for: item) {
+                selectDetailRow(at: index)
+                return
+            }
+            index += direction
         }
     }
 
@@ -125,7 +122,7 @@ extension QuickAccessViewModel {
                         if case .namedAction(let current, _, _) = $0 { return current == action }
                         return false
                     }) {
-                        selectedRowIndex = index
+                        selectDetailRow(at: index)
                     }
                 }
                 handleAction(action, for: item)

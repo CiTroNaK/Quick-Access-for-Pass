@@ -4,27 +4,36 @@ import GRDB
 nonisolated extension OfflineSnapshotRepository {
     func selectItemManually(itemID: String, vaultID: String, shareID: String) async throws -> UUID {
         do {
-            return try await database.writer.write { db in
+            return try await database.writeOfflineMutation(submissionScope: .none) { db in
                 guard try String.fetchOne(db, sql: "SELECT state FROM items WHERE id = ? AND vaultId = ?", arguments: [itemID, vaultID]) == "Active",
                       try String.fetchOne(db, sql: "SELECT shareId FROM vaults WHERE id = ?", arguments: [vaultID]) == shareID else {
                     throw OfflinePersistenceError.identityChanged
                 }
                 try db.execute(sql: "DELETE FROM offlineItemExclusions WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
-                if let generation = try String.fetchOne(db, sql: "SELECT selectionGeneration FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]) {
+                let generation: UUID
+                let didPromote: Bool
+                if let existing = try Row.fetchOne(db, sql: "SELECT selectionGeneration, isManuallySelected FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]) {
+                    guard let storedGeneration: String = existing["selectionGeneration"],
+                          let value = UUID(uuidString: storedGeneration) else { throw OfflinePersistenceError.persistenceFailed }
+                    generation = value
+                    didPromote = (existing["isManuallySelected"] as Int) == 0
                     try db.execute(sql: "UPDATE offlineItems SET isManuallySelected = 1 WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
-                    guard let value = UUID(uuidString: generation) else { throw OfflinePersistenceError.persistenceFailed }
-                    return value
+                } else {
+                    generation = UUID()
+                    didPromote = true
+                    try db.execute(
+                        sql: """
+                            INSERT INTO offlineItems
+                            (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected, selectionGeneration)
+                            VALUES (?, ?, ?, NULL, ?, NULL, 1, ?)
+                            """,
+                        arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, generation.uuidString]
+                    )
                 }
-                let generation = UUID()
-                try db.execute(
-                    sql: """
-                        INSERT INTO offlineItems
-                        (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected, selectionGeneration)
-                        VALUES (?, ?, ?, NULL, ?, NULL, 1, ?)
-                        """,
-                    arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, generation.uuidString]
-                )
-                return generation
+                let promotions = [OfflineManualPromotion(
+                    key: OfflineSnapshotKey(vaultId: vaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
+                    selectionGeneration: generation)]
+                return OfflineMutationUpdate(value: generation, manualPromotions: didPromote ? promotions : [])
             }
         } catch let error as OfflinePersistenceError { throw error }
         catch { throw OfflinePersistenceError.persistenceFailed }
@@ -32,7 +41,7 @@ nonisolated extension OfflineSnapshotRepository {
 
     func keepItemOfflineIndividually(itemID: String, vaultID: String) async throws {
         do {
-            try await database.writer.write { db in
+            try await database.writeOfflineMutation(submissionScope: .none) { db in
                 guard try Bool.fetchOne(
                     db,
                     sql: """
@@ -47,8 +56,15 @@ nonisolated extension OfflineSnapshotRepository {
                 ) == true else {
                     throw OfflinePersistenceError.itemUnavailable
                 }
+                let wasManual = try Bool.fetchOne(db, sql: "SELECT isManuallySelected FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]) == true
                 try db.execute(sql: "UPDATE offlineItems SET isManuallySelected = 1 WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
                 try db.execute(sql: "DELETE FROM offlineItemExclusions WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
+                guard let rawGeneration = try String.fetchOne(db, sql: "SELECT selectionGeneration FROM offlineItems WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID]),
+                      let generation = UUID(uuidString: rawGeneration) else { throw OfflinePersistenceError.persistenceFailed }
+                let promotions = [OfflineManualPromotion(
+                    key: OfflineSnapshotKey(vaultId: vaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
+                    selectionGeneration: generation)]
+                return OfflineMutationUpdate(value: (), manualPromotions: wasManual ? [] : promotions)
             }
         } catch let error as OfflinePersistenceError { throw error }
         catch { throw OfflinePersistenceError.persistenceFailed }
@@ -74,6 +90,38 @@ nonisolated extension OfflineSnapshotRepository {
                     vaultSelection: selected,
                     isExcluded: (row["isExcluded"] as Int) == 1
                 )
+            }
+        } catch { throw OfflinePersistenceError.persistenceFailed }
+    }
+
+    func workCandidateForSelectedItem(itemID: String, vaultID: String) async throws -> OfflineSnapshotWorkCandidate? {
+        do {
+            return try await database.reader.read { db in
+                guard let row = try Row.fetchOne(db, sql: """
+                    SELECT i.id AS itemId, i.vaultId, i.modifyTime, i.itemType, v.shareId,
+                           o.selectionGeneration, o.cacheStatus
+                    FROM offlineItems o
+                    JOIN items i ON i.id = o.itemId AND i.vaultId = o.vaultId
+                    JOIN vaults v ON v.id = o.vaultId
+                    WHERE o.itemId = ? AND o.vaultId = ? AND i.state = 'Active'
+                      AND \(OfflineSelectionSQL.effectiveSelection)
+                    """, arguments: [itemID, vaultID]) else { return nil }
+                guard let currentItemID: String = row["itemId"], let currentVaultID: String = row["vaultId"],
+                      let shareID: String = row["shareId"], let modifyTime: Date = row["modifyTime"],
+                      let rawType: String = row["itemType"], let type = ItemType(rawValue: rawType),
+                      let rawGeneration: String = row["selectionGeneration"],
+                      let generation = UUID(uuidString: rawGeneration),
+                      let status: String = row["cacheStatus"] else { return nil }
+                let intent: OfflineSnapshotWorkIntent
+                switch status {
+                case OfflineCacheStatus.cached.rawValue, OfflineCacheStatus.failed.rawValue:
+                    intent = .refresh(selectionGeneration: generation)
+                case OfflineCacheStatus.notCached.rawValue, OfflineCacheStatus.unavailable.rawValue:
+                    intent = .materialize(selectionGeneration: generation)
+                default: return nil
+                }
+                return makeCandidate(vaultID: currentVaultID, itemID: currentItemID, shareID: shareID,
+                                     modifyTime: modifyTime, type: type, intent: intent)
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
     }

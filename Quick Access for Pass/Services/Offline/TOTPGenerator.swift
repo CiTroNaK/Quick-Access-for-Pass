@@ -16,7 +16,7 @@ nonisolated enum TOTPGenerator {
               let queryItems = components.queryItems else {
             throw Error.unsupportedURI
         }
-        let supportedParameterNames: Set = ["secret", "algorithm", "digits", "period"]
+        let supportedParameterNames: Set = ["secret", "algorithm", "digits", "period", "issuer"]
         var values: [String: String] = [:]
         var parameterNames = Set<String>()
         for item in queryItems {

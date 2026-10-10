@@ -95,7 +95,26 @@ struct TOTPGeneratorTests {
         }
     }
 
-    @Test(arguments: ["issuer=Example", "counter=1", "image=https%3A%2F%2Fexample.com%2Ficon.png"])
+    @Test func issuerMetadataDoesNotChangeCode() throws {
+        let base = "otpauth://totp/Example:alice?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        let date = Date(timeIntervalSince1970: 59)
+        #expect(try TOTPGenerator.code(from: base + "&issuer=Example", at: date) == "287082")
+        #expect(try TOTPGenerator.code(from: base, at: date) == "287082")
+    }
+
+    @Test func acceptsPercentEncodedIssuerMetadata() throws {
+        let uri = "otpauth://totp/Example:alice?secret=\(sha1Secret)&issuer=Example%20Issuer"
+        #expect(try TOTPGenerator.code(from: uri, at: Date(timeIntervalSince1970: 59)) == "287082")
+    }
+
+    @Test func rejectsDuplicateIssuerMetadata() {
+        let uri = "otpauth://totp/Test?secret=\(sha1Secret)&issuer=Example&issuer=Other"
+        #expect(throws: TOTPGenerator.Error.unsupportedURI) {
+            _ = try TOTPGenerator.code(from: uri)
+        }
+    }
+
+    @Test(arguments: ["counter=1", "image=https%3A%2F%2Fexample.com%2Ficon.png"])
     func rejectsUnsupportedQueryParameters(_ parameter: String) {
         let uri = "otpauth://totp/Test?secret=\(sha1Secret)&\(parameter)"
         #expect(throws: TOTPGenerator.Error.unsupportedURI) {

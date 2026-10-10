@@ -97,7 +97,7 @@ metadata eligibility indicators, not promises that later key access/decryption
 will succeed. Observation failure marks retained display state stale and disables
 new selections until a fresh observation succeeds; explicit removal/purge remain
 available. Final authorization/revision, lock, generation, and broker-deadline
-checks reject obsolete release. Removal cannot retract a value already released.
+checks reject obsolete release. Removal cannot retract a value already released. Cached capabilities remain valid only until synchronized final release; invalidation ordered before that release blocks it, while an already-released value cannot be recalled.
 
 The owned database directory is `0700`; the database, known sidecars, and private
 preflight copies are `0600`. Owned expected paths are validated before permission
@@ -109,9 +109,11 @@ control manual copies, third-party backups, APFS snapshots, or storage-controlle
 copies. Device-bound keys are not portable backup/restore credentials.
 
 After committed offline deletion, a metadata-only owner requests an
-out-of-transaction WAL TRUNCATE checkpoint. All three result columns are checked;
-busy retries at most three total attempts, with two cooperative 250 ms inter-attempt
-delays. Errors end that batch without reversing or misreporting deletion or sync.
+out-of-transaction WAL TRUNCATE checkpoint. Concurrent requests coalesce into
+bounded follow-up batches (at most one pending batch while a batch is active); a
+request arriving during an active batch is retained for that follow-up. All three
+result columns are checked; busy retries at most three total attempts, with two
+cooperative 250 ms inter-attempt delays. Errors end that batch without reversing or misreporting deletion or sync.
 Startup also checkpoints after recovery. Normal termination cancels and awaits
 owned maintenance after joining setup; forced termination may bypass cleanup.
 Writer queues, disk I/O, and SQLite busy handling add latency: this is not a hard
@@ -124,10 +126,12 @@ Verified host-broker System AutoFill is the only external offline integration;
 ordinary authorized host copy and Large Type are also supported. The extension
 receives only the requested final password/TOTP value, never storage access,
 selection state, or fallback diagnostics. SSH and Run never use snapshots.
-AutoFill preserves its original broker deadline and peer verification. When a
-usable selected snapshot exists, the live attempt defaults to at most two seconds,
-reserving one second for fallback; uncached requests keep the original remaining
-budget. External cancellation, parse errors, and ordinary command failures do not
+AutoFill preserves its original broker deadline and peer verification. The absolute
+deadline includes queue time and applies across every native CLI command in one
+AutoFill request. When a usable selected snapshot exists, the live phase defaults
+to at most two seconds per request, reserving one second for fallback; uncached
+requests keep the original remaining budget. Invalidation cannot recall a value
+already released to the verified caller. External cancellation, parse errors, and ordinary command failures do not
 authorize fallback. Native cleanup uses up to 250 ms SIGTERM grace, then SIGKILL,
 nonblocking bounded pipe draining, and exactly-once completion; it is a monotonic
 policy bound, not a hard real-time OS guarantee. Secret-facing stdout is capped at

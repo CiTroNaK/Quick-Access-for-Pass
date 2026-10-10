@@ -169,13 +169,13 @@ private actor SystemLockBlockingResolver: SecretItemResolving {
 
     init(gate: OfflineTestGate) { self.gate = gate }
 
-    func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> CLIItem {
+    func resolveItem(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<CLIItem> {
         try? await gate.wait()
-        return try offlineTestCLIItem(id: itemId, vaultID: vaultId, shareID: shareId, password: "system-lock-secret")
+        return ResolvedSecret(value: try offlineTestCLIItem(id: itemId, vaultID: vaultId, shareID: shareId, password: "system-lock-secret"), offlineCapability: nil)
     }
 
-    func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> String {
+    func resolveTOTP(itemId: String, vaultId: String, shareId: String, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
         try? await gate.wait()
-        return "000000"
+        return ResolvedSecret(value: "000000", offlineCapability: nil)
     }
 }

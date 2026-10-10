@@ -98,7 +98,7 @@ final class AutoFillBrokerCoordinator {
         request: AutoFillRegisteredRequest,
         appAssociationIntent: AutoFillAppAssociationIntent? = nil,
         transition: AutoFillBrokerStateTransition = { _ in }
-    ) async throws -> String {
+    ) async throws -> ResolvedSecret<String> {
         try await resolveDelivery(
             request: request,
             appAssociationIntent: appAssociationIntent,

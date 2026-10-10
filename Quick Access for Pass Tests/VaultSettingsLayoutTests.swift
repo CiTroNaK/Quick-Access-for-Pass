@@ -213,6 +213,61 @@ struct VaultSettingsLayoutTests {
         await service.stop()
     }
 
+    @Test("The item Retry row refreshes only its failed target", .timeLimit(.minutes(1)))
+    func offlineManagerRetryBindingIsItemScoped() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["target", "neighbor"])
+        let target = try #require(fixture.items.first { $0.id == "target" })
+        let neighbor = try #require(fixture.items.first { $0.id == "neighbor" })
+        func rename(_ item: PassItem, title: String) -> PassItem {
+            PassItem(id: item.id, vaultId: item.vaultId, title: title, itemType: item.itemType, subtitle: item.subtitle,
+                url: item.url, hasTOTP: item.hasTOTP, state: item.state, createTime: item.createTime,
+                modifyTime: item.modifyTime, useCount: item.useCount, lastUsedAt: item.lastUsedAt)
+        }
+        try fixture.database.upsertItems([rename(target, title: "Target"), rename(neighbor, title: "Neighbor")])
+        let failure = LayoutRetryFailureControl()
+        let viewer = OfflineFixtureViewer(beforeViewItem: { id in try await failure.check(id) })
+        let service = fixture.service(viewer: viewer)
+        try await initializeOfflineFixtureService(service)
+        _ = try await fixture.repository.selectItemManually(itemID: "target", vaultID: "vault", shareID: "share")
+        _ = try await fixture.repository.selectItemManually(itemID: "neighbor", vaultID: "vault", shareID: "share")
+        try await service.retrySelectedCopies(vaultID: "vault")
+        await service.waitUntilIdle()
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "target")?.cacheStatus == .unavailable)
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "neighbor")?.cacheStatus == .cached)
+        let targetBefore = await viewer.callCount(itemID: "target")
+        let neighborBefore = await viewer.callCount(itemID: "neighbor")
+        await failure.succeed()
+
+        let initial = try await fixture.database.reader.read { try OfflineCatalogObservation.presentation(in: $0) }
+        let coordinator = OfflineModeCoordinator(
+            service: service, observation: LayoutSingleObservation(snapshot: initial), shareIDForVault: { _ in "share" }
+        )
+        await coordinator.startObservation().value
+        #expect(coordinator.canMakeNewSelections)
+        #expect(coordinator.itemGroups.flatMap(\.items).count == 2)
+
+        let hosting = NSHostingView(rootView: OfflineItemsManagerView(coordinator: coordinator))
+        let window = fixtureWindow(hosting, size: NSSize(width: 720, height: 480))
+        defer { window.orderOut(nil); window.contentView = nil }
+        hosting.layoutSubtreeIfNeeded()
+        hosting.displayIfNeeded()
+        let table = try #require(descendants(of: hosting).compactMap { $0 as? NSTableView }.first)
+        let targetPosition = try #require(coordinator.itemGroups.first?.items.firstIndex { $0.itemId == "target" })
+        let row = table.rect(ofRow: targetPosition + 1)
+        let retryGate = OfflineTestGate()
+        await failure.pauseTarget(on: retryGate)
+        let point = table.convert(NSPoint(x: table.bounds.maxX - 64, y: row.midY), to: nil)
+        try click(window, at: point)
+        try await retryGate.waitUntilEntered()
+        await retryGate.open()
+        await service.waitUntilIdle()
+        #expect(await viewer.callCount(itemID: "target") == targetBefore + 1)
+        #expect(await viewer.callCount(itemID: "neighbor") == neighborBefore)
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "neighbor")?.cacheStatus == .cached)
+        coordinator.stopObservation()
+        await service.stop()
+    }
+
     @Test("Only login and identity metadata supplies an account identifier", arguments: [ItemType.login, .identity, .creditCard, .wifi, .note])
     func accountIdentifierScope(itemType: ItemType) {
         func item(subtitle: String) -> PassItem {
@@ -270,6 +325,27 @@ struct VaultSettingsLayoutTests {
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         let image = try #require(bitmap.cgImage)
         return try RenderedFixture(image: image, size: size)
+    }
+}
+
+private struct LayoutSingleObservation: OfflineCatalogObserving {
+    let snapshot: OfflinePresentationSnapshot
+    func snapshots() -> AsyncThrowingStream<OfflinePresentationSnapshot, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(snapshot)
+            continuation.finish()
+        }
+    }
+}
+
+private actor LayoutRetryFailureControl {
+    private var failsTarget = true
+    private var targetGate: OfflineTestGate?
+    func succeed() { failsTarget = false }
+    func pauseTarget(on gate: OfflineTestGate) { targetGate = gate }
+    func check(_ itemID: String) async throws {
+        if itemID == "target", failsTarget { throw CLIError.notLoggedIn }
+        if itemID == "target", let targetGate { try await targetGate.wait() }
     }
 }
 

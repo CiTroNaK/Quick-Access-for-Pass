@@ -62,9 +62,15 @@ nonisolated enum CLIError: Error, LocalizedError {
 nonisolated protocol CLIRunning: Sendable {
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data
     func run(executablePath: String, arguments: [String], timeout: TimeInterval, maximumOutputBytes: Int) async throws -> Data
+    func run(executablePath: String, arguments: [String], deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data
 }
 
 extension CLIRunning {
+    func run(executablePath: String, arguments: [String], deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data {
+        let remaining = try deadline.remainingSeconds(at: DispatchTime.now().uptimeNanoseconds)
+        return try await run(executablePath: executablePath, arguments: arguments, timeout: remaining, maximumOutputBytes: maximumOutputBytes)
+    }
+
     /// Fakes retain their old requirement but cannot bypass secret output limits.
     func run(executablePath: String, arguments: [String], timeout: TimeInterval, maximumOutputBytes: Int) async throws -> Data {
         let data = try await run(executablePath: executablePath, arguments: arguments, timeout: timeout)
@@ -86,6 +92,10 @@ nonisolated struct LiveCLIRunner: CLIRunning, CLIEnvironmentRunning {
         try await CLIRunner.run(executablePath: executablePath, arguments: arguments, timeout: timeout, maximumOutputBytes: maximumOutputBytes)
     }
 
+    nonisolated func run(executablePath: String, arguments: [String], deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data {
+        try await CLIRunner.run(executablePath: executablePath, arguments: arguments, deadline: deadline, maximumOutputBytes: maximumOutputBytes)
+    }
+
     nonisolated func run(executablePath: String, arguments: [String], environmentOverrides: [String: String], timeout: TimeInterval) async throws -> Data {
         try await CLIRunner.run(executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides, timeout: timeout)
     }
@@ -93,19 +103,17 @@ nonisolated struct LiveCLIRunner: CLIRunning, CLIEnvironmentRunning {
 
 /// A bounded, cancellation-aware native process lifecycle. Process ownership is
 /// actor-isolated; pipe I/O is performed by Dispatch read sources on `ioQueue`.
+// pi-lens-ignore: type_body_length
 nonisolated enum CLIRunner {
     /// Internal test-only lifecycle observation; it exposes no process IDs,
     /// descriptors, output, or secret material and is nil in production.
     nonisolated struct LifecycleTesting: Sendable {
         nonisolated enum Event: Sendable {
-            case deadlineCaptured, startTaskSubmitted, startTaskEntered, actorStartEntered
-            case launching, stdoutInstalled, running, terminating, finalizationAttempt, finalizationOwned, completed
-            case outputLimitNotificationCompleted
-            case stderrDrainSubmitted, stderrDrainEntered, stderrFirstBytesRead, stderrOverflowObserved
-            case outputLimitNotificationSubmitted, outputLimitNotificationEntered, outputExceededEntered
-            case nativeExitCallbackEntered, nativeExitTaskEntered, processDidExitEntered
-            case timeoutTimerFired, timeoutTaskEntered, timeoutFoundationProcessRunning, timeoutFoundationProcessStopped
-            case killTimerFired, killTaskEntered, killIfStillOwnedEntered, forceKillAttempted
+            case deadlineCaptured, startTaskEntered
+            case launching, running, terminating, finalizationOwned, completed
+            case outputLimitNotificationCompleted, outputExceededEntered
+            case stderrDrainEntered
+            case nativeExitCallbackEntered, nativeExitTaskEntered, forceKillAttempted
             case controlExecutorJobStarted, ioExecutorJobStarted
         }
         /// `beforeExecutionStart` has captured a deadline but owns no child, PID, descriptor, or reader.
@@ -147,17 +155,43 @@ nonisolated enum CLIRunner {
     private static let stderrLimit = 256 * 1024
 
     static func run(executablePath: String, arguments: [String], environmentOverrides: [String: String] = [:], timeout: TimeInterval = 300) async throws -> Data {
-        try await run(executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides, timeout: timeout, maximumOutputBytes: nil)
+        try await runInternal(
+            executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides,
+            timeout: timeout, deadline: nil, maximumOutputBytes: nil, lifecycleTesting: nil
+        )
     }
 
     static func run(executablePath: String, arguments: [String], timeout: TimeInterval, maximumOutputBytes: Int) async throws -> Data {
-        try await run(executablePath: executablePath, arguments: arguments, environmentOverrides: [:], timeout: timeout, maximumOutputBytes: maximumOutputBytes)
+        try await runInternal(
+            executablePath: executablePath, arguments: arguments, environmentOverrides: [:],
+            timeout: timeout, deadline: nil, maximumOutputBytes: maximumOutputBytes,
+            lifecycleTesting: nil
+        )
+    }
+
+    static func run(
+        executablePath: String, arguments: [String], deadline: CLIExecutionDeadline,
+        maximumOutputBytes: Int
+    ) async throws -> Data {
+        try await run(executablePath: executablePath, arguments: arguments, deadline: deadline, maximumOutputBytes: maximumOutputBytes, lifecycleTesting: nil)
+    }
+
+    static func run(
+        executablePath: String, arguments: [String], deadline: CLIExecutionDeadline,
+        maximumOutputBytes: Int?, lifecycleTesting: LifecycleTesting?
+    ) async throws -> Data {
+        try await runInternal(
+            executablePath: executablePath, arguments: arguments, environmentOverrides: [:],
+            timeout: nil, deadline: DispatchTime(uptimeNanoseconds: deadline.uptimeNanoseconds),
+            maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycleTesting
+        )
     }
 
     static func run(executablePath: String, arguments: [String], environmentOverrides: [String: String], timeout: TimeInterval, maximumOutputBytes: Int?) async throws -> Data {
-        try await run(
+        try await runInternal(
             executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides,
-            timeout: timeout, maximumOutputBytes: maximumOutputBytes, lifecycleTesting: nil
+            timeout: timeout, deadline: nil, maximumOutputBytes: maximumOutputBytes,
+            lifecycleTesting: nil
         )
     }
 
@@ -169,9 +203,28 @@ nonisolated enum CLIRunner {
         maximumOutputBytes: Int?,
         lifecycleTesting: LifecycleTesting?
     ) async throws -> Data {
-        // Capture the terminal deadline before the structured start child can
-        // be queued. Native launch, SIGTERM grace, and SIGKILL all share it.
-        let deadline = DispatchTime.now() + max(0, timeout)
+        try await runInternal(
+            executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides,
+            timeout: timeout, deadline: nil, maximumOutputBytes: maximumOutputBytes,
+            lifecycleTesting: lifecycleTesting
+        )
+    }
+
+    private static func runInternal(
+        executablePath: String, arguments: [String], environmentOverrides: [String: String],
+        timeout requestedTimeout: TimeInterval?, deadline absoluteDeadline: DispatchTime?,
+        maximumOutputBytes: Int?, lifecycleTesting: LifecycleTesting?
+    ) async throws -> Data {
+        let deadline: DispatchTime
+        let timeout: TimeInterval
+        if let absoluteDeadline {
+            deadline = absoluteDeadline
+            timeout = (try? CLIExecutionDeadline(uptimeNanoseconds: absoluteDeadline.uptimeNanoseconds).remainingSeconds(at: DispatchTime.now().uptimeNanoseconds)) ?? 0
+        } else {
+            timeout = requestedTimeout ?? 300
+            deadline = DispatchTime.now() + max(0, timeout)
+        }
+        // The shared absolute deadline bounds queueing, launch, and termination grace.
         lifecycleTesting?.marker(.deadlineCaptured)
         let cancellationState = CLIRunnerCancellationState()
         let ioQueue = DispatchQueue(label: "com.quickaccess.pass.cli.io")
@@ -190,12 +243,12 @@ nonisolated enum CLIRunner {
             controlExecutor: controlExecutor, ioExecutor: ioExecutor
         )
         return try await withTaskCancellationHandler {
-            // A structured child inherits the caller's task-executor preference;
-            // plain Task {} would discard it. The group also joins start ownership.
+            // Native startup uses the operation-owned control executor rather
+            // than blocking or queueing on the caller's cooperative pool. The
+            // structured group still joins startup and retains the original deadline.
             try await withThrowingTaskGroup(of: Void.self, returning: Data.self) { group in
                 try await withCheckedThrowingContinuation { continuation in
-                    lifecycleTesting?.marker(.startTaskSubmitted)
-                    group.addTask {
+                    group.addTask(executorPreference: controlExecutor) {
                         lifecycleTesting?.marker(.startTaskEntered)
                         if let suspension = lifecycleTesting?.suspension { await suspension(.beforeExecutionStart) }
                         await execution.start(continuation)
@@ -262,7 +315,6 @@ nonisolated enum CLIRunner {
         }
 
         func start(_ continuation: CheckedContinuation<Data, Error>) async {
-            lifecycleTesting?.marker(.actorStartEntered)
             guard phase == .pendingLaunch else { return }
             self.continuation = continuation
             guard !cancellationRequested else { await complete(.failure(CancellationError())); return }
@@ -314,7 +366,6 @@ nonisolated enum CLIRunner {
                 await self.outputExceeded()
                 self.lifecycleTesting?.marker(.outputLimitNotificationCompleted)
             } }
-            lifecycleTesting?.marker(.stdoutInstalled)
             if let suspension = lifecycleTesting?.suspension {
                 await suspension(.afterStdoutInstalled)
             }
@@ -322,11 +373,8 @@ nonisolated enum CLIRunner {
             // A terminating launch must never install more readers or replace its
             // already-owned kill timer with a new running timeout.
             guard phase == .launching, !cancellationRequested else { return }
-            let overflowMarker = lifecycleTesting?.marker
             await stderr.start(on: ioQueue, executor: ioExecutor) { [self] in
-                overflowMarker?(.outputLimitNotificationSubmitted)
                 Task(executorPreference: controlExecutor) {
-                    overflowMarker?(.outputLimitNotificationEntered)
                     if let suspension = self.lifecycleTesting?.suspension { await suspension(.beforeOutputLimitNotification) }
                     await self.outputExceeded()
                     self.lifecycleTesting?.marker(.outputLimitNotificationCompleted)
@@ -351,12 +399,9 @@ nonisolated enum CLIRunner {
             let grace = min(0.25, max(0, timeout) / 2)
             let timer = DispatchSource.makeTimerSource()
             timer.schedule(deadline: deadline - grace)
-            let marker = lifecycleTesting?.marker
             let executor = controlExecutor
             timer.setEventHandler { [weak self] in
-                marker?(.timeoutTimerFired)
                 Task(executorPreference: executor) {
-                    marker?(.timeoutTaskEntered)
                     await self?.beginTermination(reason: .timeout)
                 }
             }
@@ -375,11 +420,6 @@ nonisolated enum CLIRunner {
 
         private func beginTermination(reason: TerminalReason?) async {
             guard phase != .completed else { return }
-            // Foundation's state is diagnostic metadata, not a native exit-time
-            // proof or a new classification/authorization decision.
-            if reason == .timeout, let marker = lifecycleTesting?.marker, let process {
-                marker(process.isRunning ? .timeoutFoundationProcessRunning : .timeoutFoundationProcessStopped)
-            }
             // Overflow is non-fallback even when timeout already owns termination.
             // The existing terminating-phase guard preserves that kill timer.
             if let reason, terminalReason == nil || reason == .outputLimit { terminalReason = reason }
@@ -400,12 +440,9 @@ nonisolated enum CLIRunner {
                 min(deadline, .now() + .milliseconds(250))
             }
             killTimer.schedule(deadline: graceDeadline)
-            let marker = lifecycleTesting?.marker
             let executor = controlExecutor
             killTimer.setEventHandler { [weak self] in
-                marker?(.killTimerFired)
                 Task(executorPreference: executor) {
-                    marker?(.killTaskEntered)
                     await self?.killIfStillOwned()
                 }
             }
@@ -414,7 +451,6 @@ nonisolated enum CLIRunner {
         }
 
         private func killIfStillOwned() {
-            lifecycleTesting?.marker(.killIfStillOwnedEntered)
             // A timer can enqueue after the child is reaped but before the exit
             // task enters this actor. Both observed exit and Foundation's live
             // process state are required before signalling the owned PID.
@@ -424,7 +460,6 @@ nonisolated enum CLIRunner {
         }
 
         private func processDidExit() async {
-            lifecycleTesting?.marker(.processDidExitEntered)
             observedExit = true
             guard phase != .completed else { return }
             guard phase != .launching else { exitedDuringLaunch = true; return }
@@ -460,7 +495,6 @@ nonisolated enum CLIRunner {
 
         private func finalizeExitedProcess() async {
             guard phase != .completed else { return }
-            lifecycleTesting?.marker(.finalizationAttempt)
             guard !finalizationOwned else { return }
             finalizationOwned = true
             lifecycleTesting?.marker(.finalizationOwned)
@@ -550,31 +584,22 @@ nonisolated enum CLIRunner {
     }
 }
 
-/// Allocated only for a test observer. Its lock protects one-shot metadata
-/// flags, never pipe I/O, actor hops or observer callbacks.
+/// One-shot entry observation for native reader-route tests.
 nonisolated private final class CLIPipeReaderObservation: Sendable {
-    private let flags = OSAllocatedUnfairLock(initialState: UInt8(0))
+    private let recorded = OSAllocatedUnfairLock(initialState: false)
     private let marker: @Sendable (CLIRunner.LifecycleTesting.Event) -> Void
 
     init(marker: @escaping @Sendable (CLIRunner.LifecycleTesting.Event) -> Void) {
         self.marker = marker
     }
 
-    func recordFirst(_ event: CLIRunner.LifecycleTesting.Event) {
-        let bit: UInt8 = switch event {
-        case .stderrDrainSubmitted: 1
-        case .stderrDrainEntered: 2
-        case .stderrFirstBytesRead: 4
-        case .stderrOverflowObserved: 8
-        default: 0
-        }
-        guard bit != 0 else { return }
-        let isFirst = flags.withLock { flags in
-            guard flags & bit == 0 else { return false }
-            flags |= bit
+    func recordFirstDrain() {
+        let first = recorded.withLock { recorded in
+            guard !recorded else { return false }
+            recorded = true
             return true
         }
-        if isFirst { marker(event) }
+        if first { marker(.stderrDrainEntered) }
     }
 }
 
@@ -687,7 +712,7 @@ private actor PipeReader {
         self.channel = channel
         readerRouteUnderTest = lifecycleTesting?.readerRouteUnderTest
         readerCallbackRead = lifecycleTesting?.readerCallbackRead
-        // Existing stderr diagnostics must not accidentally describe stdout.
+        // Reader-route tests distinguish stderr entry from stdout work.
         observation = channel == .stderr ? lifecycleTesting.map { CLIPipeReaderObservation(marker: $0.marker) } : nil
     }
 
@@ -696,15 +721,13 @@ private actor PipeReader {
         if readerCallbackRead != nil { callbackExecutorForTesting = executor }
         let flags = fcntl(handle.fileDescriptor, F_GETFL)
         _ = fcntl(handle.fileDescriptor, F_SETFL, flags | O_NONBLOCK)
-        let observation = observation
         let sourceRoute = CLIRunner.LifecycleTesting.ReaderRoute(channel: channel, callback: .readSource)
         let pollerRoute = CLIRunner.LifecycleTesting.ReaderRoute(channel: channel, callback: .poller)
         let enableSource = readerRouteUnderTest.map { $0 == sourceRoute } ?? true
         let enablePoller = readerRouteUnderTest.map { $0 == pollerRoute } ?? true
         let source = DispatchSource.makeReadSource(fileDescriptor: handle.fileDescriptor, queue: queue)
-        source.setEventHandler { [weak self, observation] in
+        source.setEventHandler { [weak self] in
             guard enableSource else { return }
-            observation?.recordFirst(.stderrDrainSubmitted)
             Task(executorPreference: executor) { await self?.drain(callback: .readSource) }
         }
         source.setCancelHandler { [handle] in try? handle.close() }
@@ -712,9 +735,8 @@ private actor PipeReader {
         source.resume()
         let poller = DispatchSource.makeTimerSource(queue: queue)
         poller.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))
-        poller.setEventHandler { [weak self, observation] in
+        poller.setEventHandler { [weak self] in
             guard enablePoller else { return }
-            observation?.recordFirst(.stderrDrainSubmitted)
             Task(executorPreference: executor) { await self?.drain(callback: .poller) }
         }
         self.poller = poller
@@ -751,13 +773,12 @@ private actor PipeReader {
         // Quiescence supplies no callback tag and cannot report a route read.
         let inOwnedIOJob = callback != nil && readerCallbackRead != nil
             ? callbackExecutorForTesting?.isExecutingJobForTesting() == true : false
-        observation?.recordFirst(.stderrDrainEntered)
+        observation?.recordFirstDrain()
         guard !discarded else { return }
         for index in 0..<8 {
             var bytes = [UInt8](repeating: 0, count: 64 * 1024)
             let count = Darwin.read(handle.fileDescriptor, &bytes, bytes.count)
             if count > 0 {
-                observation?.recordFirst(.stderrFirstBytesRead)
                 if let callback, let readerCallbackRead, !didReportCallbackRead {
                     didReportCallbackRead = true
                     readerCallbackRead(.init(channel: channel, callback: callback), inOwnedIOJob)
@@ -767,7 +788,6 @@ private actor PipeReader {
                     overflowed = true
                     discarded = true
                     CLIRunner.zero(&data)
-                    observation?.recordFirst(.stderrOverflowObserved)
                     onOverflow?()
                     return
                 }

@@ -11,7 +11,6 @@ extension QuickAccessViewModel {
         inFlightLargeType = nil
         largeTypeGeneration += 1
         inFlightCopy?.cancel()
-        isActionLoading = true
         copyGeneration += 1
         let generation = copyGeneration
         let releaseToken = secretReleaseGuard.capture()
@@ -35,7 +34,7 @@ extension QuickAccessViewModel {
                 return
             }
             guard canReleaseCopy(generation, token: releaseToken) else { return }
-            clipboardManager.copy(value, label: copyLabel(for: key))
+            try releaseCopy(value, label: copyLabel(for: key), generation: generation, token: releaseToken)
             guard canReleaseCopy(generation, token: releaseToken) else { return }
             try? searchService.recordUsage(itemId: item.id)
             guard canReleaseCopy(generation, token: releaseToken) else { return }
@@ -56,21 +55,30 @@ extension QuickAccessViewModel {
         from item: PassItem,
         generation: Int,
         releaseToken: UUID
-    ) async throws -> String? {
+    ) async throws -> ResolvedSecret<String>? {
         let cliItem = try await secretResolver.resolveItem(
             itemId: item.id, vaultId: item.vaultId, shareId: shareId(for: item)
         )
         try Task.checkCancellation()
         guard canReleaseCopy(generation, token: releaseToken) else { return nil }
 
-        guard let value = FieldExtractor.value(for: key, in: cliItem) else {
+        let extracted = cliItem.map { FieldExtractor.value(for: key, in: $0) }
+        guard let value = extracted.value else {
             publishCopyError(String(localized: "Field no longer available — refresh"), generation: generation)
             return nil
         }
 
         try Task.checkCancellation()
         guard canReleaseCopy(generation, token: releaseToken) else { return nil }
-        return value
+        return extracted.map { _ in value }
+    }
+
+    func releaseCopy(_ resolved: ResolvedSecret<String>, label: String, generation: Int, token: UUID) throws {
+        try resolved.release(validating: {
+            try Task.checkCancellation()
+            guard self.canReleaseCopy(generation, token: token) else { throw CancellationError() }
+        }, effect: { self.clipboardManager.writeConcealedValue($0) })
+        clipboardManager.completeCopy(label: label)
     }
 
     func isCurrentCopyGeneration(_ generation: Int) -> Bool {
@@ -88,7 +96,6 @@ extension QuickAccessViewModel {
 
     func finishCopyTaskIfCurrent(_ generation: Int) {
         guard isCurrentCopyGeneration(generation) else { return }
-        isActionLoading = false
         inFlightCopy = nil
     }
 

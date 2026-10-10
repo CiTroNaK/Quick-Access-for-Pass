@@ -66,7 +66,7 @@ extension AutoFillBrokerTests {
                 )
                 return BrokerTestPreparedDelivery(
                     request: request, registeredRequest: registeredRequest,
-                    delivery: AutoFillCredentialDelivery(value: "must-not-be-delivered", release: release)
+                    delivery: AutoFillCredentialDelivery(value: ResolvedSecret(value: "must-not-be-delivered", offlineCapability: nil), release: release)
                 )
             }
             trace.record(.releaseConstructed)

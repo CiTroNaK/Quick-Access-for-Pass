@@ -65,6 +65,9 @@ struct CLIRunnerTimeoutTests {
         }
         #expect(output == Data("routed".utf8))
         let observed = events.withLock { $0 }
+        let startEntered = try #require(observed.firstIndex(of: "startTaskEntered"))
+        #expect(observed[..<startEntered].contains("controlExecutorJobStarted"),
+                "Native startup must be admitted on the operation-owned control executor")
         let exitEntered = try #require(observed.firstIndex(of: "nativeExitTaskEntered"))
         let readEntered = try #require(observed.firstIndex(of: "stderrDrainEntered"))
         // Actual executor jobs must precede their first consumers. A control
@@ -180,8 +183,7 @@ struct CLIRunnerTimeoutTests {
     @Test(.timeLimit(.minutes(1)))
     func inheritedPipeAndClosedEOFDoNotDelayTermination() async throws {
         let inheritedTrace = CLIRunnerFailureTrace()
-        defer { inheritedTrace.report(caseName: "inheritedPipe") }
-        let executor = CLIRunnerTestTaskExecutor(trace: inheritedTrace)
+        let executor = CLIRunnerTestTaskExecutor()
         let inheritedTask = CLIRunnerTestTaskFactory.start(on: executor) {
             try await inheritedTrace.call {
                 try await CLIRunner.run(
@@ -190,18 +192,13 @@ struct CLIRunnerTimeoutTests {
                 )
             }
         }
-        let inherited: Data
-        do {
-            inherited = try await inheritedTask.value
-        } catch {
-            inheritedTrace.recordFailure(error)
-            throw error
-        }
+        let inherited = try await inheritedTask.value
+        inheritedTrace.expectEvents([.launching, .nativeExitCallbackEntered])
+        inheritedTrace.expectSingleCompletion()
         #expect(inherited.isEmpty)
-        inheritedTrace.expectCallCompletedWithinTwoSeconds()
+        inheritedTrace.expectCallCompleted()
 
         let closedEOFTrace = CLIRunnerFailureTrace()
-        defer { closedEOFTrace.report(caseName: "closedEOF") }
         let closedEOFTask = CLIRunnerTestTaskFactory.start(on: executor) {
             try await closedEOFTrace.call {
                 try await CLIRunner.run(
@@ -213,13 +210,12 @@ struct CLIRunnerTimeoutTests {
         await #expect {
             try await closedEOFTask.value
         } throws: { error in
-            guard let error = error as? CLIError, case .timeout = error else {
-                closedEOFTrace.recordFailure(error)
-                return false
-            }
+            guard let error = error as? CLIError, case .timeout = error else { return false }
             return true
         }
-        closedEOFTrace.expectCallCompletedWithinTwoSeconds()
+        closedEOFTrace.expectEvents([.launching, .running, .terminating, .nativeExitCallbackEntered])
+        closedEOFTrace.expectSingleCompletion()
+        closedEOFTrace.expectCallCompleted()
     }
 
     @Test(
@@ -227,59 +223,74 @@ struct CLIRunnerTimeoutTests {
         .timeLimit(.minutes(1))
     )
     func timeoutThrowsCLIErrorTimeout() async throws {
-        let clock = ContinuousClock()
-        let elapsed = await clock.measure {
-            await #expect {
-                _ = try await CLIRunner.run(
-                    executablePath: "/bin/sleep",
-                    arguments: ["60"],
-                    timeout: 1.0
-                )
-            } throws: { error in
-                guard let e = error as? CLIError, case .timeout = e else { return false }
-                return true
-            }
+        let trace = CLIRunnerFailureTrace()
+        let child = temporaryFixtureMarker()
+        defer { try? FileManager.default.removeItem(at: child) }
+        let executor = CLIRunnerTestTaskExecutor()
+        await #expect {
+            let task = CLIRunnerTestTaskFactory.start(on: executor) { try await trace.call { try await CLIRunner.run(
+                executablePath: "/bin/sh",
+                arguments: ["-c", "printf ready > '\(child.path)'; exec /bin/sleep 60"],
+                timeout: 1.0, maximumOutputBytes: nil, lifecycleTesting: trace.lifecycle()
+            ) } }
+            _ = try await task.value
+        } throws: { error in
+            guard let typed = error as? CLIError, case .timeout = typed else { return false }
+            return true
         }
 
-        #expect(elapsed < .seconds(5), "CLIRunner.run took \(elapsed), expected < 5s")
+        trace.expectChildReady(child)
+        trace.expectEvents([.launching, .running, .terminating, .nativeExitCallbackEntered])
+        trace.expectSingleCompletion()
+        trace.expectCallCompleted(within: .seconds(5))
     }
 
     @Test(.timeLimit(.minutes(1)))
     func ignoredTerminationCannotHoldRunnerForChildLifetime() async throws {
         let trace = CLIRunnerFailureTrace()
-        let start = ContinuousClock.now
+        let child = temporaryFixtureMarker()
+        defer { try? FileManager.default.removeItem(at: child) }
+        let executor = CLIRunnerTestTaskExecutor()
         await #expect {
-            try await trace.call {
+            let task = CLIRunnerTestTaskFactory.start(on: executor) { try await trace.call {
                 try await CLIRunner.run(
                     executablePath: "/bin/sh",
-                    arguments: ["-c", "trap '' TERM; /bin/sleep 3"],
-                    timeout: 0.2, maximumOutputBytes: 4 * 1024, lifecycleTesting: trace.lifecycle()
+                    arguments: ["-c", "trap '' TERM; printf ready > '\(child.path)'; /bin/sleep 3"],
+                    timeout: 1, maximumOutputBytes: 4 * 1024, lifecycleTesting: trace.lifecycle()
                 )
-            }
+            } }
+            _ = try await task.value
         } throws: { error in
-            guard let typed = error as? CLIError, case .timeout = typed else {
-                trace.recordFailure(error)
-                return false
-            }
+            guard let typed = error as? CLIError, case .timeout = typed else { return false }
             return true
         }
-        if start.duration(to: .now) >= .seconds(2) { trace.recordFailure() }
-        #expect(start.duration(to: .now) < .seconds(2))
+        trace.expectChildReady(child)
+        trace.expectEvents([.launching, .running, .terminating, .forceKillAttempted, .nativeExitCallbackEntered])
+        trace.expectSingleCompletion()
+        trace.expectCallCompleted()
     }
 
     @Test(.timeLimit(.minutes(1)))
     func boundedOutputRejectsOverflowWithoutReturningPayload() async throws {
+        let trace = CLIRunnerFailureTrace()
+        let child = temporaryFixtureMarker()
+        defer { try? FileManager.default.removeItem(at: child) }
+        let executor = CLIRunnerTestTaskExecutor()
         await #expect {
-            try await CLIRunner.run(
+            let task = CLIRunnerTestTaskFactory.start(on: executor) { try await trace.call { try await CLIRunner.run(
                 executablePath: "/bin/sh",
-                arguments: ["-c", "yes x | head -c 8192"],
+                arguments: ["-c", "printf ready > '\(child.path)'; yes x | head -c 8192"],
                 timeout: 2,
-                maximumOutputBytes: 1024
-            )
+                maximumOutputBytes: 1024, lifecycleTesting: trace.lifecycle()
+            ) } }
+            _ = try await task.value
         } throws: { error in
             guard let typed = error as? CLIError, case .outputLimitExceeded = typed else { return false }
             return true
         }
+        trace.expectChildReady(child)
+        trace.expectEvents([.launching, .outputExceededEntered, .nativeExitCallbackEntered])
+        trace.expectSingleCompletion()
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -298,32 +309,48 @@ struct CLIRunnerTimeoutTests {
 
     @Test(.timeLimit(.minutes(1)))
     func launchCancellationCannotRestoreRunningAfterStdoutInstallation() async throws {
+        let trace = CLIRunnerFailureTrace()
         let gate = OfflineTestGate()
+        let finalizationGate = OfflineTestGate()
+        let child = temporaryFixtureMarker()
+        defer { try? FileManager.default.removeItem(at: child) }
         let events = OSAllocatedUnfairLock(initialState: [CLIRunner.LifecycleTesting.Event]())
         let lifecycle = CLIRunner.LifecycleTesting(
-            marker: { event in events.withLock { $0.append(event) } },
+            marker: { event in trace.recordEvent(event); events.withLock { $0.append(event) } },
             suspension: { point in
                 if point == .afterStdoutInstalled { try? await gate.wait() }
+                if point == .afterFinalizationOwnership { try? await finalizationGate.wait() }
             }
         )
-        let task = Task {
+        let executor = CLIRunnerTestTaskExecutor()
+        let task = CLIRunnerTestTaskFactory.start(on: executor) {
+            try await trace.call {
             try await CLIRunner.run(
-                executablePath: "/bin/sh", arguments: ["-c", "yes x | head -c 8192; /bin/sleep 3"],
+                executablePath: "/bin/sh", arguments: ["-c", "printf ready > '\(child.path)'; yes x | head -c 8192; /bin/sleep 3"],
                 timeout: 3, maximumOutputBytes: 1024, lifecycleTesting: lifecycle
             )
+            }
         }
         do {
             try await gate.waitUntilEntered()
+            try await finalizationGate.waitUntilEntered()
+            trace.recordCancellationRequest()
             task.cancel()
+            await finalizationGate.open()
             await gate.open()
             await #expect(throws: CancellationError.self) { try await task.value }
+            trace.expectChildReady(child)
+            trace.expectCancellation(beforeCommit: true)
+            trace.expectSingleCompletion()
             let observed = events.withLock { $0 }
             #expect(observed.contains(.launching))
             #expect(observed.contains(.terminating))
             #expect(observed.contains(.running) == false)
             #expect(observed.filter { $0 == .completed }.count == 1)
         } catch {
+            trace.recordCancellationRequest()
             task.cancel()
+            await finalizationGate.open()
             await gate.open()
             _ = await task.result
             throw error
@@ -333,11 +360,15 @@ struct CLIRunnerTimeoutTests {
     @Test(.timeLimit(.minutes(1)))
     func competingFinalizersRetainOutputAndClaimOwnershipOnce() async throws {
         let gate = OfflineTestGate()
+        let observer = FinalizerSettlementObserver()
         let events = OSAllocatedUnfairLock(initialState: [CLIRunner.LifecycleTesting.Event]())
         let lifecycle = CLIRunner.LifecycleTesting(
             marker: { event in events.withLock { $0.append(event) } },
             suspension: { point in
-                if point == .afterFinalizationOwnership { try? await gate.wait() }
+                if point == .afterFinalizationOwnership {
+                    await observer.finalizationEntered()
+                    try? await gate.wait()
+                }
             }
         )
         let task = Task {
@@ -346,18 +377,30 @@ struct CLIRunnerTimeoutTests {
                 timeout: 2, maximumOutputBytes: 4096, lifecycleTesting: lifecycle
             )
         }
+        let settlement = Task { _ = await task.result; await observer.runnerSettled() }
         do {
+            let outcome = try await observer.wait()
+            if outcome == .terminal {
+                // Preserve the actual native error; a no-finalization terminal
+                // success also fails the required real-entry assertion.
+                _ = try await task.value
+            }
+            try #require(outcome == .entered)
             try await gate.waitUntilEntered()
             try await Task.sleep(for: .milliseconds(100))
             await gate.open()
             #expect(try await task.value == Data("retained-output".utf8))
+            await settlement.value
+            #expect(await observer.pendingObservationCount() == 0)
             let observed = events.withLock { $0 }
+            #expect(observed.contains(.launching))
             #expect(observed.filter { $0 == .finalizationOwned }.count == 1)
             #expect(observed.filter { $0 == .completed }.count == 1)
         } catch {
             task.cancel()
             await gate.open()
             _ = await task.result
+            await settlement.value
             throw error
         }
     }
@@ -365,17 +408,25 @@ struct CLIRunnerTimeoutTests {
     @Test(.timeLimit(.minutes(1)))
     func delayedInheritedWriterCannotExtendOrChangeReturnedOutput() async throws {
         let trace = CLIRunnerFailureTrace()
-        let start = ContinuousClock.now
-        let output = try await trace.call {
-            try await CLIRunner.run(
-                executablePath: "/bin/sh",
-                arguments: ["-c", "printf early; (/bin/sleep 3; printf late) &"],
-                timeout: 2, maximumOutputBytes: 1024, lifecycleTesting: trace.lifecycle()
-            )
+        let executor = CLIRunnerTestTaskExecutor()
+        let task = CLIRunnerTestTaskFactory.start(on: executor) {
+            try await trace.call {
+                try await CLIRunner.run(
+                    executablePath: "/bin/sh",
+                    arguments: ["-c", "printf early; (/bin/sleep 3; printf late) &"],
+                    timeout: 2, maximumOutputBytes: 1024, lifecycleTesting: trace.lifecycle()
+                )
+            }
         }
+        let output = try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        trace.expectEvents([.launching, .nativeExitCallbackEntered])
+        trace.expectSingleCompletion()
         #expect(output == Data("early".utf8))
-        if start.duration(to: .now) >= .seconds(2) { trace.recordFailure() }
-        #expect(start.duration(to: .now) < .seconds(2))
+        trace.expectCallCompleted()
         // The inherited writer is deliberately finite; let its owned fixture
         // lifetime conclude rather than leaving asynchronous test work behind.
         try await Task.sleep(for: .milliseconds(3100))
@@ -383,49 +434,98 @@ struct CLIRunnerTimeoutTests {
 
     @Test(.timeLimit(.minutes(1)))
     func cancellationWinsActualTimeoutTerminationRaceForNormalAndEnvironmentRuns() async throws {
-        let normalEvents = OSAllocatedUnfairLock(initialState: [CLIRunner.LifecycleTesting.Event]())
-        let normalTrace = CLIRunnerFailureTrace()
-        let normal = Task {
-            try await normalTrace.call {
-                try await CLIRunner.run(
-                    executablePath: "/bin/sh", arguments: ["-c", "trap '' TERM; /bin/sleep 3"],
-                    timeout: 0.6, maximumOutputBytes: nil,
-                    lifecycleTesting: normalTrace.lifecycle { event in normalEvents.withLock { $0.append(event) } }
-                )
+        for environmentAware in [false, true] {
+            let trace = CLIRunnerFailureTrace()
+            let gate = OfflineTestGate()
+            let child = temporaryFixtureMarker()
+            defer { try? FileManager.default.removeItem(at: child) }
+            let executor = CLIRunnerTestTaskExecutor()
+            let lifecycle = trace.lifecycle(suspension: { point in
+                if point == .afterFinalizationOwnership { try? await gate.wait() }
+            })
+            let task = CLIRunnerTestTaskFactory.start(on: executor) {
+                try await trace.call {
+                    let arguments = ["-c", "trap '' TERM; printf ready > '\(child.path)'; /bin/sleep 3"]
+                    if environmentAware {
+                        return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
+                            environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: 0.6, maximumOutputBytes: 1024, lifecycleTesting: lifecycle)
+                    }
+                    return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
+                        timeout: 0.6, maximumOutputBytes: nil, lifecycleTesting: lifecycle)
+                }
+            }
+            do {
+                try await gate.waitUntilEntered()
+                trace.expectChildReady(child)
+                trace.expectEvents([.running, .terminating, .forceKillAttempted, .nativeExitCallbackEntered, .finalizationOwned])
+                trace.recordCancellationRequest()
+                task.cancel()
+                await gate.open()
+                await #expect(throws: CancellationError.self) { _ = try await task.value }
+                trace.expectCancellation(beforeCommit: true)
+                trace.expectSingleCompletion()
+            } catch {
+                trace.recordCancellationRequest()
+                task.cancel()
+                await gate.open()
+                _ = await task.result
+                throw error
             }
         }
-        try await waitForTerminationEvent(normalEvents)
-        normal.cancel()
-        await #expect(throws: CancellationError.self) { try await normal.value }
-        if normalEvents.withLock({ $0.filter { $0 == .completed }.count }) != 1 { normalTrace.recordFailure() }
-        #expect(normalEvents.withLock { $0.filter { $0 == .completed }.count } == 1)
+    }
 
-        let environmentEvents = OSAllocatedUnfairLock(initialState: [CLIRunner.LifecycleTesting.Event]())
-        let environmentTrace = CLIRunnerFailureTrace()
-        let environment = Task {
-            try await environmentTrace.call {
-                try await CLIRunner.run(
-                    executablePath: "/bin/sh", arguments: ["-c", "trap '' TERM; /bin/sleep 3"],
-                    environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: 0.6, maximumOutputBytes: 1024,
-                    lifecycleTesting: environmentTrace.lifecycle { event in environmentEvents.withLock { $0.append(event) } }
-                )
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cancellationAfterCommittedTimeoutCannotRewriteResult(environmentAware: Bool) async throws {
+        let trace = CLIRunnerFailureTrace()
+        let committed = OfflineTestGate()
+        let child = temporaryFixtureMarker()
+        defer { try? FileManager.default.removeItem(at: child) }
+        let executor = CLIRunnerTestTaskExecutor()
+        let lifecycle = trace.lifecycle(forwarding: { event in
+            if event == .completed { Task { await committed.open() } }
+        })
+        let task = CLIRunnerTestTaskFactory.start(on: executor) {
+            try await trace.call {
+                let arguments = ["-c", "trap '' TERM; printf ready > '\(child.path)'; /bin/sleep 3"]
+                if environmentAware {
+                    return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
+                        environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: 0.6, maximumOutputBytes: 1024, lifecycleTesting: lifecycle)
+                }
+                return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
+                    timeout: 0.6, maximumOutputBytes: nil, lifecycleTesting: lifecycle)
             }
         }
-        try await waitForTerminationEvent(environmentEvents)
-        environment.cancel()
-        await #expect(throws: CancellationError.self) { try await environment.value }
-        if environmentEvents.withLock({ $0.filter { $0 == .completed }.count }) != 1 { environmentTrace.recordFailure() }
-        #expect(environmentEvents.withLock { $0.filter { $0 == .completed }.count } == 1)
+        do {
+            try await committed.wait()
+            trace.recordCancellationRequest()
+            task.cancel()
+            await #expect { _ = try await task.value } throws: { error in
+                guard let error = error as? CLIError, case .timeout = error else { return false }
+                return true
+            }
+            trace.expectChildReady(child)
+            trace.expectEvents([.running, .terminating, .forceKillAttempted, .nativeExitCallbackEntered])
+            trace.expectCancellation(beforeCommit: false)
+            trace.expectSingleCompletion()
+        } catch {
+            task.cancel()
+            _ = await task.result
+            throw error
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
     func environmentAwareFinalizationRetainsCompleteOutputExactlyOnce() async throws {
         let gate = OfflineTestGate()
+        let observer = FinalizerSettlementObserver()
         let events = OSAllocatedUnfairLock(initialState: [CLIRunner.LifecycleTesting.Event]())
         let lifecycle = CLIRunner.LifecycleTesting(
             marker: { event in events.withLock { $0.append(event) } },
             suspension: { point in
-                if point == .afterFinalizationOwnership { try? await gate.wait() }
+                if point == .afterFinalizationOwnership {
+                    await observer.finalizationEntered()
+                    try? await gate.wait()
+                }
             }
         )
         let task = Task {
@@ -435,16 +535,28 @@ struct CLIRunnerTimeoutTests {
                 timeout: 2, maximumOutputBytes: 1024, lifecycleTesting: lifecycle
             )
         }
+        let settlement = Task { _ = await task.result; await observer.runnerSettled() }
         do {
+            let outcome = try await observer.wait()
+            if outcome == .terminal {
+                // Preserve the actual native error; a no-finalization terminal
+                // success also fails the required real-entry assertion.
+                _ = try await task.value
+            }
+            try #require(outcome == .entered)
             try await gate.waitUntilEntered()
             await gate.open()
             #expect(try await task.value == Data("environment-output".utf8))
+            await settlement.value
+            #expect(await observer.pendingObservationCount() == 0)
+            #expect(events.withLock { $0.contains(.launching) })
             #expect(events.withLock { $0.filter { $0 == .finalizationOwned }.count } == 1)
             #expect(events.withLock { $0.filter { $0 == .completed }.count } == 1)
         } catch {
             task.cancel()
             await gate.open()
             _ = await task.result
+            await settlement.value
             throw error
         }
     }
@@ -518,127 +630,78 @@ extension CLIRunnerTimeoutTests {
 
 private struct CLIRunnerFailureTrace: Sendable {
     private struct State: Sendable {
-        var phases: [(String, UInt64)] = []
-        var nextExecutorJob: UInt64 = 0
-        var executorPhases: [(String, UInt64)] = []
-        var droppedExecutorPhases = 0
+        var phases: [String] = []
+        var callStarted: UInt64?
+        var callCompleted: UInt64?
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
+    func expectChildReady(_ marker: URL) {
+        let ready = FileManager.default.fileExists(atPath: marker.path)
+        #expect(ready)
+    }
+    func expectEvents(_ events: [CLIRunner.LifecycleTesting.Event]) {
+        let names = state.withLock { $0.phases }
+        for event in events { #expect(names.contains("\(event)")) }
+    }
+    func expectSingleCompletion() {
+        #expect(state.withLock { $0.phases.filter { $0 == "completed" }.count } == 1)
+    }
+    func expectCancellation(beforeCommit: Bool) {
+        let names = state.withLock { $0.phases }
+        let cancellation = names.firstIndex(of: "cancellationRequest")
+        let commit = names.firstIndex(of: "completed")
+        #expect(cancellation != nil && commit != nil)
+        if let cancellation, let commit { #expect((cancellation < commit) == beforeCommit) }
+    }
+
+    func recordCancellationRequest() { record("cancellationRequest") }
+    func recordEvent(_ event: CLIRunner.LifecycleTesting.Event) { record("\(event)") }
+
     func lifecycle(
-        forwarding marker: @escaping @Sendable (CLIRunner.LifecycleTesting.Event) -> Void = { _ in }
+        forwarding marker: @escaping @Sendable (CLIRunner.LifecycleTesting.Event) -> Void = { _ in },
+        suspension: (@Sendable (CLIRunner.LifecycleTesting.SuspensionPoint) async -> Void)? = nil
     ) -> CLIRunner.LifecycleTesting {
         CLIRunner.LifecycleTesting(
             marker: { event in
                 self.record("\(event)")
                 marker(event)
             },
-            suspension: { point in
-                if point == .beforeExecutionStart { self.record("beforeExecutionStart") }
-            }
+            suspension: suspension
         )
     }
 
     func call<Value: Sendable>(
         _ operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
-        record("callerCall")
-        do {
-            let value = try await operation()
-            record("callerReturned")
-            return value
-        } catch {
-            record("callerThrew")
-            throw error
-        }
+        state.withLock { $0.callStarted = DispatchTime.now().uptimeNanoseconds }
+        defer { state.withLock { $0.callCompleted = DispatchTime.now().uptimeNanoseconds } }
+        return try await operation()
     }
 
-    func expectCallCompletedWithinTwoSeconds() {
-        let phases = state.withLock { $0.phases }
-        guard let started = phases.first(where: { $0.0 == "callerCall" })?.1,
-              let completed = phases.last(where: { $0.0 == "callerReturned" || $0.0 == "callerThrew" })?.1
-        else {
+    func expectCallCompleted(within limit: Duration = .seconds(2)) {
+        let (started, completed) = state.withLock { ($0.callStarted, $0.callCompleted) }
+        guard let started, let completed else {
             Issue.record("CLIRunner trace was missing a caller boundary")
             return
         }
-        let elapsed = completed - started
-        if elapsed >= 2_000_000_000 { recordFailure() }
-        #expect(elapsed < 2_000_000_000)
-    }
-
-    func recordFailure(_ error: (any Error)? = nil) {
-        let phases = state.withLock { $0.phases }
-            .map { "\($0.0)@\($0.1)" }
-            .joined(separator: ",")
-        let code: String
-        switch error {
-        case let error as CLIError:
-            switch error {
-            case .timeout: code = "CLIError.timeout"
-            case .outputLimitExceeded: code = "CLIError.outputLimitExceeded"
-            default: code = "CLIError.other"
-            }
-        case let error as CocoaError:
-            code = "NSCocoaErrorDomain/\(error.code.rawValue)"
-        case let error as POSIXError:
-            code = "NSPOSIXErrorDomain/\(error.code.rawValue)"
-        default:
-            code = "none"
-        }
-        let executor = state.withLock { state in
-            let phases = state.executorPhases.map { "\($0.0)@\($0.1)" }.joined(separator: ",")
-            return "\(phases); dropped=\(state.droppedExecutorPhases)"
-        }
-        Issue.record("CLIRunner phase trace: \(phases); error=\(code); executor=\(executor)")
-    }
-
-    /// Capture successful diagnostic runs without recording an artificial failure.
-    func report(caseName: String) {
-        let snapshot = state.withLock { state in
-            let phases = state.phases.map { "\($0.0)@\($0.1)" }.joined(separator: ",")
-            let jobs = state.executorPhases.map { "\($0.0)@\($0.1)" }.joined(separator: ",")
-            return "\(phases); executor=\(jobs); dropped=\(state.droppedExecutorPhases)"
-        }
-        print("CLIRunner diagnostic trace [\(caseName)]: \(snapshot)")
-    }
-
-    /// Test-local sequence numbers identify jobs, never threads, PIDs or descriptors.
-    func executorJobSubmitted() -> UInt64 {
-        state.withLock { state in
-            let sequence = state.nextExecutorJob
-            state.nextExecutorJob += 1
-            appendExecutorPhase("job\(sequence)Enqueued", to: &state)
-            return sequence
-        }
-    }
-
-    func recordExecutorJob(_ sequence: UInt64, phase: String) {
-        state.withLock { state in
-            appendExecutorPhase("job\(sequence)\(phase)", to: &state)
-        }
-    }
-
-    private func appendExecutorPhase(_ phase: String, to state: inout State) {
-        guard state.executorPhases.count < 192 else {
-            state.droppedExecutorPhases += 1
-            return
-        }
-        state.executorPhases.append((phase, DispatchTime.now().uptimeNanoseconds))
+        // Measure the actual runner call, not the outer test's later resumption.
+        let elapsed = Duration.nanoseconds(Int64(completed - started))
+        #expect(elapsed < limit)
     }
 
     private func record(_ phase: String) {
         state.withLock { state in
             guard state.phases.count < 64 else { return }
-            state.phases.append((phase, DispatchTime.now().uptimeNanoseconds))
+            state.phases.append(phase)
         }
     }
 }
 
 private func expectContinuousOverflowFailure(arguments: [String]) async {
     let trace = CLIRunnerFailureTrace()
-    defer { trace.report(caseName: "continuousOverflow") }
-    let executor = CLIRunnerTestTaskExecutor(trace: trace)
+    let executor = CLIRunnerTestTaskExecutor()
     let task = CLIRunnerTestTaskFactory.start(on: executor) {
         try await trace.call {
             try await CLIRunner.run(
@@ -650,13 +713,10 @@ private func expectContinuousOverflowFailure(arguments: [String]) async {
     await #expect {
         try await task.value
     } throws: { error in
-        guard let typed = error as? CLIError, case .outputLimitExceeded = typed else {
-            trace.recordFailure(error)
-            return false
-        }
+        guard let typed = error as? CLIError, case .outputLimitExceeded = typed else { return false }
         return true
     }
-    trace.expectCallCompletedWithinTwoSeconds()
+    trace.expectCallCompleted()
 }
 
 /// Submits a fixture from a nonisolated context so test-harness MainActor work
@@ -672,18 +732,10 @@ private enum CLIRunnerTestTaskFactory {
 
 private final class CLIRunnerTestTaskExecutor: TaskExecutor, Sendable {
     private let queue = DispatchQueue(label: "CLIRunnerTimeoutTests.executor")
-    private let trace: CLIRunnerFailureTrace?
-
-    init(trace: CLIRunnerFailureTrace? = nil) {
-        self.trace = trace
-    }
 
     func enqueue(_ job: UnownedJob) {
-        let sequence = trace?.executorJobSubmitted()
         queue.async { [self, job] in
-            if let sequence { trace?.recordExecutorJob(sequence, phase: "Began") }
             job.runSynchronously(on: asUnownedTaskExecutor())
-            if let sequence { trace?.recordExecutorJob(sequence, phase: "Ended") }
         }
     }
 
@@ -705,12 +757,58 @@ private func waitForFixtureMarker(_ marker: URL) async throws {
     throw CocoaError(.fileNoSuchFile)
 }
 
-private func waitForTerminationEvent(
-    _ events: OSAllocatedUnfairLock<[CLIRunner.LifecycleTesting.Event]>
-) async throws {
-    for _ in 0..<100 {
-        if events.withLock({ $0.contains(.terminating) }) { return }
-        try await Task.sleep(for: .milliseconds(10))
+extension CLIRunnerTimeoutTests {
+    @Test(.timeLimit(.minutes(1)))
+    func absoluteDeadlineExpiryAtGatedStartDoesNotLaunchProcess() async throws {
+        let gate = OfflineTestGate()
+        let marker = temporaryFixtureMarker()
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let deadlineTime = DispatchTime.now() + .seconds(1)
+        let deadline = CLIExecutionDeadline(uptimeNanoseconds: deadlineTime.uptimeNanoseconds)
+        let events = OSAllocatedUnfairLock(initialState: [CLIRunner.LifecycleTesting.Event]())
+        let lifecycle = CLIRunner.LifecycleTesting(marker: { event in events.withLock { $0.append(event) } }, suspension: { point in
+            if point == .beforeExecutionStart { try? await gate.wait() }
+        })
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global())
+        timer.schedule(deadline: deadlineTime)
+        timer.setEventHandler { Task { await gate.open() } }
+        timer.resume()
+        defer { timer.cancel() }
+        let task = Task {
+            try await CLIRunner.run(
+                executablePath: "/bin/sh", arguments: ["-c", "printf launched > '\(marker.path)'"],
+                deadline: deadline, maximumOutputBytes: nil, lifecycleTesting: lifecycle
+            )
+        }
+        do {
+            try await gate.waitUntilEntered()
+            await #expect {
+                try await task.value
+            } throws: { error in
+                guard let cliError = error as? CLIError, case .timeout = cliError else { return false }
+                return true
+            }
+            #expect(FileManager.default.fileExists(atPath: marker.path) == false)
+            #expect(events.withLock { $0.contains(.launching) } == false)
+        } catch {
+            task.cancel()
+            await gate.open()
+            _ = await task.result
+            throw error
+        }
     }
-    throw CocoaError(.fileReadUnknown)
+
+    @Test func absoluteDeadlineDoesNotRefreshAfterQueueDelay() throws {
+        let deadline = CLIExecutionDeadline(uptimeNanoseconds: 3_000_000_000)
+        #expect(try deadline.remainingSeconds(at: 2_500_000_000) == 0.5)
+        do {
+            _ = try deadline.remainingSeconds(at: 3_000_000_000)
+            Issue.record("expired deadline should throw")
+        } catch let error as CLIError {
+            guard case .timeout = error else { Issue.record("expected timeout, received another CLIError"); return }
+            #expect(true)
+        } catch {
+            Issue.record("expected CLIError.timeout, received \(error)")
+        }
+    }
 }

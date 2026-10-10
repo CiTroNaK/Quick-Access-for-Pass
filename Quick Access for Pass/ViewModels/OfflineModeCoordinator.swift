@@ -50,12 +50,17 @@ nonisolated protocol OfflineModeServicing: OfflineInitializationProviding {
     func updateSelectionObservation(generation: UUID, status: OfflineSelectionObservationStatus) async
     func keepOfflineIndividually(_ item: PassItem) async throws
     func retrySelectedCopies(vaultID: String?) async throws
+    func retryOfflineItem(itemID: String, vaultID: String) async throws -> OfflineItemRetryResult
     func metadataDidSynchronize(allowMembershipExpansion: Bool, eligibleItemIDs: Set<String>) async
     func waitUntilIdle() async
     func prepareForMetadataReset() async throws
     func finishMetadataReset() async
     func stop() async
     func removeAllOfflineData() async throws
+}
+
+nonisolated extension OfflineModeServicing {
+    func retryOfflineItem(itemID: String, vaultID: String) async throws -> OfflineItemRetryResult { .unavailable }
 }
 
 /// Main-actor presentation state for host-only offline snapshot selections.
@@ -93,6 +98,7 @@ final class OfflineModeCoordinator {
     private var itemMutationIDs: [String: UUID] = [:]
     private var vaultOperationIDs: [String: UUID] = [:]
     private var purgeOperationID: UUID?
+    var onDetailSelectionInputsChanged: (@MainActor @Sendable () -> Void)?
 
     private(set) var vaults: [OfflineVaultSettingsRow] = []
     private(set) var itemGroups: [OfflineItemSettingsGroup] = []
@@ -128,6 +134,7 @@ final class OfflineModeCoordinator {
         let generation = UUID()
         observationGeneration = generation
         observationIsFresh = false
+        onDetailSelectionInputsChanged?()
         let service = service
         let observation = observation
         let task = Task { [weak self] in
@@ -166,6 +173,7 @@ final class OfflineModeCoordinator {
                     let isReady = await service.isReady()
                     guard self.observationGeneration == generation, !Task.isCancelled else { return }
                     self.observationIsFresh = isReady && !self.requiresInitializationRetry
+                    self.onDetailSelectionInputsChanged?()
                 }
                 guard self.observationGeneration == generation, !Task.isCancelled else { return }
             } catch is CancellationError {
@@ -174,6 +182,7 @@ final class OfflineModeCoordinator {
                 guard self.observationGeneration == generation, !Task.isCancelled else { return }
                 self.observationIsFresh = false
                 self.observationErrorMessage = String(localized: "Offline status could not be updated. Retry offline setup.")
+                self.onDetailSelectionInputsChanged?()
                 await service.updateSelectionObservation(generation: generation, status: .failed)
             }
         }
@@ -214,6 +223,7 @@ final class OfflineModeCoordinator {
             guard !Task.isCancelled else { throw error }
             requiresInitializationRetry = requiresRetry
             observationIsFresh = false
+            onDetailSelectionInputsChanged?()
             throw error
         }
     }
@@ -228,9 +238,11 @@ final class OfflineModeCoordinator {
         }
         let operationID = UUID()
         itemOperationIDs[item.id] = operationID
+        onDetailSelectionInputsChanged?()
         defer {
             if itemOperationIDs[item.id] == operationID {
                 itemOperationIDs.removeValue(forKey: item.id)
+                onDetailSelectionInputsChanged?()
             }
         }
         try await service.makeAvailableOffline(item: item, shareId: shareID)
@@ -241,9 +253,11 @@ final class OfflineModeCoordinator {
         guard canRemoveItem(itemId) else { return }
         let operationID = UUID()
         itemMutationIDs[itemId] = operationID
+        onDetailSelectionInputsChanged?()
         defer {
             if itemMutationIDs[itemId] == operationID {
                 itemMutationIDs.removeValue(forKey: itemId)
+                onDetailSelectionInputsChanged?()
             }
         }
         try await service.removeOfflineItem(itemId: itemId)
@@ -255,9 +269,11 @@ final class OfflineModeCoordinator {
         if selected && !canMakeNewSelections { throw Error.observationUnavailable }
         let operationID = UUID()
         vaultOperationIDs[vaultID] = operationID
+        onDetailSelectionInputsChanged?()
         defer {
             if vaultOperationIDs[vaultID] == operationID {
                 vaultOperationIDs.removeValue(forKey: vaultID)
+                onDetailSelectionInputsChanged?()
             }
         }
         try await service.selectWholeVault(selected, vaultID: vaultID)
@@ -269,8 +285,12 @@ final class OfflineModeCoordinator {
         guard canKeepOfflineIndividually(item.id) else { throw Error.operationInProgress }
         let operationID = UUID()
         itemMutationIDs[item.id] = operationID
+        onDetailSelectionInputsChanged?()
         defer {
-            if itemMutationIDs[item.id] == operationID { itemMutationIDs.removeValue(forKey: item.id) }
+            if itemMutationIDs[item.id] == operationID {
+                itemMutationIDs.removeValue(forKey: item.id)
+                onDetailSelectionInputsChanged?()
+            }
         }
         try await service.keepOfflineIndividually(item)
         try Task.checkCancellation()
@@ -282,13 +302,22 @@ final class OfflineModeCoordinator {
         try Task.checkCancellation()
     }
 
+    func retryOfflineItem(itemID: String, vaultID: String) async throws -> OfflineItemRetryResult {
+        guard canMakeNewSelections else { throw Error.observationUnavailable }
+        let result = try await service.retryOfflineItem(itemID: itemID, vaultID: vaultID)
+        try Task.checkCancellation()
+        return result
+    }
+
     func removeAllOfflineData() async throws {
         guard canPurge else { return }
         let operationID = UUID()
         purgeOperationID = operationID
+        onDetailSelectionInputsChanged?()
         defer {
             if purgeOperationID == operationID {
                 purgeOperationID = nil
+                onDetailSelectionInputsChanged?()
             }
         }
         try await service.removeAllOfflineData()
@@ -346,5 +375,6 @@ final class OfflineModeCoordinator {
         availabilityVaultIDByItemID = Dictionary(
             uniqueKeysWithValues: presentation.itemGroups.flatMap(\.items).map { ($0.itemId, $0.vaultId) }
         )
+        onDetailSelectionInputsChanged?()
     }
 }

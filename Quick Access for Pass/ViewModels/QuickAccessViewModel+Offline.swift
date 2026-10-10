@@ -16,7 +16,6 @@ extension QuickAccessViewModel {
         guard let offlineModeCoordinator, !offlineModeCoordinator.isOperating(on: item) else { return }
 
         inFlightOfflineOperation?.cancel()
-        isActionLoading = true
         offlineOperationGeneration += 1
         let generation = offlineOperationGeneration
         inFlightOfflineOperation = Task { [weak self] in
@@ -24,7 +23,6 @@ extension QuickAccessViewModel {
             defer {
                 if self.offlineOperationGeneration == generation {
                     self.inFlightOfflineOperation = nil
-                    self.isActionLoading = false
                 }
             }
             do {
@@ -52,7 +50,6 @@ extension QuickAccessViewModel {
     func handleKeepOfflineIndividually(for item: PassItem) {
         guard let offlineModeCoordinator,
               offlineModeCoordinator.canKeepOfflineIndividually(item.id) else { return }
-        isActionLoading = true
         offlineOperationGeneration += 1
         let generation = offlineOperationGeneration
         inFlightOfflineOperation = Task { [weak self] in
@@ -60,7 +57,6 @@ extension QuickAccessViewModel {
             defer {
                 if self.offlineOperationGeneration == generation {
                     self.inFlightOfflineOperation = nil
-                    self.isActionLoading = false
                 }
             }
             do {

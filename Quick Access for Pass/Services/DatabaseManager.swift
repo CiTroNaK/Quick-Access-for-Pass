@@ -4,9 +4,12 @@ import GRDB
 nonisolated final class DatabaseManager: Sendable {
     let writer: any DatabaseWriter
     let reader: any DatabaseReader
+    let offlineReleaseAuthority = OfflineReleaseAuthority()
+    let offlineMutationTesting: OfflineMutationTesting?
 
     /// Production initializer: opens encrypted database at the given path.
-    init(path: String, passphrase: Data) throws {
+    init(path: String, passphrase: Data, offlineMutationTesting: OfflineMutationTesting? = nil) throws {
+        self.offlineMutationTesting = offlineMutationTesting
         let databaseURL = URL(fileURLWithPath: path)
         try HardenedDatabaseFiles.prepareDatabaseDirectory(for: databaseURL)
         try HardenedDatabaseFiles.protectDatabaseFiles(at: databaseURL)
@@ -23,7 +26,8 @@ nonisolated final class DatabaseManager: Sendable {
     }
 
     /// Test initializer: in-memory database.
-    init(inMemory: Bool, passphrase: Data) throws {
+    init(inMemory: Bool, passphrase: Data, offlineMutationTesting: OfflineMutationTesting? = nil) throws {
+        self.offlineMutationTesting = offlineMutationTesting
         precondition(inMemory)
         var config = Configuration()
         config.prepareDatabase { db in
@@ -285,17 +289,19 @@ nonisolated final class DatabaseManager: Sendable {
     // MARK: - Utility
 
     func clearAll() throws {
-        try writer.write { db in
+        try writeOfflineMutation(submissionScope: .all) { db in
             try PassItem.deleteAll(db)
             try PassVault.deleteAll(db)
+            return OfflineMutationUpdate(value: (), manualPromotions: [])
         }
     }
 
     /// Clears ordinary metadata and cascaded offline selections in one database transaction.
     func clearMetadata() async throws {
-        try await writer.write { db in
+        try await writeOfflineMutation(submissionScope: .all) { db in
             try PassItem.deleteAll(db)
             try PassVault.deleteAll(db)
+            return OfflineMutationUpdate(value: (), manualPromotions: [])
         }
     }
 }

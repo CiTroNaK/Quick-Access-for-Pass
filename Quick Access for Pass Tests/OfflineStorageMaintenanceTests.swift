@@ -33,19 +33,62 @@ struct OfflineStorageMaintenanceTests {
         #expect(await checkpointer.attemptCount() == 1)
     }
 
-    @Test func concurrentRequestsCoalesceIntoOneOwnedBatch() async throws {
+    @Test func terminalStopCancelsCoalescedWorkerBeforeFollowUpBatch() async throws {
         let gate = OfflineTestGate()
         let checkpointer = ScriptedOfflineCheckpointer(results: [.complete], beforeCheckpoint: { try await gate.wait() })
         let maintenance = OfflineStorageMaintenance(checkpointer: checkpointer, retryDelay: {})
 
-        await maintenance.requestCheckpoint()
-        try await gate.waitUntilEntered()
-        await maintenance.requestCheckpoint()
-        await maintenance.requestCheckpoint()
-        await gate.open()
-        await maintenance.stop()
+        do {
+            await maintenance.requestCheckpoint()
+            try await gate.waitUntilEntered()
+            await maintenance.requestCheckpoint()
+            await maintenance.requestCheckpoint()
+            // Stop while the first effect is still gated. It cancels and joins
+            // the worker rather than allowing a successful batch/follow-up race.
+            await maintenance.stop()
+            await gate.open()
+            #expect(await checkpointer.attemptCount() == 1)
+        } catch {
+            await gate.open()
+            await maintenance.stop()
+            throw error
+        }
+    }
 
-        #expect(await checkpointer.attemptCount() == 1)
+    @Test func requestsDuringSuccessfulCheckpointAreRetainedForOneFollowUpBatch() async throws {
+        let afterFirstEffect = OfflineTestGate()
+        let joinEntered = OfflineTestGate()
+        let checkpointer = ScriptedOfflineCheckpointer(results: [.complete], afterCheckpoint: { attempt in
+            if attempt == 1 { try await afterFirstEffect.wait() }
+        })
+        let maintenance = OfflineStorageMaintenance(
+            checkpointer: checkpointer,
+            retryDelay: {},
+            beforeJoiningWorker: { try? await joinEntered.wait() }
+        )
+
+        var startupJoin: Task<Void, Never>?
+        do {
+            await maintenance.requestCheckpoint()
+            try await afterFirstEffect.waitUntilEntered()
+            await maintenance.requestCheckpoint()
+            await maintenance.requestCheckpoint()
+            startupJoin = Task { await maintenance.checkpointAtStartup() }
+            try await joinEntered.waitUntilEntered()
+            await afterFirstEffect.open()
+            await joinEntered.open()
+            await startupJoin?.value
+            startupJoin = nil
+            #expect(await checkpointer.attemptCount() == 2)
+            await maintenance.stop()
+        } catch {
+            startupJoin?.cancel()
+            await afterFirstEffect.open()
+            await joinEntered.open()
+            await maintenance.stop()
+            await startupJoin?.value
+            throw error
+        }
     }
 
     @Test func stopCancelsAndAwaitsTheOnlyWorkerAndPreventsResurrection() async throws {
@@ -69,13 +112,60 @@ struct OfflineStorageMaintenanceTests {
         #expect(try await checkpointer.checkpoint() == .complete)
     }
 
-    @Test func heldSQLCipherReaderMakesTruncateBusyUntilReleased() async throws {
+    @Test func temporaryPoolRetainsDeletionCheckpointRequestedDuringCompletion() async throws {
+        let fixture = try TemporaryCheckpointPool()
+        let afterFirstEffect = OfflineTestGate()
+        let joinEntered = OfflineTestGate()
+        let checkpointer = GatedDatabaseCheckpointer(writer: fixture.pool, firstResult: afterFirstEffect)
+        let maintenance = OfflineStorageMaintenance(
+            checkpointer: checkpointer,
+            retryDelay: {},
+            beforeJoiningWorker: { try? await joinEntered.wait() }
+        )
+        var startupJoin: Task<Void, Never>?
+        do {
+            await maintenance.requestCheckpoint()
+            try await afterFirstEffect.waitUntilEntered()
+            try await fixture.pool.write { db in
+                try db.execute(sql: "DELETE FROM checkpointTest WHERE value = 'metadata'")
+                try db.execute(sql: "INSERT INTO checkpointTest (value) VALUES ('deletion-b')")
+            }
+            #expect(fixture.hasWALFrames)
+            await maintenance.requestCheckpoint()
+            startupJoin = Task { await maintenance.checkpointAtStartup() }
+            try await joinEntered.waitUntilEntered()
+            await afterFirstEffect.open()
+            await joinEntered.open()
+            await startupJoin?.value
+            startupJoin = nil
+            #expect(await checkpointer.attemptCount() == 2)
+            #expect(!fixture.hasWALFrames)
+            await maintenance.stop()
+            fixture.remove()
+        } catch {
+            startupJoin?.cancel()
+            await afterFirstEffect.open()
+            await joinEntered.open()
+            await maintenance.stop()
+            await startupJoin?.value
+            fixture.remove()
+            throw error
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func heldSQLCipherReaderMakesTruncateBusyUntilReleased(delayedAdmission: Bool) async throws {
         let fixture = try TemporaryCheckpointPool()
         defer { fixture.remove() }
         let reader = HeldCheckpointReader(pool: fixture.pool)
         reader.start()
         do {
             try await reader.waitUntilReading()
+            if delayedAdmission {
+                // Simulate a delayed test continuation. The read transaction
+                // must remain active until explicit release, not expire first.
+                try await Task.sleep(for: .milliseconds(5100))
+            }
             #expect(fixture.hasWALFrames)
 
             let checkpointer = DatabaseWALCheckpointer(writer: fixture.pool)
@@ -320,6 +410,26 @@ private struct MaintenanceRepositoryFixture {
     }
 }
 
+private actor GatedDatabaseCheckpointer: OfflineCheckpointing {
+    private let checkpointer: DatabaseWALCheckpointer
+    private let firstResult: OfflineTestGate
+    private var attempts = 0
+
+    init(writer: any DatabaseWriter, firstResult: OfflineTestGate) {
+        self.checkpointer = DatabaseWALCheckpointer(writer: writer)
+        self.firstResult = firstResult
+    }
+
+    func checkpoint() async throws -> OfflineCheckpointResult {
+        attempts += 1
+        let result = try await checkpointer.checkpoint()
+        if attempts == 1 { try await firstResult.wait() }
+        return result
+    }
+
+    func attemptCount() -> Int { attempts }
+}
+
 private actor RecordingOfflineCheckpointer: OfflineCheckpointing {
     private var attempts = 0
     private var waiters: [(Int, CheckedContinuation<Void, Never>)] = []
@@ -376,25 +486,31 @@ private enum ScriptedCheckpointError: Error, Sendable {
 private actor ScriptedOfflineCheckpointer: OfflineCheckpointing {
     private let results: [ScriptedCheckpointStep]
     private let beforeCheckpoint: @Sendable () async throws -> Void
+    private let afterCheckpoint: @Sendable (Int) async throws -> Void
     private var attempts = 0
 
     init(
         results: [ScriptedCheckpointStep],
-        beforeCheckpoint: @escaping @Sendable () async throws -> Void = {}
+        beforeCheckpoint: @escaping @Sendable () async throws -> Void = {},
+        afterCheckpoint: @escaping @Sendable (Int) async throws -> Void = { _ in }
     ) {
         self.results = results
         self.beforeCheckpoint = beforeCheckpoint
+        self.afterCheckpoint = afterCheckpoint
     }
 
     func checkpoint() async throws -> OfflineCheckpointResult {
         attempts += 1
         try await beforeCheckpoint()
         let index = min(attempts - 1, max(0, results.count - 1))
+        let result: OfflineCheckpointResult
         switch results.isEmpty ? ScriptedCheckpointStep.complete : results[index] {
-        case .complete: return .complete
-        case .busy: return .busy
+        case .complete: result = .complete
+        case .busy: result = .busy
         case .failure: throw ScriptedCheckpointError.failed
         }
+        try await afterCheckpoint(attempts)
+        return result
     }
 
     func attemptCount() -> Int { attempts }
@@ -433,10 +549,9 @@ private final class HeldCheckpointReader: Sendable {
                     _ = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM checkpointTest")
                     state.withLock { $0.didEnterRead = true }
                     entered.signal()
-                    guard releaseSemaphore.wait(timeout: .now() + 5) == .success else {
-                        state.withLock { $0.failed = true }
-                        return
-                    }
+                    // The transaction belongs to the test's explicit release,
+                    // not a timeout that can expire before its caller resumes.
+                    releaseSemaphore.wait()
                 }
             } catch {
                 state.withLock { $0.failed = true }
@@ -447,6 +562,7 @@ private final class HeldCheckpointReader: Sendable {
 
     func waitUntilReading() async throws {
         guard await wait(for: entered) else { throw Error.timedOut }
+        try Task.checkCancellation()
         guard state.withLock({ $0.didEnterRead && !$0.failed }) else {
             throw Error.didNotEnterRead
         }

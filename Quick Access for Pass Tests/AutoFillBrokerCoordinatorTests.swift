@@ -31,7 +31,7 @@ struct AutoFillBrokerCoordinatorTests {
             request: makeRequest(kind: .password, lifetime: ordinaryPathLifetime)
         )
 
-        #expect(result == "resolved-password")
+        #expect(result.value == "resolved-password")
         #expect(events.withLock { $0 } == ["descriptor", "resolver", "descriptor"])
     }
 
@@ -61,7 +61,7 @@ struct AutoFillBrokerCoordinatorTests {
             transition: { state in states.withLock { $0.append(state) } }
         )
 
-        #expect(result == "123456")
+        #expect(result.value == "123456")
         #expect(states.withLock { $0 } == [.awaitingUnlock, .resolving])
         let timeout = try #require(observedTimeout.withLock { $0 })
         #expect(timeout > 0 && timeout <= 1)
@@ -226,7 +226,7 @@ struct AutoFillBrokerCoordinatorTests {
             appAssociationIntent: intent
         )
 
-        #expect(value == "resolved")
+        #expect(value.value == "resolved")
         #expect(await associations.saved == [SavedAssociation(service: intent.service, descriptorID: descriptor.id)])
     }
 
@@ -254,6 +254,69 @@ struct AutoFillBrokerCoordinatorTests {
 }
 
 extension AutoFillBrokerCoordinatorTests {
+    @Test("selected encrypted TOTP snapshot returns within the shared live phase after a native item stall")
+    @MainActor
+    func composedNativeStallTOTPUsesFallbackWithinOriginalDeadline() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
+        let item = try #require(fixture.items.first)
+        let totpURI = "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=999999999"
+        let snapshotCodec = fixture.codec()
+        let service = OfflineModeService(repository: fixture.repository, codec: snapshotCodec, cliService: BrokerSnapshotViewer(totp: totpURI))
+        try await initializeOfflineFixtureService(service)
+        try await service.makeAvailableOffline(item: item, shareId: "share")
+        let resolver = OfflineAutoFillSecretResolver(resolver: OfflineSecretResolver(
+            cliService: PassCLIService(runner: NativeStallingCLIRunner()),
+            repository: fixture.repository, codec: snapshotCodec, readiness: service
+        ))
+        let descriptor = makeDescriptor(hasTOTP: true)
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor), secretResolver: resolver,
+            isAppLocked: { false }, showLockedPanel: { _ in false }
+        )
+        let request = AutoFillRegisteredRequest(
+            requestID: UUID(), descriptorID: descriptor.id, kind: .oneTimeCode,
+            deadline: DispatchTime.now().uptimeNanoseconds + 5_000_000_000
+        )
+
+        let start = ContinuousClock.now
+        let value = try await coordinator.resolve(request: request)
+        #expect(value.value.count == 8)
+        #expect(start.duration(to: .now) < .seconds(4.5))
+    }
+
+    @Test("original deadline rejects cached TOTP after a native live stall")
+    @MainActor
+    func composedNativeStallTOTPOriginalDeadlineRejectsFallback() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
+        let item = try #require(fixture.items.first)
+        let totpURI = "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=999999999"
+        let snapshotCodec = fixture.codec()
+        let service = OfflineModeService(repository: fixture.repository, codec: snapshotCodec, cliService: BrokerSnapshotViewer(totp: totpURI))
+        try await initializeOfflineFixtureService(service)
+        try await service.makeAvailableOffline(item: item, shareId: "share")
+        let clock = OSAllocatedUnfairLock(initialState: DispatchTime.now().uptimeNanoseconds)
+        let originalDeadline = clock.withLock { $0 + 5_000_000_000 }
+        let codec = DeadlineAdvancingBrokerCodec(codec: snapshotCodec, clock: clock, deadline: originalDeadline)
+        let resolver = OfflineAutoFillSecretResolver(resolver: OfflineSecretResolver(
+            live: PassCLIService(runner: NativeStallingCLIRunner()),
+            repository: fixture.repository, codec: codec, readiness: service, now: { clock.withLock { $0 } }
+        ))
+        let descriptor = makeDescriptor(hasTOTP: true)
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor), secretResolver: resolver,
+            isAppLocked: { false }, showLockedPanel: { _ in false }
+        )
+        let request = AutoFillRegisteredRequest(
+            requestID: UUID(), descriptorID: descriptor.id, kind: .oneTimeCode, deadline: originalDeadline
+        )
+
+        await #expect(throws: AutoFillBrokerCoordinator.Error.deadlineExpired) {
+            _ = try await coordinator.resolve(request: request)
+        }
+        #expect(await codec.decodeCount() == 1)
+        #expect(fixture.repository.releaseAuthority.registrationCount == 0)
+    }
+
     @Test("selected encrypted snapshot returns before the broker's original deadline after a timed native live stall")
     @MainActor
     func composedNativeStallFallsBackBeforeOriginalDeadline() async throws {
@@ -280,17 +343,20 @@ extension AutoFillBrokerCoordinatorTests {
         let start = ContinuousClock.now
         let value = try await coordinator.resolve(request: request)
 
-        #expect(value == "cached-password")
+        #expect(value.value == "cached-password")
         #expect(start.duration(to: .now) < .seconds(3.5))
     }
 
-    @Test("external cancellation of a composed native live stall releases no snapshot value")
+    @Test("external cancellation of a composed native live stall releases no snapshot value", arguments: [AutoFillValueKind.password, .oneTimeCode])
     @MainActor
-    func composedNativeStallCancellationCleansUpWithoutFallback() async throws {
+    func composedNativeStallCancellationCleansUpWithoutFallback(kind: AutoFillValueKind) async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
         let snapshotCodec = fixture.codec()
-        let service = OfflineModeService(repository: fixture.repository, codec: snapshotCodec, cliService: BrokerSnapshotViewer())
+        let service = OfflineModeService(
+            repository: fixture.repository, codec: snapshotCodec,
+            cliService: BrokerSnapshotViewer(totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8")
+        )
         try await initializeOfflineFixtureService(service)
         try await service.makeAvailableOffline(item: item, shareId: "share")
         let codec = BrokerDecodeCountingCodec(codec: snapshotCodec)
@@ -301,13 +367,13 @@ extension AutoFillBrokerCoordinatorTests {
         let resolver = OfflineAutoFillSecretResolver(resolver: OfflineSecretResolver(
             cliService: live, repository: fixture.repository, codec: codec, readiness: service
         ))
-        let descriptor = makeDescriptor()
+        let descriptor = makeDescriptor(hasTOTP: true)
         let coordinator = AutoFillBrokerCoordinator(
             descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor), secretResolver: resolver,
             isAppLocked: { false }, showLockedPanel: { _ in false }
         )
         let request = AutoFillRegisteredRequest(
-            requestID: UUID(), descriptorID: descriptor.id, kind: .password,
+            requestID: UUID(), descriptorID: descriptor.id, kind: kind,
             deadline: DispatchTime.now().uptimeNanoseconds + 20_000_000_000
         )
         let task = Task { @MainActor in try await coordinator.resolve(request: request) }
@@ -465,12 +531,12 @@ extension AutoFillBrokerCoordinatorTests {
         defer { close(pair[0]); close(pair[1]) }
 
         await #expect(throws: AutoFillBrokerCoordinator.Error.descriptorNotFound) {
-            try await release.deliver("must-not-release", toFileDescriptor: pair[0])
+            try await release.deliver(ResolvedSecret(value: "must-not-release", offlineCapability: nil), toFileDescriptor: pair[0])
         }
         // A failed final read consumes the request capability; a later metadata
         // value cannot establish a new identity baseline or release a second frame.
         await #expect(throws: CancellationError.self) {
-            try await release.deliver("must-not-release", toFileDescriptor: pair[0])
+            try await release.deliver(ResolvedSecret(value: "must-not-release", offlineCapability: nil), toFileDescriptor: pair[0])
         }
     }
 
@@ -495,7 +561,7 @@ extension AutoFillBrokerCoordinatorTests {
         defer { close(pair[0]); close(pair[1]) }
 
         await #expect(throws: AutoFillBrokerCoordinator.Error.deadlineExpired) {
-            try await release.deliver("must-not-release", toFileDescriptor: pair[0])
+            try await release.deliver(ResolvedSecret(value: "must-not-release", offlineCapability: nil), toFileDescriptor: pair[0])
         }
         #expect(await store.lookupCount() == 0)
     }
@@ -557,8 +623,8 @@ struct PassCLIAutoFillSecretResolverTests {
         let password = try await resolver.resolve(descriptor: descriptor, kind: .password)
         let code = try await resolver.resolve(descriptor: descriptor, kind: .oneTimeCode)
 
-        #expect(password == "not-persisted-password")
-        #expect(code == "246810")
+        #expect(password.value == "not-persisted-password")
+        #expect(code.value == "246810")
         #expect(calls.withLock { $0 } == [
             ["item", "view", "--output", "json", "pass://share/item"],
             ["item", "view", "--output", "json", "pass://share/item"],
@@ -566,27 +632,18 @@ struct PassCLIAutoFillSecretResolverTests {
         ])
     }
 
-    @Test("TOTP recomputes the original live deadline before its second native command")
-    func totpUsesRemainingOriginalBudget() async throws {
-        let clock = OSAllocatedUnfairLock<UInt64>(initialState: 1_000_000_000)
-        let timeouts = OSAllocatedUnfairLock<[TimeInterval]>(initialState: [])
-        let runner = TimedAutoFillResolverCLIRunner { arguments, timeout in
-            timeouts.withLock { $0.append(timeout) }
-            if arguments.contains("view") {
-                clock.withLock { $0 = 9_000_000_000 }
-                return Self.loginItemJSON
-            }
-            return Data("{\"totp_uri\":\"otpauth://redacted\",\"totp\":\"246810\"}".utf8)
-        }
-        let service = PassCLIService(cliPath: "/fake/pass-cli", runner: runner)
-        let resolver = PassCLIAutoFillSecretResolver(cliService: service, now: { clock.withLock { $0 } })
+    @Test("live-only TOTP forwards one original absolute deadline to both commands")
+    func totpForwardsOriginalDeadlineWithoutReset() async throws {
+        let runner = DeadlineRecordingAutoFillResolverCLIRunner()
+        let resolver = PassCLIAutoFillSecretResolver(cliService: PassCLIService(cliPath: "/fake/pass-cli", runner: runner))
+        let deadline = CLIExecutionDeadline(uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 10_000_000_000)
         let context = SecretResolutionContext(
-            deadlineUptimeNanoseconds: 11_000_000_000,
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds,
             expectedUsername: "person@example.com"
         )
 
-        #expect(try await resolver.resolve(descriptor: makeDescriptor(hasTOTP: true), kind: .oneTimeCode, context: context) == "246810")
-        #expect(timeouts.withLock { $0 } == [10, 2])
+        #expect(try await resolver.resolve(descriptor: makeDescriptor(hasTOTP: true), kind: .oneTimeCode, context: context).value == "246810")
+        #expect(runner.observedDeadlines() == [deadline, deadline])
     }
 
     @Test("TOTP cancellation while the second native call is active returns no value")
@@ -611,11 +668,12 @@ struct PassCLIAutoFillSecretResolverTests {
 
     @Test("TOTP expiry between native calls never starts the second command")
     func totpExpiryBetweenCallsPreventsSecondCommand() async throws {
+        let deadline: UInt64 = 5_000_000_000
         let clock = OSAllocatedUnfairLock<UInt64>(initialState: 1_000_000_000)
         let calls = OSAllocatedUnfairLock(initialState: 0)
-        let runner = AutoFillResolverCLIRunner { arguments in
+        let runner = AutoFillResolverCLIRunner(now: { clock.withLock { $0 } }) { arguments in
             calls.withLock { $0 += 1 }
-            if arguments.contains("view") { clock.withLock { $0 = 5_000_000_000 } }
+            if arguments.contains("view") { clock.withLock { $0 = deadline } }
             return arguments.contains("totp")
                 ? Data("{\"totp_uri\":\"otpauth://redacted\",\"totp\":\"246810\"}".utf8)
                 : Self.loginItemJSON
@@ -624,21 +682,25 @@ struct PassCLIAutoFillSecretResolverTests {
             cliService: PassCLIService(cliPath: "/fake/pass-cli", runner: runner),
             now: { clock.withLock { $0 } }
         )
-        let context = SecretResolutionContext(deadlineUptimeNanoseconds: 5_000_000_000, expectedUsername: "person@example.com")
+        let context = SecretResolutionContext(deadlineUptimeNanoseconds: deadline, expectedUsername: "person@example.com")
 
+        var returnedValue = false
         await #expect(throws: SecretResolutionError.deadlineExpired) {
             _ = try await resolver.resolve(descriptor: makeDescriptor(hasTOTP: true), kind: .oneTimeCode, context: context)
+            returnedValue = true
         }
+        #expect(returnedValue == false)
         #expect(calls.withLock { $0 } == 1)
     }
 
     @Test("TOTP expiry after the second native response never releases its value")
     func totpExpiryBeforeValueReleaseRejectsReturnedCode() async throws {
+        let deadline: UInt64 = 5_000_000_000
         let clock = OSAllocatedUnfairLock<UInt64>(initialState: 1_000_000_000)
         let calls = OSAllocatedUnfairLock(initialState: 0)
-        let runner = AutoFillResolverCLIRunner { arguments in
+        let runner = AutoFillResolverCLIRunner(now: { clock.withLock { $0 } }) { arguments in
             calls.withLock { $0 += 1 }
-            if arguments.contains("totp") { clock.withLock { $0 = 5_000_000_000 } }
+            if arguments.contains("totp") { clock.withLock { $0 = deadline } }
             return arguments.contains("totp")
                 ? Data("{\"totp_uri\":\"otpauth://redacted\",\"totp\":\"246810\"}".utf8)
                 : Self.loginItemJSON
@@ -647,15 +709,18 @@ struct PassCLIAutoFillSecretResolverTests {
             cliService: PassCLIService(cliPath: "/fake/pass-cli", runner: runner),
             now: { clock.withLock { $0 } }
         )
-        let context = SecretResolutionContext(deadlineUptimeNanoseconds: 5_000_000_000, expectedUsername: "person@example.com")
+        let context = SecretResolutionContext(deadlineUptimeNanoseconds: deadline, expectedUsername: "person@example.com")
 
+        var returnedValue = false
         await #expect(throws: SecretResolutionError.deadlineExpired) {
             _ = try await resolver.resolve(descriptor: makeDescriptor(hasTOTP: true), kind: .oneTimeCode, context: context)
+            returnedValue = true
         }
+        #expect(returnedValue == false)
         #expect(calls.withLock { $0 } == 2)
     }
 
-    private static let loginItemJSON = Data("""
+    fileprivate static let loginItemJSON = Data("""
     {
       "item": {
         "id": "item", "share_id": "share", "vault_id": "vault",
@@ -664,7 +729,7 @@ struct PassCLIAutoFillSecretResolverTests {
           "content": {"Login": {
             "email": "", "username": "person@example.com",
             "password": "not-persisted-password", "urls": ["https://example.com"],
-            "totp_uri": "", "passkeys": []
+            "totp_uri": "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "passkeys": []
           }},
           "extra_fields": []
         },
@@ -675,10 +740,43 @@ struct PassCLIAutoFillSecretResolverTests {
 }
 
 private struct AutoFillResolverCLIRunner: CLIRunning {
+    private let now: @Sendable () -> UInt64
     let body: @Sendable ([String]) throws -> Data
+
+    init(now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+         body: @escaping @Sendable ([String]) throws -> Data) {
+        self.now = now
+        self.body = body
+    }
 
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
         try body(arguments)
+    }
+
+    func run(executablePath: String, arguments: [String], deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data {
+        try Task.checkCancellation()
+        let remaining = try deadline.remainingSeconds(at: now())
+        return try await run(executablePath: executablePath, arguments: arguments, timeout: remaining, maximumOutputBytes: maximumOutputBytes)
+    }
+}
+
+private struct DeadlineRecordingAutoFillResolverCLIRunner: CLIRunning {
+    private let deadlines = OSAllocatedUnfairLock<[CLIExecutionDeadline]>(initialState: [])
+
+    func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
+        try response(arguments)
+    }
+
+    func run(executablePath: String, arguments: [String], deadline: CLIExecutionDeadline, maximumOutputBytes: Int) async throws -> Data {
+        deadlines.withLock { $0.append(deadline) }
+        return try response(arguments)
+    }
+
+    func observedDeadlines() -> [CLIExecutionDeadline] { deadlines.withLock { $0 } }
+
+    private func response(_ arguments: [String]) throws -> Data {
+        if arguments.contains("totp") { return Data("{\"totp_uri\":\"otpauth://redacted\",\"totp\":\"246810\"}".utf8) }
+        return PassCLIAutoFillSecretResolverTests.loginItemJSON
     }
 }
 
@@ -773,9 +871,9 @@ private actor GatedBrokerResolver: AutoFillSecretResolving {
         descriptor: AutoFillCredentialDescriptor,
         kind: AutoFillValueKind,
         context: SecretResolutionContext
-    ) async throws -> String {
+    ) async throws -> ResolvedSecret<String> {
         try? await gate.wait()
-        return "must-not-release"
+        return ResolvedSecret(value: "must-not-release", offlineCapability: nil)
     }
 }
 
@@ -798,17 +896,17 @@ private struct FakeAutoFillSecretResolver: AutoFillSecretResolving {
         descriptor: AutoFillCredentialDescriptor,
         kind: AutoFillValueKind,
         context: SecretResolutionContext
-    ) async throws -> String {
-        try await body(descriptor, kind)
+    ) async throws -> ResolvedSecret<String> {
+        return ResolvedSecret(value: try await body(descriptor, kind), offlineCapability: nil)
     }
 }
 
 private struct ContextRecordingResolver: AutoFillSecretResolving {
     let recorded: OSAllocatedUnfairLock<SecretResolutionContext?>
 
-    func resolve(descriptor: AutoFillCredentialDescriptor, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> String {
+    func resolve(descriptor: AutoFillCredentialDescriptor, kind: AutoFillValueKind, context: SecretResolutionContext) async throws -> ResolvedSecret<String> {
         recorded.withLock { $0 = context }
-        return "resolved"
+        return ResolvedSecret(value: "resolved", offlineCapability: nil)
     }
 }
 
@@ -826,12 +924,42 @@ private func makeDescriptor(hasTOTP: Bool = false) -> AutoFillCredentialDescript
 }
 
 private struct BrokerSnapshotViewer: OfflineItemViewing {
+    let totp: String
+
+    init(totp: String = "") { self.totp = totp }
+
     func viewItem(itemId: String, shareId: String) async throws -> CLIItem {
         try offlineTestCLIItem(
             id: itemId, vaultID: "vault", shareID: shareId,
-            password: "cached-password", username: "person@example.com"
+            password: "cached-password", username: "person@example.com", totp: totp
         )
     }
+}
+
+private actor DeadlineAdvancingBrokerCodec: OfflineSnapshotCoding {
+    private let codec: OfflineSnapshotCodec
+    private let clock: OSAllocatedUnfairLock<UInt64>
+    private let deadline: UInt64
+    private var decodes = 0
+
+    init(codec: OfflineSnapshotCodec, clock: OSAllocatedUnfairLock<UInt64>, deadline: UInt64) {
+        self.codec = codec
+        self.clock = clock
+        self.deadline = deadline
+    }
+
+    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+        try await codec.prepareSnapshot(from: item, for: request)
+    }
+
+    func decodeSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws -> CLIItem {
+        decodes += 1
+        let item = try await codec.decodeSnapshot(snapshot)
+        clock.withLock { $0 = deadline }
+        return item
+    }
+
+    func decodeCount() -> Int { decodes }
 }
 
 private actor BrokerDecodeCountingCodec: OfflineSnapshotCoding {

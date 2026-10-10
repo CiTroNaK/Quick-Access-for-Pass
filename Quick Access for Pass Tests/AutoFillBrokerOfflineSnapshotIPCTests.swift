@@ -6,6 +6,77 @@ import Testing
 @Suite("AutoFill broker offline snapshot IPC")
 @MainActor
 struct AutoFillBrokerOfflineSnapshotIPCTests {
+    @Test("real offline mutation after resolution or registry completion rejects cached frames", arguments: [AutoFillValueKind.password, .oneTimeCode], ["remove", "purge", "replace", "metadata"])
+    func mutationRejectsCachedDelivery(kind: AutoFillValueKind, mutation: String) async throws {
+        for atCompletion in [false, true] {
+            let offline = try OfflineLifecycleFixture(itemIDs: ["item"])
+            let item = try #require(offline.items.first)
+            let codec = offline.codec()
+            let service = OfflineModeService(repository: offline.repository, codec: codec, cliService: IPCSnapshotViewer(
+                totpURI: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+            ))
+            try await initializeOfflineFixtureService(service)
+            try await service.makeAvailableOffline(item: item, shareId: "share")
+            let descriptor = AutoFillCredentialDescriptor(
+                id: UUID(), vaultID: "vault", itemID: item.id, shareID: "share", title: "Fixture",
+                username: "person@example.test", serviceIdentifier: "example.test", hasTOTP: true
+            )
+            let coordinator = AutoFillBrokerCoordinator(
+                descriptorStore: GenericIPCDescriptorStore(descriptor: descriptor),
+                secretResolver: OfflineAutoFillSecretResolver(resolver: OfflineSecretResolver(
+                    live: GenericIPCUnavailableLive(), repository: offline.repository, codec: codec, readiness: service
+                )), isAppLocked: { false }, showLockedPanel: { _ in false }
+            )
+            let mutate: @Sendable () async throws -> Void = {
+                switch mutation {
+                case "remove": try await offline.repository.removeItem(item.id)
+                case "purge": try await offline.repository.purge()
+                case "replace":
+                    let request = try #require(try await offline.repository.beginRequest(itemID: item.id, vaultID: "vault", shareID: "share", kind: .refresh))
+                    let replacement = try await codec.prepareSnapshot(from: offlineTestCLIItem(id: item.id, vaultID: "vault", shareID: "share",
+                        password: "replacement", totp: "otpauth://totp/Test?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"), for: request)
+                    #expect(try await offline.repository.publish(replacement, for: request, refreshedAt: Date()))
+                default: try offline.database.syncItems([])
+                }
+            }
+            let gate = OfflineTestGate()
+            let fixture = try BrokerFixture()
+            defer { fixture.cleanup() }
+            let broker = AutoFillBroker(
+                listenPath: fixture.socketPath, registry: fixture.registry, launchGate: fixture.launchGate,
+                verifier: { fd in VerifiedAutoFillPeer(fileDescriptor: fd, identifier: AutoFillConstants.extensionBundleIdentifier, teamID: "H23TXL6LPT") },
+                requestHandler: { request, transition, intent in
+                    let delivery = try await coordinator.resolveDelivery(request: request, appAssociationIntent: intent, transition: transition)
+                    if !atCompletion { try await gate.wait() }
+                    return delivery
+                }, candidateHandler: { _ in [] },
+                completionGate: { if atCompletion { try? await gate.wait() } }
+            )
+            try await broker.start()
+            let request = AutoFillBrokerRequest(requestID: UUID(), descriptorID: descriptor.id, valueKind: kind,
+                deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 10_000_000_000)
+            let client = Task { try await BrokerTestSocketIO.requestBytesUntilEOF(at: fixture.socketPath, message: request) }
+            do {
+                try await gate.waitUntilEntered()
+                try await mutate()
+                await gate.open()
+                let bytes = try await client.value
+                // Both gates resume before registry completion's final write.
+                // Revocation after completion closes with no failure frame;
+                // asserting raw EOF bytes rejects partial credential frames too.
+                #expect(bytes.isEmpty, "Final cached denial emitted bytes: \(kind) \(mutation)")
+                await broker.stop()
+                #expect(await broker.activeConnectionCount() == 0)
+            } catch {
+                await gate.open()
+                client.cancel()
+                _ = await client.result
+                await broker.stop()
+                throw error
+            }
+        }
+    }
+
     @Test("verified broker returns manual-only password and TOTP snapshots as value-only responses")
     func manualOnlySnapshotFallbackReturnsOnlyRequestedValues() async throws {
         let offline = try OfflineLifecycleFixture(itemIDs: ["item"])
@@ -68,10 +139,11 @@ struct AutoFillBrokerOfflineSnapshotIPCTests {
             }
             let itemCallCount = await live.itemCallCount()
             let totpCallCount = await live.totpCallCount()
-            // Password resolution authenticates its identity once; TOTP resolution
-            // validates the login identity before fetching the requested code.
+            // Each request resolves the live item once. Since both item requests
+            // fail, the TOTP request uses its cached item and never starts a second
+            // live TOTP command.
             #expect(itemCallCount == 2)
-            #expect(totpCallCount == 1)
+            #expect(totpCallCount == 0)
             await broker.stop()
         } catch {
             await broker.stop()

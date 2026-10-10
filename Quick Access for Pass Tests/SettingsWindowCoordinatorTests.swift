@@ -5,6 +5,10 @@ import Testing
 @Suite("Settings window focus")
 @MainActor
 struct SettingsWindowCoordinatorTests {
+    @Test func preparedLargeTypeIsOwnedBeforeSynchronousKeyNotification() throws {
+        try assertPreparedLargeTypeOwnershipBeforeKeyNotification()
+    }
+
     @Test(
         "Closing Settings restores the deferred application once",
         .bug("https://github.com/CiTroNaK/Quick-Access-for-Pass/issues/18")

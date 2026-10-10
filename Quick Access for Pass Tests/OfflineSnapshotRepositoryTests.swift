@@ -257,7 +257,7 @@ struct OfflineSnapshotRepositoryTests {
     @Test func unsupportedVersionIsNotDeletedDuringCorruptionCleanup() async throws {
         let fixture = try OfflineRepositoryFixture(itemIDs: ["item"])
         _ = try await fixture.repository.setVaultSelected(true, vaultID: "vault")
-        try fixture.database.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: fixture.database, itemId: "item", vaultId: "vault")
         let unsupported = EncryptedOfflineSnapshot(
             identity: OfflineSnapshotIdentity(
                 key: OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: 2),
@@ -463,6 +463,26 @@ extension OfflineSnapshotRepositoryTests {
         let policy = try #require(try await f.repository.itemPolicy(itemID: "item", vaultID: "vault"))
         #expect(policy.isExcluded)
         #expect(try await f.repository.workCandidates(vaultID: "vault", includeNewSelections: true, refreshExisting: true).isEmpty)
+    }
+
+    @Test func selectedItemWorkCandidateIsScopedAndNeverExpandsVaultMembership() async throws {
+        let f = try OfflineLifecycleFixture(itemIDs: ["target", "neighbor", "excluded"])
+        _ = try await f.repository.selectItemManually(itemID: "target", vaultID: "vault", shareID: "share")
+        _ = try await f.repository.setVaultSelected(true, vaultID: "vault")
+        let candidate = try #require(try await f.repository.workCandidateForSelectedItem(itemID: "target", vaultID: "vault"))
+        #expect(candidate.key.itemId == "target")
+        if case .materialize = candidate.intent {} else { Issue.record("expected selected item materialization") }
+        #expect(try await f.repository.workCandidateForSelectedItem(itemID: "neighbor", vaultID: "vault") == nil)
+        try await f.repository.removeItem("excluded")
+        #expect(try await f.repository.itemPolicy(itemID: "excluded", vaultID: "vault")?.isExcluded == true)
+        #expect(try await f.repository.workCandidateForSelectedItem(itemID: "excluded", vaultID: "vault") == nil)
+        try f.database.upsertVaults([PassVault(id: "other", name: "Other", shareId: "other-share")])
+        let moved = offlineTestMetadata(id: "target", vaultID: "other")
+        try f.database.upsertItems([moved])
+        #expect(try await f.repository.workCandidateForSelectedItem(itemID: "target", vaultID: "vault") == nil)
+        #expect(try await f.repository.workCandidateForSelectedItem(itemID: "target", vaultID: "other") == nil)
+        try await f.repository.removeItem("target")
+        #expect(try await f.repository.workCandidateForSelectedItem(itemID: "target", vaultID: "vault") == nil)
     }
 
     @Test func workCandidatesRespectNewSelectionAndRefreshSwitches() async throws {

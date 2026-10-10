@@ -31,21 +31,35 @@ struct AutoFillAccessibilityTests {
     @Test("a request deadline announces a non-secret timeout")
     func timeoutAnnouncement() async {
         let accessibility = RecordingAutoFillAccessibilityAdapter()
-        let coordinator = makeCoordinator(
-            accessibility: accessibility,
-            isLocked: true,
-            unlock: { _ in
-                try? await Task.sleep(for: .seconds(1))
+        let request = makeRequest(lifetime: ordinaryPathLifetime)
+        let clock = OSAllocatedUnfairLock(initialState: request.deadline - UInt64(ordinaryPathLifetime * 1_000_000_000))
+        let unlockCalls = OSAllocatedUnfairLock(initialState: 0)
+        let resolverCalls = OSAllocatedUnfairLock(initialState: 0)
+        // Expire at unlock entry, rather than racing metadata admission against
+        // a short wall-clock budget. This test asserts announcement ordering.
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: AccessibilityDescriptorStore(descriptor: descriptor),
+            secretResolver: AccessibilitySecretResolver(body: { _, _ in
+                resolverCalls.withLock { $0 += 1 }
+                return "must-not-resolve"
+            }),
+            isAppLocked: { true },
+            showLockedPanel: { _ in
+                unlockCalls.withLock { $0 += 1 }
+                clock.withLock { $0 = request.deadline }
                 return true
             },
-            resolve: { _, _ in "must-not-resolve" }
+            accessibility: accessibility,
+            now: { clock.withLock { $0 } }
         )
 
         await #expect(throws: AutoFillBrokerCoordinator.Error.deadlineExpired) {
-            try await coordinator.resolve(request: makeRequest(lifetime: 0.2))
+            try await coordinator.resolve(request: request)
         }
 
         #expect(accessibility.events == [.unlockRequired, .requestTimedOut])
+        #expect(unlockCalls.withLock { $0 } == 1)
+        #expect(resolverCalls.withLock { $0 } == 0)
     }
 
     @Test("Pass CLI failures announce a fixed message without leaking error content")
@@ -261,8 +275,8 @@ struct AutoFillAccessibilityTests {
         )
     }
 
-    /// This ordinary-path assertion does not exercise expiry; the dedicated
-    /// timeout test below retains its short fixture lifetime.
+    /// Admission budget for ordinary paths; the timeout-announcement test
+    /// controls expiry through the coordinator's injected clock.
     private let ordinaryPathLifetime: TimeInterval = 30
 
     private func makeRequest(lifetime: TimeInterval = 1) -> AutoFillRegisteredRequest {
@@ -324,7 +338,7 @@ private struct AccessibilitySecretResolver: AutoFillSecretResolving {
         descriptor: AutoFillCredentialDescriptor,
         kind: AutoFillValueKind,
         context: SecretResolutionContext
-    ) async throws -> String {
-        try await body(descriptor, kind)
+    ) async throws -> ResolvedSecret<String> {
+        return ResolvedSecret(value: try await body(descriptor, kind), offlineCapability: nil)
     }
 }

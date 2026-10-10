@@ -8,6 +8,39 @@ import Testing
 @MainActor
 struct OfflineModeCoordinatorTests {
     @Test(.timeLimit(.minutes(1)))
+    func retryForwardsCapturedIdentityThroughCoordinator() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["target", "neighbor"])
+        let viewer = OfflineFixtureViewer()
+        let service = fixture.service(viewer: viewer)
+        try await initializeOfflineFixtureService(service)
+        _ = try await fixture.repository.selectItemManually(itemID: "target", vaultID: "vault", shareID: "share")
+        _ = try await fixture.repository.selectItemManually(itemID: "neighbor", vaultID: "vault", shareID: "share")
+        let initial = try await fixture.database.reader.read { try OfflineCatalogObservation.presentation(in: $0) }
+        let coordinator = OfflineModeCoordinator(
+            service: service, observation: SequencedObservation(streams: [completedStream(initial), failedStream()]),
+            shareIDForVault: { _ in "share" }
+        )
+        await #expect(throws: OfflineModeCoordinator.Error.observationUnavailable) {
+            try await coordinator.retryOfflineItem(itemID: "target", vaultID: "vault")
+        }
+        await coordinator.startObservation().value
+        #expect(coordinator.canMakeNewSelections)
+
+        #expect(try await coordinator.retryOfflineItem(itemID: "target", vaultID: "vault") == .submitted)
+        await service.waitUntilIdle()
+        #expect(await viewer.callCount(itemID: "target") == 1)
+        #expect(await viewer.callCount(itemID: "neighbor") == 0)
+        #expect(try await coordinator.retryOfflineItem(itemID: "neighbor", vaultID: "wrong-vault") == .unavailable)
+        #expect(try await fixture.repository.offlineItemSelection(itemId: "neighbor")?.isManuallySelected == true)
+        await coordinator.retryObservation().value
+        await #expect(throws: OfflineModeCoordinator.Error.observationUnavailable) {
+            try await coordinator.retryOfflineItem(itemID: "target", vaultID: "vault")
+        }
+        coordinator.stopObservation()
+        await service.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func settingsPurgeRemainsAvailableAfterInitialObservationFailureWithoutRetry() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let item = try #require(fixture.items.first)
@@ -111,7 +144,7 @@ struct OfflineModeCoordinatorTests {
             }
         }
         let timestamp = try #require(resolvedTimestamp)
-        try fixture.database.updateOfflineCacheStatus(itemId: item.id, status: .failed, refreshedAt: timestamp)
+        try OfflineCatalogFixtureSupport.updateCacheStatus(in: fixture.database, itemId: item.id, status: .failed, refreshedAt: timestamp)
         let stale = try #require(try await iterator.next())
         #expect(stale.availabilityByItemID[item.id] == .stale(lastRefreshedAt: timestamp))
         #expect(stale.vaults.first?.lastRefreshedAt == timestamp)
@@ -125,7 +158,7 @@ struct OfflineModeCoordinatorTests {
         try await initializeOfflineFixtureService(service)
         _ = try await fixture.repository.setVaultSelected(true, vaultID: "vault")
         try await service.makeAvailableOffline(item: item, shareId: "share")
-        try fixture.database.updateOfflineCacheStatus(itemId: item.id, status: .unavailable, refreshedAt: .distantPast)
+        try OfflineCatalogFixtureSupport.updateCacheStatus(in: fixture.database, itemId: item.id, status: .unavailable, refreshedAt: .distantPast)
 
         let observation = OfflineCatalogObservation(database: fixture.database)
         var iterator = observation.snapshots().makeAsyncIterator()
@@ -368,6 +401,8 @@ struct OfflineModeCoordinatorTests {
             observation: StaticOfflineObservation(),
             shareIDForVault: { _ in "share" }
         )
+        var selectionInputChanges = 0
+        coordinator.onDetailSelectionInputsChanged = { selectionInputChanges += 1 }
         let row = OfflineItemSettingsRow(
             itemId: "item", vaultId: "vault", title: "Offline example", itemType: .login,
             status: .cached, lastRefreshedAt: .distantPast, hasUsableSnapshot: true,
@@ -384,6 +419,7 @@ struct OfflineModeCoordinatorTests {
             availabilityByItemID: ["item": .available(lastRefreshedAt: .distantPast)]
         ))
 
+        #expect(selectionInputChanges == 1)
         let item = try #require(fixture.items.first)
         #expect(coordinator.availability(for: item) == .available(lastRefreshedAt: .distantPast))
         let mismatched = PassItem(
@@ -624,6 +660,8 @@ private actor GatedPromotionService: OfflineModeServicing {
 
 private actor CountingRecoveryRepository: OfflineSnapshotPersisting {
     private let base: OfflineSnapshotRepository
+    nonisolated var releaseAuthority: OfflineReleaseAuthority { base.releaseAuthority }
+    func releaseProof(for snapshot: EncryptedOfflineSnapshot) async throws -> OfflineReleaseProof? { try await base.releaseProof(for: snapshot) }
     private var recoveries = 0
 
     init(base: OfflineSnapshotRepository) { self.base = base }

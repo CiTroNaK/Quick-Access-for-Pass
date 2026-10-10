@@ -33,8 +33,8 @@ struct DatabaseManagerMigrationV11Tests {
         let database = try DatabaseManager(inMemory: true, passphrase: passphrase)
         try database.upsertVaults([PassVault(id: "vault", name: "Vault")])
         try database.upsertItems([item(id: "item", vaultID: "vault")])
-        try database.selectWholeOfflineVault("vault")
-        try database.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectWholeVault(in: database, "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: database, itemId: "item", vaultId: "vault")
 
         let validFingerprint = Data(repeating: 1, count: 32)
         let validPayload = Data(repeating: 2, count: OfflineSnapshotLimits.ciphertextBytes)
@@ -112,7 +112,7 @@ struct DatabaseManagerMigrationV11Tests {
             }
         }
 
-        _ = try database.removeOfflineItem(itemId: "item")
+        _ = try OfflineCatalogFixtureSupport.removeItem(in: database, itemId: "item")
         #expect(try database.reader.read { connection in
             try Int.fetchOne(connection, sql: "SELECT COUNT(*) FROM offlineSnapshots")
         } == 0)

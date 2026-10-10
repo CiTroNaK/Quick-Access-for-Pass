@@ -11,7 +11,7 @@ nonisolated struct MetadataSynchronizationResult: Sendable {
 
 nonisolated extension DatabaseManager {
     func upsertVaults(_ vaults: [PassVault]) throws {
-        try writer.write { db in
+        try writeOfflineMutation(submissionScope: .none) { db in
             for vault in vaults {
                 try db.execute(
                     sql: """
@@ -23,16 +23,18 @@ nonisolated extension DatabaseManager {
                     arguments: [vault.id, vault.name, vault.shareId]
                 )
             }
+            return OfflineMutationUpdate(value: (), manualPromotions: [])
         }
     }
 
     func removeVaultsNotIn(_ vaultIds: Set<String>) throws {
-        try writer.write { db in
+        try writeOfflineMutation(submissionScope: .retainVaults(vaultIds)) { db in
             let existingIds = try String.fetchAll(db, sql: "SELECT id FROM vaults")
             let staleIds = existingIds.filter { !vaultIds.contains($0) }
             if !staleIds.isEmpty {
                 try PassVault.filter(staleIds.contains(Column("id"))).deleteAll(db)
             }
+            return OfflineMutationUpdate(value: (), manualPromotions: [])
         }
     }
 
@@ -58,8 +60,14 @@ nonisolated extension DatabaseManager {
 // MARK: - Item Operations
 
 nonisolated extension DatabaseManager {
+    private static func offlineIncomingIdentities(_ items: [PassItem]) -> [String: OfflineIncomingItemIdentity] {
+        Dictionary(items.map { item in
+            (item.id, OfflineIncomingItemIdentity(vaultID: item.vaultId, itemType: item.itemType, isActive: item.state == "Active"))
+        }, uniquingKeysWith: { _, newest in newest })
+    }
+
     func upsertItems(_ items: [PassItem]) throws {
-        try writer.write { db in
+        try writeOfflineMutation(submissionScope: .upsertItems(Self.offlineIncomingIdentities(items))) { db in
             for var item in items {
                 if let existing = try PassItem.fetchOne(db, key: item.id) {
                     item.useCount = existing.useCount
@@ -67,13 +75,15 @@ nonisolated extension DatabaseManager {
                 }
                 try item.save(db)
             }
+            return OfflineMutationUpdate(value: (), manualPromotions: [])
         }
     }
 
     /// Replace all items with the given set (removes items not in the list).
     func syncItems(_ items: [PassItem]) throws {
-        try writer.write { db in
+        try writeOfflineMutation(submissionScope: .replaceItems(Self.offlineIncomingIdentities(items))) { db in
             try Self.syncItems(items, in: db)
+            return OfflineMutationUpdate(value: (), manualPromotions: [])
         }
     }
 
@@ -86,10 +96,13 @@ nonisolated extension DatabaseManager {
         items: [PassItem],
         descriptors: [AutoFillDescriptorInput],
         presenceUncertainties: [SyncItemPresenceUncertainty] = [],
-        beforeDescriptorWrite: @Sendable () throws -> Void = {}
+        beforeDescriptorWrite: @escaping @Sendable () throws -> Void = {}
     ) throws -> [AutoFillCredentialDescriptor] {
-        try writer.write { db in
-            try Self.writeSyncedMetadata(
+        let scope = OfflineReleaseMutationScope.replaceMetadata(OfflineMetadataReplacement(
+            vaultIDs: Set(vaults.map(\.id)), itemsByID: Self.offlineIncomingIdentities(items),
+            presenceUncertainties: presenceUncertainties))
+        return try writeOfflineMutation(submissionScope: scope) { db in
+            let value = try Self.writeSyncedMetadata(
                 vaults: vaults,
                 items: items,
                 descriptors: descriptors,
@@ -97,6 +110,7 @@ nonisolated extension DatabaseManager {
                 beforeDescriptorWrite: beforeDescriptorWrite,
                 in: db
             ).descriptors
+            return OfflineMutationUpdate(value: value, manualPromotions: [])
         }
     }
 
@@ -107,8 +121,12 @@ nonisolated extension DatabaseManager {
         descriptors: [AutoFillDescriptorInput],
         presenceUncertainties: [SyncItemPresenceUncertainty] = []
     ) async throws -> MetadataSynchronizationResult {
-        try await writer.write { db in
-            try Self.writeSyncedMetadata(vaults: vaults, items: items, descriptors: descriptors, presenceUncertainties: presenceUncertainties, in: db)
+        let scope = OfflineReleaseMutationScope.replaceMetadata(OfflineMetadataReplacement(
+            vaultIDs: Set(vaults.map(\.id)), itemsByID: Self.offlineIncomingIdentities(items),
+            presenceUncertainties: presenceUncertainties))
+        return try await writeOfflineMutation(submissionScope: scope) { db in
+            let value = try Self.writeSyncedMetadata(vaults: vaults, items: items, descriptors: descriptors, presenceUncertainties: presenceUncertainties, in: db)
+            return OfflineMutationUpdate(value: value, manualPromotions: [])
         }
     }
 
@@ -126,7 +144,7 @@ nonisolated extension DatabaseManager {
         }
     }
 
-    static func writeSyncedMetadata(
+    private static func writeSyncedMetadata(
         vaults: [PassVault],
         items: [PassItem],
         descriptors: [AutoFillDescriptorInput],

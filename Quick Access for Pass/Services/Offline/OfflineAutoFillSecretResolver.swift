@@ -11,7 +11,7 @@ nonisolated struct OfflineAutoFillSecretResolver: AutoFillSecretResolving {
         descriptor: AutoFillCredentialDescriptor,
         kind: AutoFillValueKind,
         context: SecretResolutionContext
-    ) async throws -> String {
+    ) async throws -> ResolvedSecret<String> {
         try Task.checkCancellation()
         // The verified descriptor is the authorization context for every
         // cached decode, including direct adapter callers.
@@ -19,29 +19,17 @@ nonisolated struct OfflineAutoFillSecretResolver: AutoFillSecretResolving {
             deadlineUptimeNanoseconds: context.deadlineUptimeNanoseconds,
             expectedUsername: descriptor.username
         )
-        switch kind {
-        case .password:
-            let item = try await resolver.resolveItem(
-                itemId: descriptor.itemID, vaultId: descriptor.vaultID, shareId: descriptor.shareID, context: descriptorContext
-            )
-            try Task.checkCancellation()
-            guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
-            try validateAutoFillUsername(login, expectedUsername: descriptorContext.expectedUsername)
-            return login.password
-        case .oneTimeCode:
-            guard descriptor.hasTOTP else { throw AutoFillSecretResolverError.descriptorDoesNotSupportValue }
-            // Resolve the item first so both cached password and TOTP releases
-            // verify the descriptor's current login identity.
-            let item = try await resolver.resolveItem(
-                itemId: descriptor.itemID, vaultId: descriptor.vaultID, shareId: descriptor.shareID, context: descriptorContext
-            )
-            guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
-            try validateAutoFillUsername(login, expectedUsername: descriptorContext.expectedUsername)
-            let code = try await resolver.resolveTOTP(
-                itemId: descriptor.itemID, vaultId: descriptor.vaultID, shareId: descriptor.shareID, context: descriptorContext
-            )
-            try Task.checkCancellation()
-            return code
+        if kind == .oneTimeCode, !descriptor.hasTOTP {
+            throw AutoFillSecretResolverError.descriptorDoesNotSupportValue
         }
+        let value = try await resolver.resolveAutoFillValue(
+            itemId: descriptor.itemID,
+            vaultId: descriptor.vaultID,
+            shareId: descriptor.shareID,
+            kind: kind,
+            context: descriptorContext
+        )
+        try Task.checkCancellation()
+        return value
     }
 }

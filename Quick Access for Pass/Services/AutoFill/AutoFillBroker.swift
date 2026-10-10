@@ -4,12 +4,12 @@ import os
 
 typealias AutoFillBrokerStateTransition = @Sendable (AutoFillRequestState) async throws -> Void
 struct AutoFillCredentialDelivery: Sendable {
-    let value: String
+    let value: ResolvedSecret<String>
     let release: AutoFillCredentialRelease
 }
 
 struct AutoFillResolvedCredential: Sendable {
-    let value: String
+    let value: ResolvedSecret<String>
     /// The descriptor authorized before secret resolution. Final metadata checks
     /// compare only against this original identity and never establish a new one.
     let descriptor: AutoFillCredentialDescriptor
@@ -51,7 +51,7 @@ final class AutoFillCredentialRelease {
     /// then writes in the same synchronous MainActor turn as the final guard.
     /// A capability is consumed before its first suspension, including when that
     /// attempted delivery later fails, so it cannot release a second frame.
-    func deliver(_ value: String, toFileDescriptor fd: Int32) async throws {
+    func deliver(_ resolved: ResolvedSecret<String>, toFileDescriptor fd: Int32) async throws {
         guard consumed == false else { throw CancellationError() }
         consumed = true
         let store = descriptorStore
@@ -64,15 +64,21 @@ final class AutoFillCredentialRelease {
               current.identityKey == descriptor.identityKey,
               supports(request.kind, descriptor: current)
         else { throw AutoFillBrokerCoordinator.Error.descriptorNotFound }
-        try Task.checkCancellation()
-        guard request.deadline > now(),
-              secretReleaseGuard.isCurrent(releaseToken),
-              isAppLocked() == false
-        else { throw CancellationError() }
-        try AutoFillWire.writeMessageNonblocking(
-            AutoFillBrokerResponse.credential(requestID: request.requestID, value: value),
-            toFileDescriptor: fd
-        )
+        try resolved.release(validating: {
+            try Task.checkCancellation()
+            guard request.deadline > self.now(),
+                  self.secretReleaseGuard.isCurrent(self.releaseToken),
+                  self.isAppLocked() == false,
+                  current.id == self.descriptor.id,
+                  current.identityKey == self.descriptor.identityKey,
+                  self.supports(request.kind, descriptor: current)
+            else { throw CancellationError() }
+        }, effect: { value in
+            try AutoFillWire.writeMessageNonblocking(
+                AutoFillBrokerResponse.credential(requestID: request.requestID, value: value),
+                toFileDescriptor: fd
+            )
+        })
     }
 
     /// Runs the final metadata lookup only within the request's remaining

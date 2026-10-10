@@ -111,6 +111,13 @@ actor PassCLIService {
         try await viewItem(itemId: itemId, shareId: shareId, timeout: timeoutSeconds)
     }
 
+    func viewItem(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> CLIItem {
+        let uri = "pass://\(shareId)/\(itemId)"
+        let data = try await runSecret(arguments: ["item", "view", "--output", "json", uri], deadline: deadline)
+        do { return try JSONDecoder().decode(CLIItemViewResponse.self, from: data).item }
+        catch { throw CLIError.secretFetchFailed }
+    }
+
     /// Secret reads always use the bounded runner, including ordinary actions.
     func viewItem(itemId: String, shareId: String, timeout: TimeInterval) async throws -> CLIItem {
         let uri = "pass://\(shareId)/\(itemId)"
@@ -124,6 +131,13 @@ actor PassCLIService {
 
     func getTotp(itemId: String, shareId: String) async throws -> String {
         try await getTotp(itemId: itemId, shareId: shareId, timeout: timeoutSeconds)
+    }
+
+    func getTotp(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> String {
+        let uri = "pass://\(shareId)/\(itemId)"
+        let data = try await runSecret(arguments: ["item", "totp", "--output", "json", uri], deadline: deadline)
+        do { return try JSONDecoder().decode(CLITotpResponse.self, from: data).totp }
+        catch { throw CLIError.secretFetchFailed }
     }
 
     /// Secret reads always use the bounded runner, including ordinary actions.
@@ -216,25 +230,36 @@ actor PassCLIService {
         try await runner.run(executablePath: cliPath, arguments: arguments, timeout: timeoutSeconds)
     }
 
+    private func runSecret(arguments: [String], deadline: CLIExecutionDeadline) async throws -> Data {
+        do {
+            return try await runner.run(
+                executablePath: cliPath, arguments: arguments,
+                deadline: deadline, maximumOutputBytes: Self.secretOutputLimit
+            )
+        } catch {
+            throw Self.sanitizedSecretRunnerError(error)
+        }
+    }
+
     private func runSecret(arguments: [String], timeout: TimeInterval) async throws -> Data {
         do {
             return try await runner.run(
-                executablePath: cliPath,
-                arguments: arguments,
-                timeout: timeout,
-                maximumOutputBytes: Self.secretOutputLimit
+                executablePath: cliPath, arguments: arguments,
+                timeout: timeout, maximumOutputBytes: Self.secretOutputLimit
             )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as CLIError {
-            switch error {
-            case .notInstalled, .notLoggedIn, .timeout, .outputLimitExceeded:
-                throw error
-            case .commandFailed, .secretFetchFailed, .parseError:
-                throw CLIError.secretFetchFailed
-            }
         } catch {
-            throw CLIError.secretFetchFailed
+            throw Self.sanitizedSecretRunnerError(error)
+        }
+    }
+
+    private static func sanitizedSecretRunnerError(_ error: any Error) -> any Error {
+        if error is CancellationError { return error }
+        guard let cliError = error as? CLIError else { return CLIError.secretFetchFailed }
+        switch cliError {
+        case .notInstalled, .notLoggedIn, .timeout, .outputLimitExceeded:
+            return cliError
+        case .commandFailed, .secretFetchFailed, .parseError:
+            return CLIError.secretFetchFailed
         }
     }
 

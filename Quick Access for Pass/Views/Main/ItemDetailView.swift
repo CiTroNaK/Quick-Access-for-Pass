@@ -106,18 +106,26 @@ struct ItemDetailView: View {
             .padding(.vertical, 6)
         }
         .scrollPosition(id: $scrolledRowID, anchor: .center)
-        .onChange(of: viewModel.selectedRowIndex) { _, newValue in
-            guard rows.indices.contains(newValue) else { return }
-            let targetID = rows[newValue].id
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                scrolledRowID = targetID
-            }
-            focusedRowID = targetID
+        .onChange(of: viewModel.selectedDetailRowID) { _, _ in synchronizeSelection(in: rows) }
+        .onChange(of: viewModel.detailRowSelectionEntries) { _, _ in synchronizeSelection(in: rows) }
+        .onAppear { synchronizeSelection(in: rows) }
+    }
+
+    nonisolated static func selectionTarget(selectedID: DetailRow.ID?, rows: [DetailRow]) -> DetailRow.ID? {
+        guard let selectedID, rows.contains(where: { $0.id == selectedID }) else { return nil }
+        return selectedID
+    }
+
+    private func synchronizeSelection(in rows: [DetailRow]) {
+        guard let selectedID = Self.selectionTarget(selectedID: viewModel.selectedDetailRowID, rows: rows) else {
+            focusedRowID = nil
+            scrolledRowID = nil
+            return
         }
-        .onAppear {
-            guard rows.indices.contains(viewModel.selectedRowIndex) else { return }
-            focusedRowID = rows[viewModel.selectedRowIndex].id
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+            scrolledRowID = selectedID
         }
+        focusedRowID = selectedID
     }
 
     @ViewBuilder
@@ -234,7 +242,7 @@ struct ItemDetailView: View {
 
     @ViewBuilder
     private func selectableRow(props: SelectableRowProps) -> some View {
-        let isSelected = viewModel.selectedRowIndex == props.indexInRows
+        let isSelected = viewModel.selectedDetailRowID == props.rowID
         let hint: String = {
             switch props.trailing {
             case .copyHint: return String(localized: "Press Return to copy")
@@ -244,7 +252,7 @@ struct ItemDetailView: View {
         }()
         let accessibilityHint = props.accessibilityHint.isEmpty ? hint : props.accessibilityHint
         Button {
-            viewModel.selectedRowIndex = props.indexInRows
+            viewModel.selectDetailRow(id: props.rowID)
             props.action()
         } label: {
             HStack(spacing: 10) {

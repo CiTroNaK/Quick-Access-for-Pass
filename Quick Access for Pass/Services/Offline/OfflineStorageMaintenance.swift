@@ -71,31 +71,38 @@ nonisolated struct DatabaseWALCheckpointer: OfflineCheckpointing {
 actor OfflineStorageMaintenance {
     private let checkpointer: any OfflineCheckpointing
     private let retryDelay: @Sendable () async throws -> Void
+    private let beforeJoiningWorker: @Sendable () async -> Void
     private var worker: Task<Void, Never>?
     private var workerID: UUID?
+    private var requestedGeneration: UInt64 = 0
     private var stopped = false
 
     init(
         checkpointer: any OfflineCheckpointing,
         retryDelay: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(250))
-        }
+        },
+        beforeJoiningWorker: @escaping @Sendable () async -> Void = {}
     ) {
         self.checkpointer = checkpointer
         self.retryDelay = retryDelay
+        self.beforeJoiningWorker = beforeJoiningWorker
     }
 
     /// Registers a coalesced request and returns without waiting for retries.
     func requestCheckpoint() {
-        guard !stopped, worker == nil else { return }
-        startWorker()
+        guard !stopped else { return }
+        requestedGeneration &+= 1
+        if worker == nil { startWorker() }
     }
 
     /// Runs the same bounded coalesced batch during startup and waits for it.
     func checkpointAtStartup() async {
         guard !stopped else { return }
         if worker == nil { startWorker() }
-        await worker?.value
+        let ownedWorker = worker
+        await beforeJoiningWorker()
+        await ownedWorker?.value
     }
 
     /// Terminal lifecycle transition: cancel and await the one owned worker.
@@ -106,6 +113,7 @@ actor OfflineStorageMaintenance {
         }
         stopped = true
         workerID = nil
+        requestedGeneration = 0
         let currentWorker = worker
         currentWorker?.cancel()
         await currentWorker?.value
@@ -128,22 +136,28 @@ actor OfflineStorageMaintenance {
             }
         }
 
-        for attempt in 0..<3 {
-            guard isCurrentWorker(id), !Task.isCancelled else { return }
-            do {
-                switch try await checkpointer.checkpoint() {
-                case .complete:
-                    return
-                case .busy:
-                    guard attempt < 2 else { return }
-                    try Task.checkCancellation()
-                    try await retryDelay()
+        while isCurrentWorker(id), !Task.isCancelled {
+            let batchGeneration = requestedGeneration
+            var batchFinished = false
+            for attempt in 0..<3 {
+                guard isCurrentWorker(id), !Task.isCancelled else { return }
+                do {
+                    switch try await checkpointer.checkpoint() {
+                    case .complete:
+                        batchFinished = true
+                    case .busy:
+                        guard attempt < 2 else { batchFinished = true; continue }
+                        try Task.checkCancellation()
+                        try await retryDelay()
+                    }
+                } catch {
+                    batchFinished = true
                 }
-            } catch is CancellationError {
-                return
-            } catch {
-                return
+                if batchFinished { break }
             }
+            guard isCurrentWorker(id), !Task.isCancelled else { return }
+            if requestedGeneration != batchGeneration { continue }
+            return
         }
     }
 

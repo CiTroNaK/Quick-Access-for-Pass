@@ -19,6 +19,18 @@ struct SyncCoordinatorOfflineTests {
         #expect(await harness.runner.viewRequests() == ["pass://share/item"])
     }
 
+    @Test("item-scoped retry remains limited to its selected sync identity")
+    func itemRetryDoesNotRefreshHealthyNeighbor() async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["target", "neighbor"])
+        let before = await harness.runner.viewRequests()
+        #expect(try await harness.service.retryOfflineItem(itemID: "target", vaultID: "vault") == .submitted)
+        await harness.service.waitUntilIdle()
+        let after = await harness.runner.viewRequests()
+        #expect(after.count == before.count + 1)
+        #expect(after.last == "pass://share/target")
+        #expect(try await harness.repository.offlineItemSelection(itemId: "neighbor")?.cacheStatus == .cached)
+    }
+
     @Test("metadata sync finishes while future vault-item preparation remains queued")
     func successfulSyncQueuesFutureVaultItemsWithoutWaitingForPreparation() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item"])

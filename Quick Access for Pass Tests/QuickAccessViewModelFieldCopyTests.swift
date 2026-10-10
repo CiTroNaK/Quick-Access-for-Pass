@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Quick_Access_for_Pass
@@ -11,7 +12,7 @@ struct QuickAccessViewModelFieldCopyTests {
     ) throws -> (QuickAccessViewModel, ClipboardManager) {
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         try db.upsertVaults([vault])
-        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: PassCLIService(),

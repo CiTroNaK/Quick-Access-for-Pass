@@ -33,7 +33,6 @@ extension QuickAccessViewModel {
         inFlightLargeType = nil
         largeTypeGeneration += 1
         inFlightCopy?.cancel()
-        isActionLoading = true
         copyGeneration += 1
         let generation = copyGeneration
         let releaseToken = secretReleaseGuard.capture()
@@ -138,15 +137,17 @@ extension QuickAccessViewModel {
             let detail = try await secretResolver.resolveItem(itemId: item.id, vaultId: item.vaultId, shareId: currentShareId)
             try Task.checkCancellation()
             guard canReleaseCopy(generation, token: releaseToken) else { return }
-            if case .login(let login) = detail.content.content {
-                clipboardManager.copy(login.password, label: String(localized: "Password copied"))
+            let password = try detail.map { item in
+                guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
+                return login.password
             }
+            try releaseCopy(password, label: String(localized: "Password copied"), generation: generation, token: releaseToken)
         case .copyTotp:
             lastCommand = "\(cliService.cliPath) item totp --output json pass://\(currentShareId)/\(item.id)"
             let code = try await secretResolver.resolveTOTP(itemId: item.id, vaultId: item.vaultId, shareId: currentShareId)
             try Task.checkCancellation()
             guard canReleaseCopy(generation, token: releaseToken) else { return }
-            clipboardManager.copy(code, label: String(localized: "TOTP code copied"))
+            try releaseCopy(code, label: String(localized: "TOTP code copied"), generation: generation, token: releaseToken)
         case .copyPrimary:
             lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
             try await copyPrimarySecret(for: item, generation: generation, releaseToken: releaseToken)
@@ -166,29 +167,21 @@ extension QuickAccessViewModel {
         let detail = try await secretResolver.resolveItem(itemId: item.id, vaultId: item.vaultId, shareId: shareId(for: item))
         try Task.checkCancellation()
         guard canReleaseCopy(generation, token: releaseToken) else { return }
-        let content = detail.content.content
-
-        switch content {
-        case .login(let login):
-            clipboardManager.copy(login.password, label: String(localized: "Password copied"))
-        case .creditCard(let card):
-            clipboardManager.copy(card.number, label: String(localized: "Card number copied"))
-        case .note:
-            clipboardManager.copy(detail.content.note, label: String(localized: "Note copied"))
-        case .identity(let identity):
-            clipboardManager.copy(identity.email, label: String(localized: "Email copied"))
-        case .alias(let alias):
-            let aliasEmail = alias.email.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !aliasEmail.isEmpty else {
-                throw SecretCopyError.aliasEmailUnavailable
+        let extracted = try detail.map { detail -> (String, String) in
+            switch detail.content.content {
+            case .login(let login): return (login.password, String(localized: "Password copied"))
+            case .creditCard(let card): return (card.number, String(localized: "Card number copied"))
+            case .note: return (detail.content.note, String(localized: "Note copied"))
+            case .identity(let identity): return (identity.email, String(localized: "Email copied"))
+            case .alias(let alias):
+                let email = alias.email.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !email.isEmpty else { throw SecretCopyError.aliasEmailUnavailable }
+                return (email, String(localized: "Alias copied"))
+            case .sshKey(let key): return (key.publicKey, String(localized: "Public key copied"))
+            case .wifi(let wifi): return (wifi.password, String(localized: "Password copied"))
+            case .custom: return (detail.content.note, String(localized: "Content copied"))
             }
-            clipboardManager.copy(aliasEmail, label: String(localized: "Alias copied"))
-        case .sshKey(let key):
-            clipboardManager.copy(key.publicKey, label: String(localized: "Public key copied"))
-        case .wifi(let wifi):
-            clipboardManager.copy(wifi.password, label: String(localized: "Password copied"))
-        case .custom:
-            clipboardManager.copy(detail.content.note, label: String(localized: "Content copied"))
         }
+        try releaseCopy(extracted.map { $0.0 }, label: extracted.value.1, generation: generation, token: releaseToken)
     }
 }

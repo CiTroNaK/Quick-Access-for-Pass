@@ -5,6 +5,31 @@ import Testing
 
 @Suite("Offline mode lifecycle", .timeLimit(.minutes(1)))
 struct OfflineModeServiceTests {
+    @Test func serviceRevocationBlocksReleaseBeforeDelegatingRepositoryAdmission() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
+        let gate = OfflineTestGate()
+        let repository = RecoveryControlledRepository(base: fixture.repository, deselectionGate: gate)
+        let service = OfflineModeService(repository: repository, codec: fixture.codec(), cliService: OfflineFixtureViewer())
+        try await initializeOfflineFixtureService(service)
+        try await service.selectWholeVault(true, vaultID: "vault")
+        await service.waitUntilIdle()
+        #expect(repository.releaseAuthority === fixture.database.offlineReleaseAuthority)
+        let key = OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: 1)
+        let capture = repository.releaseAuthority.capture(for: key)
+        let snapshot = try #require(try await repository.authorizedSnapshot(for: key))
+        let proof = try #require(try await repository.releaseProof(for: snapshot))
+        try repository.releaseAuthority.bind(capture, proof: proof)
+        let capability = try repository.releaseAuthority.authorize(capture, proof: proof)
+        let before = try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item")
+        let revoke = Task { try await service.selectWholeVault(false, vaultID: "vault") }
+        try await gate.waitUntilEntered()
+        #expect(throws: OfflineReleaseError.revoked) { try capability.withRelease(validating: {}, effect: { true }) }
+        #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == before)
+        await gate.open()
+        try await revoke.value
+        #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == nil)
+    }
+
     @Test func initializationAloneDoesNotAdmitManualSelection() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         let viewer = OfflineFixtureViewer()
@@ -72,6 +97,61 @@ struct OfflineModeServiceTests {
         #expect(await viewer.callCount(itemID: "item") == 1)
         try await service.selectWholeVault(false, vaultID: "vault")
         #expect(try await f.repository.offlineItemSelection(itemId: "item") == nil)
+        await service.stop()
+    }
+
+    @Test func retryOfflineItemSubmitsOnlyCapturedSelectedIdentity() async throws {
+        let f = try OfflineLifecycleFixture(itemIDs: ["target", "neighbor"])
+        let control = RetryTargetFailureControl()
+        let viewer = OfflineFixtureViewer(beforeViewItem: { itemID in try await control.check(itemID) })
+        let service = f.service(viewer: viewer)
+        try await initializeOfflineFixtureService(service)
+        try await service.selectWholeVault(true, vaultID: "vault")
+        await service.waitUntilIdle()
+        #expect(try await f.repository.offlineItemSelection(itemId: "target")?.cacheStatus == .unavailable)
+        #expect(try await f.repository.offlineItemSelection(itemId: "neighbor")?.cacheStatus == .cached)
+        let initialTargetCalls = await viewer.callCount(itemID: "target")
+        let initialNeighborCalls = await viewer.callCount(itemID: "neighbor")
+        await control.succeed()
+        #expect(try await service.retryOfflineItem(itemID: "target", vaultID: "vault") == .submitted)
+        await service.waitUntilIdle()
+        #expect(await viewer.callCount(itemID: "target") == initialTargetCalls + 1)
+        #expect(await viewer.callCount(itemID: "neighbor") == initialNeighborCalls)
+        #expect(try await service.retryOfflineItem(itemID: "missing", vaultID: "vault") == .unavailable)
+        await service.stop()
+    }
+
+    @Test func itemRetryDoesNotSelectUnselectedOrRemovedItem() async throws {
+        let f = try OfflineLifecycleFixture(itemIDs: ["unselected", "removed"])
+        let viewer = OfflineFixtureViewer()
+        let service = f.service(viewer: viewer)
+        try await initializeOfflineFixtureService(service)
+        #expect(try await service.retryOfflineItem(itemID: "unselected", vaultID: "vault") == .unavailable)
+        #expect(try await f.repository.offlineItemSelection(itemId: "unselected") == nil)
+        _ = try await f.repository.setVaultSelected(true, vaultID: "vault")
+        _ = try await f.repository.selectItemManually(itemID: "removed", vaultID: "vault", shareID: "share")
+        try await service.removeOfflineItem(itemId: "removed")
+        #expect(try await service.retryOfflineItem(itemID: "removed", vaultID: "vault") == .unavailable)
+        #expect(try await f.repository.offlineItemSelection(itemId: "removed") == nil)
+        #expect(try await f.repository.itemPolicy(itemID: "removed", vaultID: "vault")?.isExcluded == true)
+        #expect(await viewer.callCount(itemID: "unselected") == 0)
+        await service.stop()
+    }
+
+    @Test func itemRetryJoinsActiveVaultMaterializationWithoutReplacement() async throws {
+        let f = try OfflineLifecycleFixture(itemIDs: ["target"])
+        let gate = OfflineTestGate()
+        let viewer = OfflineFixtureViewer(beforeView: { try await gate.wait() })
+        let service = f.service(viewer: viewer)
+        try await initializeOfflineFixtureService(service)
+        try await service.selectWholeVault(true, vaultID: "vault")
+        try await gate.waitUntilEntered()
+        #expect(try await f.repository.offlineItemSelection(itemId: "target")?.cacheStatus == .notCached)
+        #expect(try await service.retryOfflineItem(itemID: "target", vaultID: "vault") == .submitted)
+        await gate.open()
+        await service.waitUntilIdle()
+        #expect(await viewer.callCount(itemID: "target") == 1)
+        #expect(try await f.repository.offlineItemSelection(itemId: "target")?.cacheStatus == .cached)
         await service.stop()
     }
 
@@ -752,6 +832,14 @@ private func serviceTestCandidate(_ id: String) -> OfflineSnapshotWorkCandidate 
                                  itemType: .login, intent: .vaultMaterialize(policyGeneration: UUID()))
 }
 
+private actor RetryTargetFailureControl {
+    private var targetFails = true
+    func succeed() { targetFails = false }
+    func check(_ itemID: String) throws {
+        if itemID == "target", targetFails { throw CLIError.notLoggedIn }
+    }
+}
+
 private actor OfflineViewerFailureControl {
     private var failing = true
     func succeed() { failing = false }
@@ -802,6 +890,8 @@ private actor RecoveryControl {
 
 private actor RecoveryControlledRepository: OfflineSnapshotPersisting {
     private let base: OfflineSnapshotRepository
+    nonisolated var releaseAuthority: OfflineReleaseAuthority { base.releaseAuthority }
+    func releaseProof(for snapshot: EncryptedOfflineSnapshot) async throws -> OfflineReleaseProof? { try await base.releaseProof(for: snapshot) }
     private let recovery: RecoveryControl?
     private let candidatesGate: OfflineTestGate?
     private let mutationGate: OfflineTestGate?

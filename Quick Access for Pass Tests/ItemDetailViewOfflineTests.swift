@@ -4,6 +4,16 @@ import Testing
 
 @Suite("ItemDetailView — Offline rows")
 struct ItemDetailViewOfflineTests {
+    @Test func focusAndScrollTargetFollowSelectedIdentityAfterRowIndexShift() {
+        let email = DetailRow.field(key: .email, label: "Email", isSensitive: false)
+        let note = DetailRow.field(key: .noteBody, label: "Note", isSensitive: false)
+        let inserted = DetailRow.keepOfflineIndividually
+        let selectedID = note.id
+        #expect(ItemDetailView.selectionTarget(selectedID: selectedID, rows: [email, inserted, note]) == selectedID)
+        #expect(ItemDetailView.selectionTarget(selectedID: selectedID, rows: [email, note]) == selectedID)
+        #expect(ItemDetailView.selectionTarget(selectedID: nil, rows: [email, note]) == nil)
+    }
+
     @Test func offlineAvailabilityRowHasNoTrailingCopyHint() {
         #expect(ItemDetailView.rowTrailing(for: .offlineAvailability(.notCached)) == .offlineAction)
     }

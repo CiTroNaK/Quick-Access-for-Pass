@@ -81,7 +81,7 @@ struct AutoFillBrokerPartialDeliveryTests {
                 }
                 trace.record(.handlerReturned)
                 diagnostics.record(.handlerReturned)
-                return AutoFillCredentialDelivery(value: String(repeating: "x", count: 60_000), release: release)
+                return AutoFillCredentialDelivery(value: ResolvedSecret(value: String(repeating: "x", count: 60_000), offlineCapability: nil), release: release)
             },
             candidateHandler: { _ in [] },
             completionGate: diagnostics.observer(for: .registryCompleted),

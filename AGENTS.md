@@ -51,6 +51,7 @@ Swift 6 strict concurrency is enforced throughout. Preserve actor and `@MainActo
 - **`@MainActor`** for UI and orchestration: `AppDelegate`, `QuickAccessViewModel`, `ClipboardManager`, `HotkeyManager`, `SyncCoordinator`, `SSHProxyCoordinator`, `RunProxyCoordinator`, auth window controllers, health stores/coordinator
 - **All models are `Sendable`** and intentionally cross actor boundaries as value types
 - **`CheckedContinuation`** bridges blocking process/socket work into async/await in `CLIRunner`, `SSHAgentProxy`, and `RunProxy`
+- **CLI startup** remains a structured child joined by its caller, but runs on the operation-owned control executor rather than the caller's cooperative pool. The original absolute deadline still includes queued admission
 - **`nonisolated(unsafe)`** is used sparingly and should stay justified with comments
 
 If you add shared mutable state, prefer an actor or isolate it to `@MainActor` instead of weakening the model.
@@ -139,7 +140,12 @@ metadata-only request ownership before fetch, publish ciphertext/status/timestam
 atomically, and never reverse an actual commit because of late cancellation.
 Startup recovery/readiness and terminal observation failure must leave live
 operations and explicit removal/purge usable while new offline selections wait
-for explicit retry. Display only non-secret committed counts/status/timestamps;
+for explicit retry. The repository owns persisted authority and current selection
+proofs; the database-owned release authority owns non-secret invalidation ordering,
+and `SecretReleaseGuard` owns the lifecycle check at final release. Test fixtures
+may provide catalog mutation setup helpers only in the test target; production
+writers must use the repository/database mutation paths. Display only non-secret
+committed counts/status/timestamps;
 never use stale display state as authorization. Secret-facing native CLI work
 must honor the original AutoFill deadline, bounded termination/output, external
 cancellation, and final release guards. See `SECURITY.md` for exact limits and

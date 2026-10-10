@@ -81,6 +81,12 @@ final class ClipboardManager {
     }
 
     func copy(_ text: String, label: String = String(localized: "Copied to clipboard")) {
+        writeConcealedValue(text)
+        completeCopy(label: label)
+    }
+
+    /// The synchronous sink effect only; callbacks and scheduling run after release synchronization.
+    func writeConcealedValue(_ text: String) {
         pasteboard.clearContents()
         pasteboard.writeObjects([text as NSString])
         #if DEBUG
@@ -92,8 +98,11 @@ final class ClipboardManager {
             pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
         }
         lastChangeCount = pasteboard.changeCount
+    }
 
-        scheduleClear()
+    func completeCopy(label: String) {
+        let committedChangeCount = lastChangeCount
+        scheduleClear(expectedChangeCount: committedChangeCount)
 
         // Delay slightly so the quick-access panel finishes closing before the toast appears.
         scheduler.schedule(after: .milliseconds(150)) { [weak self] in
@@ -119,13 +128,12 @@ final class ClipboardManager {
         return true
     }
 
-    private func scheduleClear() {
+    private func scheduleClear(expectedChangeCount: Int) {
         clearTask?.cancel()
         clearTask = nil
 
         guard autoClearSeconds > 0 else { return }
 
-        let expectedChangeCount = lastChangeCount
         clearTask = scheduler.schedule(after: .seconds(autoClearSeconds)) { [weak self] in
             guard let self else { return }
             if self.pasteboard.changeCount == expectedChangeCount {

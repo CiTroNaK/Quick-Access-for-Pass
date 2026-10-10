@@ -38,30 +38,138 @@ struct AutoFillBrokerTests {
     func permissionsAndPersistentListener() async throws {
         let fixture = try BrokerFixture()
         defer { fixture.cleanup() }
-        let broker = fixture.makeBroker { request, _ in
-            request.kind == .password ? "password-value" : "654321"
-        }
+        let firstTrace = BrokerTestTrace()
+        let secondTrace = BrokerTestTrace()
+        let firstHandoff = BrokerTestDeliveryHandoff()
+        let secondHandoff = BrokerTestDeliveryHandoff()
+        let activeTrace = OSAllocatedUnfairLock(initialState: firstTrace)
+        defer { firstTrace.report(label: "persistent.first"); secondTrace.report(label: "persistent.second") }
+        let releaseGuard = SecretReleaseGuard()
+        let broker = AutoFillBroker(
+            listenPath: fixture.socketPath, registry: fixture.registry, launchGate: fixture.launchGate,
+            idleTimeout: 0.2,
+            verifier: { fd in
+                activeTrace.withLock { $0 }.record(.verifiedPeer)
+                return VerifiedAutoFillPeer(fileDescriptor: fd, identifier: AutoFillConstants.extensionBundleIdentifier, teamID: "H23TXL6LPT")
+            },
+            requestHandler: { admittedRequest, _, _ in
+                let trace = admittedRequest.kind == .password ? firstTrace : secondTrace
+                let handoff = admittedRequest.kind == .password ? firstHandoff : secondHandoff
+                trace.record(.handler)
+                trace.record(admittedRequest.deadline > DispatchTime.now().uptimeNanoseconds ? .handlerDeadlineFuture : .handlerDeadlineExpired)
+                // Preparation is not admission. Only the actual registry-issued context may match this expected tuple.
+                guard let delivery = handoff.delivery(matching: admittedRequest) else { throw AutoFillProtocolError.malformedMessage }
+                trace.record(.handlerReturned)
+                return delivery
+            },
+            candidateHandler: { _ in [] },
+            completionGate: { activeTrace.withLock { $0 }.record(.completionGate) }
+        )
         try await broker.start()
-        defer { Task { await broker.stop() } }
-
-        #expect(try permissions(at: fixture.directoryPath) == 0o700)
-        #expect(try permissions(at: fixture.socketPath) == 0o600)
-
-        let firstStartedAt = DispatchTime.now().uptimeNanoseconds
-        let first = try await request(at: fixture.socketPath, kind: .password)
-        guard case .credential(_, let firstValue) = first else {
-            Issue.record("Unexpected first response category: \(responseCategory(first)); elapsed nanoseconds: \(DispatchTime.now().uptimeNanoseconds - firstStartedAt)")
-            return
+        do {
+            #expect(try permissions(at: fixture.directoryPath) == 0o700)
+            #expect(try permissions(at: fixture.socketPath) == 0o600)
+            for kind in [AutoFillValueKind.password, .oneTimeCode] {
+                let trace = kind == .password ? firstTrace : secondTrace
+                let handoff = kind == .password ? firstHandoff : secondHandoff
+                activeTrace.withLock { $0 = trace }
+                let socketPath = fixture.socketPath
+                let client = Task { try await BrokerTestSocketIO.requestWithPreparedDelivery(at: socketPath, handoff: handoff, trace: trace) }
+                do {
+                    try await handoff.waitUntilWorkerReady()
+                    let prepared = await MainActor.run {
+                        trace.record(.releasePreparationStarted)
+                        let descriptor = AutoFillCredentialDescriptor(id: UUID(), vaultID: "test-vault", itemID: "test-item", shareID: "test-share",
+                            title: "Test", username: "test@example.test", serviceIdentifier: "example.test", hasTOTP: true)
+                        // This tests listener persistence and permissions, not
+                        // one-second expiry under unrelated MainActor test load.
+                        // Keep one fixed budget; dedicated expiry tests stay short.
+                        let request = AutoFillBrokerRequest(requestID: UUID(), descriptorID: descriptor.id, valueKind: kind,
+                            deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 10_000_000_000)
+                        trace.record(.deadlineCreated)
+                        let expectedRequest = AutoFillRegisteredRequest(requestID: request.requestID, descriptorID: request.descriptorID,
+                            kind: request.valueKind, deadline: request.deadlineUptimeNanoseconds)
+                        let release = AutoFillCredentialRelease(request: expectedRequest, descriptor: descriptor, releaseToken: releaseGuard.capture(),
+                            descriptorStore: makeAutoFillBrokerTestDescriptorStore(descriptor: descriptor), secretReleaseGuard: releaseGuard,
+                            isAppLocked: { false }, now: { DispatchTime.now().uptimeNanoseconds })
+                        trace.record(.releaseConstructed)
+                        return BrokerTestPreparedDelivery(request: request, registeredRequest: expectedRequest,
+                            delivery: AutoFillCredentialDelivery(value: ResolvedSecret(value: kind == .password ? "password-value" : "654321", offlineCapability: nil), release: release))
+                    }
+                    #expect(trace.snapshot().contains(.verifiedPeer) == false)
+                    #expect(trace.snapshot().contains(.handler) == false)
+                    #expect(await fixture.registry.counts().pendingRequests == 0)
+                    try handoff.publish(prepared)
+                    let response = try await client.value
+                    guard case .credential(let id, let value) = response else {
+                        Issue.record("Persistent listener returned a non-credential response")
+                        throw AutoFillProtocolError.malformedMessage
+                    }
+                    #expect(id == prepared.request.requestID)
+                    #expect(value == (kind == .password ? "password-value" : "654321"))
+                    let events = trace.snapshot()
+                    for required in [BrokerTestTrace.Event.connected, .framed, .verifiedPeer, .handler, .handlerReturned, .completionGate, .credentialResponse, .connectionClosed] {
+                        #expect(events.filter { $0 == required }.count == 1)
+                    }
+                    let preparation = try #require(events.firstIndex(of: .releaseConstructed))
+                    let connection = try #require(events.firstIndex(of: .connected))
+                    #expect(preparation < connection)
+                } catch {
+                    handoff.cancel()
+                    client.cancel()
+                    _ = await client.result
+                    throw error
+                }
+                handoff.cancel()
+            }
+            await broker.stop()
+        } catch {
+            firstHandoff.cancel()
+            secondHandoff.cancel()
+            await broker.stop()
+            throw error
         }
-        #expect(firstValue == "password-value")
+    }
 
-        let secondStartedAt = DispatchTime.now().uptimeNanoseconds
-        let second = try await request(at: fixture.socketPath, kind: .oneTimeCode)
-        guard case .credential(_, let secondValue) = second else {
-            Issue.record("Unexpected second response category: \(responseCategory(second)); elapsed nanoseconds: \(DispatchTime.now().uptimeNanoseconds - secondStartedAt)")
-            return
+    @Test("idle EOF before framing is distinct from an expired original request")
+    func idleBeforeFramingClosesFirstConnectionWithoutAdmission() async throws {
+        let fixture = try BrokerFixture()
+        defer { fixture.cleanup() }
+        let trace = BrokerTestTrace()
+        defer { trace.report(label: "idle.first") }
+        let broker = fixture.makeBroker(
+            verifier: { fd in
+                trace.record(.verifiedPeer)
+                return VerifiedAutoFillPeer(fileDescriptor: fd, identifier: AutoFillConstants.extensionBundleIdentifier, teamID: "H23TXL6LPT")
+            },
+            traceForRequest: { _ in trace }, completionGate: { trace.record(.completionGate) },
+            handler: { _, _ in "must-not-run" }
+        )
+        try await broker.start()
+        let deadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+        trace.record(.deadlineCreated)
+        do {
+            let fd = try Self.connect(to: fixture.socketPath)
+            defer { close(fd) }
+            trace.record(.connected)
+            let bytes = try await BrokerTestSocketIO.readUntilEOF(from: fd)
+            trace.record(.connectionClosed)
+            let stillFuture = deadline > DispatchTime.now().uptimeNanoseconds
+            trace.record(stillFuture ? .deadlineFuture : .deadlineExpired)
+            #expect(bytes.isEmpty)
+            let counts = await fixture.registry.counts()
+            #expect(counts.pendingRequests == 0)
+            #expect(counts.connections == 0)
+            #expect(stillFuture)
+            #expect(trace.snapshot().filter { $0 == .verifiedPeer }.count == 1)
+            for forbidden in [BrokerTestTrace.Event.framed, .handler, .releaseConstructed, .completionGate, .credentialResponse] {
+                #expect(trace.snapshot().contains(forbidden) == false)
+            }
+            await broker.stop()
+        } catch {
+            await broker.stop()
+            throw error
         }
-        #expect(secondValue == "654321")
     }
 
     @Test("peer verification happens before request framing and rejection invokes no handler")
@@ -619,17 +727,19 @@ extension AutoFillBrokerTests {
         }
     }
 
-    private func request(at path: String, kind: AutoFillValueKind) async throws -> AutoFillBrokerResponse {
+    private func request(at path: String, kind: AutoFillValueKind, trace: BrokerTestTrace? = nil) async throws -> AutoFillBrokerResponse {
         try await withCheckedThrowingContinuation { continuation in
             Self.blockingSocketQueue.async {
                 do {
+                    trace?.record(.queued)
                     let message = AutoFillBrokerRequest(
                         requestID: UUID(),
                         descriptorID: UUID(),
                         valueKind: kind,
                         deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 1_000_000_000
                     )
-                    continuation.resume(returning: try Self.requestBlocking(at: path, message: message))
+                    trace?.record(.deadlineCreated)
+                    continuation.resume(returning: try Self.requestBlocking(at: path, message: message, trace: trace))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -643,12 +753,23 @@ extension AutoFillBrokerTests {
     )
     private static func requestBlocking(
         at path: String,
-        message: AutoFillBrokerRequest
+        message: AutoFillBrokerRequest,
+        trace: BrokerTestTrace? = nil
     ) throws -> AutoFillBrokerResponse {
-        let fd = try Self.connect(to: path)
-        defer { close(fd) }
-        try AutoFillWire.writeMessage(message, toFileDescriptor: fd)
-        return try AutoFillWire.readMessage(AutoFillBrokerResponse.self, fromFileDescriptor: fd)
+        do {
+            let fd = try Self.connect(to: path)
+            trace?.record(.connected)
+            defer { close(fd); trace?.record(.connectionClosed) }
+            try AutoFillWire.writeMessage(message, toFileDescriptor: fd)
+            trace?.record(.framed)
+            let response = try AutoFillWire.readMessage(AutoFillBrokerResponse.self, fromFileDescriptor: fd)
+            if case .credential = response { trace?.record(.credentialResponse) }
+            else { trace?.record(.failureResponse) }
+            return response
+        } catch {
+            trace?.record(.transportFailure)
+            throw error
+        }
     }
 
 

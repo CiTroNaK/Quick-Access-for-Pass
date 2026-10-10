@@ -5,12 +5,12 @@ nonisolated protocol AutoFillSecretResolving: Sendable {
         descriptor: AutoFillCredentialDescriptor,
         kind: AutoFillValueKind,
         context: SecretResolutionContext
-    ) async throws -> String
+    ) async throws -> ResolvedSecret<String>
 }
 
 extension AutoFillSecretResolving {
     /// Focused resolver tests that are not broker-driven use ordinary context.
-    func resolve(descriptor: AutoFillCredentialDescriptor, kind: AutoFillValueKind) async throws -> String {
+    func resolve(descriptor: AutoFillCredentialDescriptor, kind: AutoFillValueKind) async throws -> ResolvedSecret<String> {
         try await resolve(descriptor: descriptor, kind: kind, context: .ordinary)
     }
 }
@@ -19,6 +19,7 @@ nonisolated enum AutoFillSecretResolverError: Error, Equatable, Sendable {
     case descriptorDoesNotSupportValue
     case itemIsNotLogin
     case usernameMismatch
+    case unsupportedResolver
 }
 
 nonisolated func validateAutoFillUsername(
@@ -49,43 +50,49 @@ nonisolated struct PassCLIAutoFillSecretResolver: AutoFillSecretResolving {
         descriptor: AutoFillCredentialDescriptor,
         kind: AutoFillValueKind,
         context: SecretResolutionContext
-    ) async throws -> String {
+    ) async throws -> ResolvedSecret<String> {
         try Task.checkCancellation()
+        if kind == .oneTimeCode, !descriptor.hasTOTP {
+            throw AutoFillSecretResolverError.descriptorDoesNotSupportValue
+        }
+        return try await resolveLiveValue(
+            itemId: descriptor.itemID,
+            shareId: descriptor.shareID,
+            kind: kind,
+            context: context
+        )
+    }
+
+    func resolveLiveValue(
+        itemId: String,
+        shareId: String,
+        kind: AutoFillValueKind,
+        context: SecretResolutionContext
+    ) async throws -> ResolvedSecret<String> {
+        try Task.checkCancellation()
+        try checkDeadline(context)
+        let deadline = context.deadlineUptimeNanoseconds.map(CLIExecutionDeadline.init(uptimeNanoseconds:))
+        let item: CLIItem
+        if let deadline { item = try await cliService.viewItem(itemId: itemId, shareId: shareId, deadline: deadline) }
+        else { item = try await cliService.viewItem(itemId: itemId, shareId: shareId) }
+        try Task.checkCancellation()
+        try checkDeadline(context)
+        guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
+        try validateAutoFillUsername(login, expectedUsername: context.expectedUsername)
         switch kind {
         case .password:
-            let item = try await viewItem(descriptor: descriptor, context: context)
-            try Task.checkCancellation()
-            guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
-            try validateAutoFillUsername(login, expectedUsername: context.expectedUsername)
-            try checkDeadline(context)
-            return login.password
+            return ResolvedSecret(value: login.password, offlineCapability: nil)
         case .oneTimeCode:
-            guard descriptor.hasTOTP else { throw AutoFillSecretResolverError.descriptorDoesNotSupportValue }
-            let item = try await viewItem(descriptor: descriptor, context: context)
+            guard !login.totpUri.isEmpty else { throw AutoFillSecretResolverError.descriptorDoesNotSupportValue }
             try Task.checkCancellation()
             try checkDeadline(context)
-            guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
-            try validateAutoFillUsername(login, expectedUsername: context.expectedUsername)
-            // Recalculate immediately before this second native command: the
-            // item lookup may have consumed most of the original broker budget.
-            let timeout = try liveTimeout(context)
             let code: String
-            if let timeout { code = try await cliService.getTotp(itemId: descriptor.itemID, shareId: descriptor.shareID, timeout: timeout) }
-            else { code = try await cliService.getTotp(itemId: descriptor.itemID, shareId: descriptor.shareID) }
+            if let deadline { code = try await cliService.getTotp(itemId: itemId, shareId: shareId, deadline: deadline) }
+            else { code = try await cliService.getTotp(itemId: itemId, shareId: shareId) }
             try Task.checkCancellation()
             try checkDeadline(context)
-            return code
+            return ResolvedSecret(value: code, offlineCapability: nil)
         }
-    }
-
-    private func viewItem(descriptor: AutoFillCredentialDescriptor, context: SecretResolutionContext) async throws -> CLIItem {
-        let timeout = try liveTimeout(context)
-        if let timeout { return try await cliService.viewItem(itemId: descriptor.itemID, shareId: descriptor.shareID, timeout: timeout) }
-        return try await cliService.viewItem(itemId: descriptor.itemID, shareId: descriptor.shareID)
-    }
-
-    private func liveTimeout(_ context: SecretResolutionContext) throws -> TimeInterval? {
-        try OfflineAutoFillLiveBudget.timeout(context: context, hasSnapshot: false, now: now())
     }
 
     private func checkDeadline(_ context: SecretResolutionContext) throws {

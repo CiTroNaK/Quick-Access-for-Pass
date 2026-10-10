@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import Observation
 
-typealias LargeTypePresenter = @MainActor @Sendable (LargeTypeDisplay) -> Void
 typealias PasteboardStringWriter = @MainActor @Sendable (String) -> Void
 typealias URLOpener = @MainActor @Sendable (URL) -> Bool
 
@@ -15,14 +14,26 @@ final class QuickAccessViewModel {
     private(set) var items: [PassItem] = []
     var selectedIndex = 0
     var isLoading = false
-    var isActionLoading = false
+    var isActionLoading: Bool {
+        inFlightCopy != nil || inFlightLargeType != nil || inFlightOfflineOperation != nil
+    }
     var errorMessage: String?
     var syncError: SyncErrorPresentation?
     var syncProgress: SyncProgressPresentation?
     var skippedSyncItems: SyncSkippedItemsPresentation?
     var isShowingSkippedSyncItems = false
-    var detailItem: PassItem?
-    var selectedRowIndex = 0
+    var detailItem: PassItem? {
+        didSet { resetDetailSelection() }
+    }
+    var detailSelectionState = DetailSelectionState()
+    var selectedDetailRowID: DetailRow.ID? { detailSelectionState.selectedID }
+    var selectedRowIndex: Int {
+        get {
+            guard let item = detailItem, let selected = selectedDetailRow(for: item) else { return -1 }
+            return rows(for: item).firstIndex(of: selected) ?? -1
+        }
+        set { selectDetailRow(at: newValue) }
+    }
     private(set) var cliPath: String = ""
     var lastCommand: String = ""
 
@@ -35,7 +46,7 @@ final class QuickAccessViewModel {
     let secretResolver: any SecretItemResolving
     let offlineModeCoordinator: OfflineModeCoordinator?
     let secretReleaseGuard: SecretReleaseGuard
-    let presentLargeType: LargeTypePresenter
+    let largeTypePresentation: LargeTypePresentationActions?
     let writeStringToPasteboard: PasteboardStringWriter
     let openURL: URLOpener
     private var searchTask: Task<Void, Never>?
@@ -58,7 +69,7 @@ final class QuickAccessViewModel {
         offlineModeCoordinator: OfflineModeCoordinator? = nil,
         secretReleaseGuard: SecretReleaseGuard = SecretReleaseGuard(),
         fetchItem: CLIItemFetcher? = nil,
-        presentLargeType: LargeTypePresenter? = nil,
+        largeTypePresentation: LargeTypePresentationActions? = nil,
         writeStringToPasteboard: @escaping PasteboardStringWriter = { value in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
@@ -76,7 +87,7 @@ final class QuickAccessViewModel {
         self.cliPath = cliService.cliPath
         self.offlineModeCoordinator = offlineModeCoordinator
         self.secretReleaseGuard = secretReleaseGuard
-        self.presentLargeType = presentLargeType ?? { _ in }
+        self.largeTypePresentation = largeTypePresentation
         self.writeStringToPasteboard = writeStringToPasteboard
         self.openURL = openURL
         if let secretResolver {
@@ -85,6 +96,10 @@ final class QuickAccessViewModel {
             self.secretResolver = LegacySecretItemResolver(fetchItem: fetchItem, cliService: cliService)
         } else {
             self.secretResolver = LiveSecretItemResolver(cliService: cliService)
+        }
+        offlineModeCoordinator?.onDetailSelectionInputsChanged = { [weak self] in
+            guard let self, let item = self.detailItem else { return }
+            self.reconcileDetailSelection(for: item)
         }
     }
 
@@ -173,7 +188,6 @@ final class QuickAccessViewModel {
         inFlightCopy = nil
         inFlightLargeType?.cancel()
         inFlightLargeType = nil
-        isActionLoading = false
         copyGeneration += 1
         largeTypeGeneration += 1
     }
@@ -191,8 +205,8 @@ final class QuickAccessViewModel {
     func handleEnter() {
         onActivity()
         if let item = detailItem {
-            let rows = rows(for: item)
-            guard let row = rows[safe: selectedRowIndex], isDetailRowSelectable(row, for: item) else { return }
+            reconcileDetailSelection(for: item)
+            guard let row = selectedDetailRow(for: item) else { return }
             switch row {
             case .namedAction(let action, _, _):
                 handleAction(action, for: item)

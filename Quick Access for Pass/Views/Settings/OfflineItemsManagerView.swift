@@ -133,7 +133,7 @@ struct OfflineItemsManagerView: View {
             }
             if item.status == .failed || item.status == .notCached || item.status == .unavailable {
                 Button("Retry") {
-                    Task { await retrySelectedCopies(vaultID: item.vaultId) }
+                    Task { await retryOfflineItem(item) }
                 }
                 .buttonStyle(.bordered)
                 .disabled(!coordinator.canMakeNewSelections)
@@ -168,13 +168,17 @@ struct OfflineItemsManagerView: View {
         }
     }
 
-    private func retrySelectedCopies(vaultID: String) async {
+    private func retryOfflineItem(_ item: OfflineItemSettingsRow) async {
         errorMessage = nil
         do {
-            try await coordinator.retrySelectedCopies(vaultID: vaultID)
-            report(String(localized: "Offline copy retry started."))
+            switch try await coordinator.retryOfflineItem(itemID: item.itemId, vaultID: item.vaultId) {
+            case .submitted:
+                report(String(localized: "Offline retry requested for \(item.title)."))
+            case .unavailable:
+                report(String(localized: "This item is no longer available for offline retry."), isError: true)
+            }
         } catch {
-            report(String(localized: "Could not retry offline copies. Retry offline status and try again."), isError: true)
+            report(String(localized: "Could not retry this offline item. Retry offline status and try again."), isError: true)
         }
     }
 

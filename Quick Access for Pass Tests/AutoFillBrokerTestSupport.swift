@@ -25,6 +25,7 @@ final class BrokerFixture {
             VerifiedAutoFillPeer(fileDescriptor: fd, identifier: AutoFillConstants.extensionBundleIdentifier, teamID: "H23TXL6LPT")
         },
         releaseGuard: SecretReleaseGuard? = nil,
+        traceForRequest: (@Sendable (AutoFillRegisteredRequest) -> BrokerTestTrace)? = nil,
         completionGate: (@Sendable () async -> Void)? = nil,
         partialDeliveryGate: (@Sendable () async -> Void)? = nil,
         handler: @escaping @Sendable (AutoFillRegisteredRequest, AutoFillBrokerStateTransition) async throws -> String,
@@ -35,19 +36,24 @@ final class BrokerFixture {
             listenPath: socketPath, registry: registry, launchGate: launchGate,
             maximumConnections: maximumConnections, idleTimeout: idleTimeout, verifier: verifier,
             requestHandler: { request, transition, _ in
+                let trace = traceForRequest?(request)
+                trace?.record(.handler)
+                trace?.record(request.deadline > DispatchTime.now().uptimeNanoseconds ? .handlerDeadlineFuture : .handlerDeadlineExpired)
                 let descriptor = AutoFillCredentialDescriptor(
                     id: request.descriptorID, vaultID: "test-vault", itemID: "test-item", shareID: "test-share",
                     title: "Test", username: "test@example.test", serviceIdentifier: "example.test", hasTOTP: true
                 )
-                return AutoFillCredentialDelivery(
-                    value: try await handler(request, transition),
-                    release: await AutoFillCredentialRelease(
+                let value = try await handler(request, transition)
+                trace?.record(.handlerReturned)
+                trace?.record(.releasePreparationStarted)
+                let release = await AutoFillCredentialRelease(
                         request: request, descriptor: descriptor, releaseToken: releaseGuard.capture(),
                         descriptorStore: AutoFillBrokerTestDescriptorStore(descriptor: descriptor),
                         secretReleaseGuard: releaseGuard, isAppLocked: { false },
                         now: { DispatchTime.now().uptimeNanoseconds }
                     )
-                )
+                trace?.record(.releaseConstructed)
+                return AutoFillCredentialDelivery(value: ResolvedSecret(value: value, offlineCapability: nil), release: release)
             },
             candidateHandler: candidateHandler, completionGate: completionGate, partialDeliveryGate: partialDeliveryGate
         )
@@ -116,6 +122,27 @@ enum BrokerTestSocketIO {
         }
     }
 
+    /// Retains every response byte, including incomplete headers/bodies, so a
+    /// final denial cannot pass merely because framed decoding reached EOF.
+    static func requestBytesUntilEOF(at path: String, message: AutoFillBrokerRequest) async throws -> Data {
+        let fd: Int32 = try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let fd = try connect(to: path)
+                    do {
+                        try AutoFillWire.writeMessage(message, toFileDescriptor: fd)
+                        continuation.resume(returning: fd)
+                    } catch {
+                        close(fd)
+                        throw error
+                    }
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+        defer { close(fd) }
+        return try await readUntilEOF(from: fd)
+    }
+
     static func readUntilEOF(from fd: Int32) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -164,20 +191,22 @@ enum BrokerTestSocketIO {
 final class BrokerTestTrace: Sendable {
     enum Event: String, Sendable {
         case workerReady, prepared, queued, connected, framed, handler, handlerReturned, releaseConstructed, completionGate
+        case verifiedPeer, releasePreparationStarted, connectionClosed, deadlineCreated
         case credentialResponse, failureResponse, expiredResponse, transportFailure
         case deadlineFuture, deadlineExpired, handlerDeadlineFuture, handlerDeadlineExpired
     }
 
-    private let events = OSAllocatedUnfairLock<[Event]>(initialState: [])
+    private let times = OSAllocatedUnfairLock<[(Event, UInt64)]>(initialState: [])
 
     func record(_ event: Event) {
-        events.withLock {
-            guard $0.count < 32 else { return }
-            $0.append(event)
-        }
+        times.withLock { if $0.count < 32 { $0.append((event, DispatchTime.now().uptimeNanoseconds)) } }
     }
 
-    func snapshot() -> [Event] { events.withLock { $0 } }
+    func snapshot() -> [Event] { times.withLock { $0.map { $0.0 } } }
+    func report(label: String) {
+        let metadata = times.withLock { $0.map { "\($0.0.rawValue)@\($0.1)" }.joined(separator: ",") }
+        print("Broker phase trace [\(label)]: \(metadata)")
+    }
 }
 
 struct BrokerTestPreparedDelivery: Sendable {
@@ -287,9 +316,10 @@ extension BrokerTestSocketIO {
                     trace.record(.workerReady)
                     let prepared = try handoff.waitForPreparedDelivery()
                     trace.record(.prepared)
+                    let response = try { () throws -> AutoFillBrokerResponse in
                     let fd = try connect(to: path)
                     trace.record(.connected)
-                    defer { close(fd) }
+                    defer { close(fd); trace.record(.connectionClosed) }
                     try AutoFillWire.writeMessage(prepared.request, toFileDescriptor: fd)
                     trace.record(.framed)
                     let response = try AutoFillWire.readMessage(AutoFillBrokerResponse.self, fromFileDescriptor: fd)
@@ -298,6 +328,8 @@ extension BrokerTestSocketIO {
                     case .failure(_, let failure): trace.record(failure == .expired ? .expiredResponse : .failureResponse)
                     case .candidates: trace.record(.failureResponse)
                     }
+                    return response
+                    }()
                     continuation.resume(returning: response)
                 } catch {
                     trace.record(.transportFailure)

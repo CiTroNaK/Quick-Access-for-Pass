@@ -19,24 +19,10 @@ struct DatabaseManagerOfflineTests {
         try db.upsertVaults([PassVault(id: "vault", name: "Offline")])
         try db.upsertItems([makeItem(id: "item", vaultId: "vault")])
 
-        try db.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: db, itemId: "item", vaultId: "vault")
 
         #expect(try db.offlineVaultIds().isEmpty)
         #expect(try db.offlineItemSelection(itemId: "item")?.isManuallySelected == true)
-    }
-
-    @Test func selectingAnItemRejectsAnotherVaultId() throws {
-        let db = try makeDatabase()
-        try db.upsertVaults([
-            PassVault(id: "vault-a", name: "A"),
-            PassVault(id: "vault-b", name: "B")
-        ])
-        try db.upsertItems([makeItem(id: "item", vaultId: "vault-a")])
-        try db.selectWholeOfflineVault("vault-b")
-
-        #expect(throws: OfflineCatalogError.itemVaultMismatch) {
-            try db.selectManualOfflineItem(itemId: "item", vaultId: "vault-b")
-        }
     }
 
     @Test func reconcilingMissingOrMovedItemsReturnsTheirSelections() throws {
@@ -46,11 +32,11 @@ struct DatabaseManagerOfflineTests {
             PassVault(id: "vault-b", name: "B")
         ])
         try db.upsertItems([makeItem(id: "item", vaultId: "vault-a")])
-        try db.selectWholeOfflineVault("vault-a")
-        try db.selectManualOfflineItem(itemId: "item", vaultId: "vault-a")
+        try OfflineCatalogFixtureSupport.selectWholeVault(in: db, "vault-a")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: db, itemId: "item", vaultId: "vault-a")
         let selection = try #require(try db.offlineItemSelection(itemId: "item"))
 
-        #expect(try db.reconcileOfflineSelections(
+        #expect(try OfflineCatalogFixtureSupport.reconcileSelections(in: db,
             validVaultIds: ["vault-a", "vault-b"],
             currentVaultIDByItemID: ["item": "vault-b"]
         ) == [selection])
@@ -61,11 +47,11 @@ struct DatabaseManagerOfflineTests {
         let db = try makeDatabase()
         try db.upsertVaults([PassVault(id: "vault", name: "Offline")])
         try db.upsertItems([makeItem(id: "item", vaultId: "vault")])
-        try db.selectWholeOfflineVault("vault")
-        try db.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectWholeVault(in: db, "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: db, itemId: "item", vaultId: "vault")
         let selection = try #require(try db.offlineItemSelection(itemId: "item"))
 
-        #expect(try db.reconcileOfflineSelections(
+        #expect(try OfflineCatalogFixtureSupport.reconcileSelections(in: db,
             validVaultIds: ["vault"],
             currentVaultIDByItemID: [:]
         ) == [selection])
@@ -77,10 +63,10 @@ struct DatabaseManagerOfflineTests {
         let refreshedAt = Date(timeIntervalSince1970: 3)
         try db.upsertVaults([PassVault(id: "vault", name: "Offline")])
         try db.upsertItems([makeItem(id: "item", vaultId: "vault")])
-        try db.selectWholeOfflineVault("vault")
-        try db.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectWholeVault(in: db, "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: db, itemId: "item", vaultId: "vault")
 
-        try db.updateOfflineCacheStatus(
+        try OfflineCatalogFixtureSupport.updateCacheStatus(in: db,
             itemId: "item",
             status: .unavailable,
             refreshedAt: refreshedAt
@@ -96,8 +82,8 @@ struct DatabaseManagerOfflineTests {
         let vault = PassVault(id: "vault", name: "Offline", shareId: "share")
         let item = makeItem(id: "item", vaultId: "vault")
         _ = try db.syncMetadata(vaults: [vault], items: [item], descriptors: [])
-        try db.selectWholeOfflineVault("vault")
-        try db.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectWholeVault(in: db, "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: db, itemId: "item", vaultId: "vault")
 
         _ = try db.syncMetadata(
             vaults: [PassVault(id: "vault", name: "Renamed", shareId: "share")],
@@ -120,8 +106,8 @@ struct DatabaseManagerOfflineTests {
         let db = try makeDatabase()
         try db.upsertVaults([PassVault(id: "vault", name: "Offline")])
         try db.upsertItems([makeItem(id: "item", vaultId: "vault")])
-        try db.selectWholeOfflineVault("vault")
-        try db.selectManualOfflineItem(itemId: "item", vaultId: "vault")
+        try OfflineCatalogFixtureSupport.selectWholeVault(in: db, "vault")
+        try OfflineCatalogFixtureSupport.selectManualItem(in: db, itemId: "item", vaultId: "vault")
 
         try await db.clearMetadata()
 

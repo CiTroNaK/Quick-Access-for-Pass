@@ -343,8 +343,11 @@ private extension AppDelegate {
 
         panelController = PanelController()
         largeTypeWindowController = LargeTypeWindowController()
-        largeTypeWindowController?.onWindowShown = { [weak self] window in
+        largeTypeWindowController?.onWindowPrepared = { [weak self] window in
             self?.panelController?.registerOwnedWindow(window)
+        }
+        largeTypeWindowController?.onPreparationDiscarded = { [weak self] window in
+            self?.panelController?.unregisterOwnedWindow(window)
         }
         largeTypeWindowController?.onWindowClosed = { [weak self] window in
             self?.panelController?.unregisterOwnedWindow(window)
@@ -381,13 +384,22 @@ private extension AppDelegate {
             secretResolver: secretResolver,
             offlineModeCoordinator: offlineModeCoordinator,
             secretReleaseGuard: secretReleaseGuard,
-            presentLargeType: { [weak self] display in
-                guard let self else { return }
-                self.largeTypeWindowController?.show(
-                    display: display,
-                    relativeTo: self.panelController?.windowForPresentation
-                )
-            }
+            largeTypePresentation: LargeTypePresentationActions(
+                prepare: { [weak self] display in
+                    guard let self, let controller = self.largeTypeWindowController else { throw CancellationError() }
+                    return controller.prepare(display: display, relativeTo: self.panelController?.windowForPresentation)
+                },
+                activate: { [weak self] prepared in
+                    guard let controller = self?.largeTypeWindowController else { throw CancellationError() }
+                    try controller.activatePreparedWindow(prepared)
+                },
+                present: { [weak self] prepared in
+                    guard let controller = self?.largeTypeWindowController else { throw CancellationError() }
+                    try controller.present(prepared)
+                },
+                complete: { [weak self] prepared in self?.largeTypeWindowController?.completePresentation(prepared) },
+                discard: { [weak self] prepared in self?.largeTypeWindowController?.discard(prepared) }
+            )
         )
 
         guard let viewModel else { return }
