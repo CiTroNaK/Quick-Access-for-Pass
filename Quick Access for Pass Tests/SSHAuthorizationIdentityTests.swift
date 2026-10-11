@@ -26,6 +26,22 @@ struct SSHAuthorizationIdentityTests {
         #expect(identity.persistentCacheID == "com.fournova.Tower")
     }
 
+    @Test("Login-shell marker does not become a remembered SSH command scope",
+          arguments: ["zsh", "-zsh"])
+    func loginShellUsesSSHTriggerScope(parentCommand: String) {
+        let connection = VerifiedConnection(fd: -1, identity: .unverified(pid: 456), pid: 456)
+        let clientInfo = SSHClientInfo(
+            name: "ssh", bundleIdentifier: "unverified.456", bundleURL: nil,
+            command: "ssh git@github.com",
+            triggerCommand: ProcessIdentifier.triggerCommand(command: "ssh git@github.com", parentCommand: parentCommand),
+            showCommand: true, batchMode: false
+        )
+        let identity = SSHAuthorizationIdentity(connection: connection, clientInfo: clientInfo)
+        #expect(clientInfo.triggerCommand == "ssh git@github.com")
+        #expect(identity.requesterAppID == "unverified.456")
+        #expect(identity.persistentCacheID == "unverified.456:github.com:ssh git@github.com")
+    }
+
     @Test func terminalPersistentCacheIDUsesRequesterIdentityForCommandScopedRules() {
         let connection = VerifiedConnection(
             fd: -1,

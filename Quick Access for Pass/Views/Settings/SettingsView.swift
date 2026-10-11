@@ -9,6 +9,7 @@ private let defaultShowLargeTypeModifiers = Int(NSEvent.ModifierFlags.shift.rawV
 struct SettingsView: View {
     let onWindowAvailable: @MainActor (NSWindow) -> Void
     let autoFillAppAssociationsSettingsModel: AutoFillAppAssociationsSettingsModel?
+    let terminalHostStore: TerminalHostStore
 
     @AppStorage(DefaultsKey.clipboardClearTimeout) var clipboardClearTimeout: Double = 30
     @AppStorage(DefaultsKey.concealFromClipboardManagers) var concealFromClipboardManagers: Bool = true
@@ -38,7 +39,7 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("General", systemImage: "gearshape", value: SettingsTab.general) {
-                GeneralSettingsTab(hotkeyCode: $hotkeyCode, hotkeyModifiers: $hotkeyModifiers)
+                GeneralSettingsTab(hotkeyCode: $hotkeyCode, hotkeyModifiers: $hotkeyModifiers, terminalHostStore: terminalHostStore)
             }
             Tab("Shortcuts", systemImage: "command", value: SettingsTab.shortcuts) {
                 ShortcutsSettingsTab(

@@ -4,6 +4,9 @@ import os
 
 @MainActor
 final class RunAuthWindowController {
+    private var activeHeaderModel: RequesterHeaderModel?
+    let identifyParent: @MainActor (VerifiedConnection) -> SSHClientInfo
+    private let headerFactory: @MainActor (SSHClientInfo) -> RequesterHeaderModel?
     private var panel: NSPanel?
     private var hostingController: NSHostingController<RunAuthDialogView>?
     private var requestQueue: [PendingRunAuthRequest] = []
@@ -35,8 +38,7 @@ final class RunAuthWindowController {
 
     private struct PendingRunAuthRequest {
         let id = UUID()
-        let appName: String
-        let appBundleURL: URL?
+        let clientInfo: SSHClientInfo
         let profileName: String
         let profileSlug: String
         let scopeOptions: [RunAuthorizationScope]
@@ -50,11 +52,15 @@ final class RunAuthWindowController {
         databaseManager: DatabaseManager,
         keychainService: any BiometricAuthorizing,
         callbacks: AuthDialogHelper.Callbacks,
+        identifyParent: @escaping @MainActor (VerifiedConnection) -> SSHClientInfo = ProcessIdentifier.identifyParent(of:),
+        headerFactory: @escaping @MainActor (SSHClientInfo) -> RequesterHeaderModel? = { _ in nil },
         dialogPresenter: (@MainActor @Sendable (RunAuthRequest) -> Void)? = nil
     ) {
         self.databaseManager = databaseManager
         self.keychainService = keychainService
         self.callbacks = callbacks
+        self.identifyParent = identifyParent
+        self.headerFactory = headerFactory
         self.dialogPresenter = dialogPresenter
     }
 
@@ -141,6 +147,8 @@ final class RunAuthWindowController {
     }
 
     func cancelAll() {
+        activeHeaderModel?.cancel()
+        activeHeaderModel = nil
         if let current = currentRequest {
             current.continuation.resume(
                 returning: .dialog(allowed: false, persistedScope: nil)
@@ -210,6 +218,9 @@ final class RunAuthWindowController {
     }
 
     private func dismissAndShowNext() {
+        activeHeaderModel?.cancel()
+        activeHeaderModel = nil
+        currentRequest = nil
         panel?.orderOut(nil)
         panel = nil
         hostingController = nil
@@ -224,8 +235,7 @@ final class RunAuthWindowController {
     ) async -> DialogOutcome {
         await withCheckedContinuation { (continuation: CheckedContinuation<DialogOutcome, Never>) in
             let pending = PendingRunAuthRequest(
-                appName: identity.appName,
-                appBundleURL: identity.appBundleURL,
+                clientInfo: identity.clientInfo,
                 profileName: profileName,
                 profileSlug: request.profile,
                 scopeOptions: scopeOptions,
@@ -257,9 +267,12 @@ final class RunAuthWindowController {
 @MainActor
 private extension RunAuthWindowController {
     private func presentDialog(for pending: PendingRunAuthRequest) {
+        let header = headerFactory(pending.clientInfo)
+        activeHeaderModel = header
         let request = RunAuthRequest(
-            appName: pending.appName,
-            appBundleURL: pending.appBundleURL,
+            appName: pending.clientInfo.name,
+            appBundleURL: pending.clientInfo.bundleURL,
+            headerModel: header,
             profileName: pending.profileName,
             command: pending.fullCommand,
             scopeOptions: pending.scopeOptions,

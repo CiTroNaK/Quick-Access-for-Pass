@@ -38,6 +38,14 @@ Host *
 
 Quick Access resolves the requesting process so the prompt can show the app and command context when available. This helps distinguish a terminal command from a GUI app request.
 
+### Shared terminal-host presentation
+
+In **Settings → General → Terminal hosts**, configure executable-to-display-name mappings used by both SSH and Run prompts. Herdr auto-detection runs at startup, when General opens, and when its executable appears in captured requester ancestry, without running discovery candidates. It is enabled on first detection. You can edit its name, disable it, or turn off **Show Herdr pane details**; saved opt-out and edits survive rediscovery/restart and temporarily unavailable installations. **Add Executable…** adds a custom mapping; custom mappings are never executed for enrichment. A custom mapping of the same executable suppresses automatic Herdr activation, even if disabled. Existing identified macOS apps take precedence.
+
+Herdr prompts can display bounded, one-line workspace/tab, pane-title, and working-directory hints after a best-effort match to the requesting pane. Metadata is untrusted and display-only, stays in memory for that prompt, and does not change the requesting app identity, command/host cache context, key fingerprint, or remembered decision. The SSH-only **Show command for apps** setting stays separate and retains its existing behavior.
+
+The base prompt and countdown appear immediately. Lookup is attempted once only for a displayed eligible prompt, with a total 750 ms budget. Missing, stale, disabled, ambiguous, or slow metadata falls back to the base header; disabling or changing configuration clears details. Quick Access reads only allowlisted routing hints and read-only Herdr metadata, not pane output, transcripts, or agent session files.
+
 The prompt supports remembered approvals and denials, each with the selected duration. This avoids repeated Touch ID prompts for a workflow you have already approved or intentionally blocked.
 
 ## Remembered decisions and session cache

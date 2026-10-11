@@ -99,6 +99,14 @@ GH_TOKEN=pass://GitHub/token
 
 When `qa-run --profile github-cli -- gh auth status` runs, Quick Access resolves the configured secret and the helper launches `gh auth status` with `GH_TOKEN` in the process environment.
 
+## Prompt context and terminal hosts
+
+**Settings → General → Terminal hosts** controls the same executable-to-display-name mappings as SSH prompts. Herdr is automatically detected and enabled on first detection, including nonstandard installations encountered in requester ancestry. Rename or disable the entry, turn off **Show Herdr pane details**, or use **Add Executable…** for a custom terminal. Explicit opt-out and edits survive rediscovery/restart; an unavailable installation remains listed. A custom mapping of the same executable suppresses automatic Herdr activation even when disabled. Custom mappings are not launched. Existing identified macOS apps keep their names/icons.
+
+For the verified `qa-run` helper, app identity is attributed through its parent. The separate display-only process snapshot includes the helper and its bounded ancestry, so inherited Herdr socket/pane hints remain available even when the parent shell's kernel-visible environment lacks them. The helper is not promoted to an authorization identity. Best-effort Herdr context may show the requesting pane's workspace/tab, title, and working directory. These untrusted hints are display-only, not an authorization identity or permission scope. A detached helper's authorization identifier remains `unknown` regardless of the displayed terminal name; app/team IDs, subcommand/profile scopes, session decisions, and remembered decisions are unchanged. Unverified peers are rejected before header/model lookup.
+
+Base prompts/countdowns never wait for metadata. Only a displayed eligible prompt receives one bounded lookup (750 ms total); cache-covered requests do not enrich. Configuration changes clear details and cancel active work. Unavailable or ambiguous context leaves the base prompt usable. Metadata is request-scoped in memory, never persisted or audited. No pane output, transcripts, or agent session files are accessed.
+
 ## Remembered decisions
 
 Run Proxy can remember either an approval or a denial for the selected duration, bounded by the requesting app identity and profile. The authorization prompt defaults to **Exact command**: the complete ordered argument vector received from `qa-run`, including the executable string, flags, values, empty arguments, and argument boundaries. Matching uses literal UTF-8 bytes without normalization or shell parsing. Changing an argument, its order, or its grouping produces a different exact identity. For example, `gh api "user repos"` is not the same as `gh api user repos`. The natural exact-command text is presentation only, not a shell command or matching key; arguments that need boundary-preserving display remain quoted and escaped.

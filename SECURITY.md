@@ -95,6 +95,16 @@ in-memory secret-resolution cache is separate from authorization decisions;
 Offline Mode snapshots remain excluded from Run Proxy resolution. See
 [Run Proxy documentation](docs/run-proxy.md) for usage and decision management.
 
+## Terminal-host presentation boundary
+
+SSH and Run share **Settings → General → Terminal hosts**. Herdr is automatically enabled on first detection; explicit host/details opt-out and display-name edits survive rediscovery and restart. Filesystem-only discovery never executes candidates, and generic mappings are never launched. Identified macOS apps take precedence over executable mappings.
+
+Terminal labels and Herdr workspace/tab, pane title, and directory are **untrusted display context**, not authorization evidence. They do not change peer verification, bundle/team identifiers, SSH command/host/key cache identity, or Run subcommand/profile scopes. A detached trusted `qa-run` parent keeps the Run authorization identifier `unknown`. Metadata remains request-scoped in memory and is excluded from persistence and audit logs.
+
+Only matched, enabled Herdr details invoke fixed read-only CLI commands. Requester routing hints are limited to `HERDR_SOCKET_PATH` and `HERDR_PANE_ID`; a local user-owned socket, bounded requester-side shell-PID correlation, coherent ancestry/start times, and final process/socket/association revalidation are required. These point-in-time checks are best-effort consistency, not atomic ownership or permission proofs. No pane output, transcripts, agent session files, or unrelated environment values are read for context. Inherited application Herdr routing is neutralized.
+
+Enrichment is one attempt per displayed request, sharing an absolute 750 ms deadline, a 512 KiB output cap per command, at most 32 panes and four concurrent process-info calls. Incomplete, over-limit, ambiguous, stale, malformed, cancelled, or slow lookups show no details. Decisions/countdowns do not wait for metadata; configuration changes and dialog lifecycle cancellation invalidate late publication without changing permission scopes or cache keys.
+
 ## System AutoFill Boundary
 
 System AutoFill is available only on macOS 27 and later. The credential-provider extension advertises passwords and one-time codes only; it does not register, retrieve, or sign passkeys. Proton Pass can remain enabled as the passkey provider while Quick Access supplies passwords and current TOTP codes in Safari and compatible native apps.

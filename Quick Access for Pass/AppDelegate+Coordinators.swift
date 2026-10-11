@@ -210,6 +210,8 @@ extension AppDelegate {
             healthStore: healthStore,
             keychainService: keychainService!,
             passCLIStatusStore: passCLIStatusStore,
+            terminalHostStore: terminalHostStore,
+            paneDetailsProvider: herdrPaneDetailsProvider,
             authCallbacks: authCallbacks,
             notificationRouter: notificationRouter
         )
@@ -290,6 +292,8 @@ extension AppDelegate {
             healthStore: healthStore,
             passCLIStatusStore: passCLIStatusStore,
             keychainService: keychainService!,
+            terminalHostStore: terminalHostStore,
+            paneDetailsProvider: herdrPaneDetailsProvider,
             authCallbacks: authCallbacks
         )
         coordinator.setup()

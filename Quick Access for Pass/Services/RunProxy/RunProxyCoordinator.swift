@@ -11,6 +11,8 @@ final class RunProxyCoordinator {
     let passCLIStatusStore: PassCLIStatusStore
     private let keychainService: any BiometricAuthorizing
     private let defaults: UserDefaults
+    private let terminalHostStore: TerminalHostStore?
+    private let paneDetailsProvider: any HerdrPaneDetailsProviding
     private let authCallbacks: AuthDialogHelper.Callbacks
     private let secretResolver: @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String]
     var isAppLocked: @MainActor @Sendable () -> Bool = { false }
@@ -35,6 +37,8 @@ final class RunProxyCoordinator {
         passCLIStatusStore: PassCLIStatusStore,
         keychainService: any BiometricAuthorizing,
         defaults: UserDefaults = .standard,
+        terminalHostStore: TerminalHostStore? = nil,
+        paneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider(),
         authCallbacks: AuthDialogHelper.Callbacks = .noop,
         secretResolver: @escaping @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String] = { mappings, cliPath in
             try await RunSecretResolver.resolve(mappings: mappings, cliPath: cliPath)
@@ -47,6 +51,8 @@ final class RunProxyCoordinator {
         self.passCLIStatusStore = passCLIStatusStore
         self.keychainService = keychainService
         self.defaults = defaults
+        self.terminalHostStore = terminalHostStore
+        self.paneDetailsProvider = paneDetailsProvider
         self.authCallbacks = authCallbacks
         self.secretResolver = secretResolver
     }
@@ -56,7 +62,14 @@ final class RunProxyCoordinator {
     func setup() {
         try? databaseManager.cleanupExpiredRunDecisions()
 
-        authWindowController = RunAuthWindowController(databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks)
+        authWindowController = RunAuthWindowController(
+            databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks,
+            headerFactory: { [terminalHostStore, paneDetailsProvider] clientInfo in
+                guard let terminalHostStore else { return nil }
+                return RequesterHeaderModel(clientInfo: clientInfo, snapshot: clientInfo.requesterSnapshot,
+                                            store: terminalHostStore, detailsProvider: paneDetailsProvider)
+            }
+        )
 
         lastEnabled = false
 

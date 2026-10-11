@@ -20,6 +20,8 @@ nonisolated struct SSHClientInfo: Sendable {
     /// Whether the command includes `-o BatchMode=yes`, indicating a non-interactive
     /// probe that will timeout before any auth dialog can be answered.
     let batchMode: Bool
+    /// Bounded display-only context, separate from connection/authorization identity.
+    var requesterSnapshot: RequesterProcessSnapshot? = nil
 
     static let unknown = SSHClientInfo(
         name: "Unknown application",
@@ -74,7 +76,8 @@ nonisolated extension ProcessIdentifier {
                 showCommand: runningApp.flatMap {
                     terminalBundleIDs.contains($0.bundleIdentifier ?? "")
                 } ?? true,
-                batchMode: command.map { isBatchModeCommand($0) } ?? false
+                batchMode: command.map { isBatchModeCommand($0) } ?? false,
+                requesterSnapshot: requesterSnapshot(pid: connection.pid)
             )
 
         case .unverified(let pid):
@@ -86,7 +89,8 @@ nonisolated extension ProcessIdentifier {
                 command: info.command,
                 triggerCommand: info.triggerCommand,
                 showCommand: info.showCommand,
-                batchMode: info.batchMode
+                batchMode: info.batchMode,
+                requesterSnapshot: info.requesterSnapshot
             )
 
         case .trustedHelper:
@@ -104,7 +108,14 @@ nonisolated extension ProcessIdentifier {
             "identifyParent requires .trustedHelper identity"
         )
         let parentPID = getParentPID(connection.pid)
-        return _identify(pid: parentPID)
+        var info = _identify(pid: parentPID)
+        let snapshot = RequesterProcessCapture.captureHelper(
+            of: connection.pid, readNode: RequesterProcessCapture.readNode,
+            readArguments: RequesterProcessCapture.readArguments
+        )
+        // Keep identity attribution on the same parent while retaining helper-only routing hints.
+        info.requesterSnapshot = snapshot?.requester.parentPID == parentPID ? snapshot : nil
+        return info
     }
 
     @MainActor
@@ -115,6 +126,18 @@ nonisolated extension ProcessIdentifier {
     /// Internal implementation — used by identify(connection:), identifyRequester(of:), and identifyParent(of:).
     @MainActor
     private static func _identify(pid: pid_t) -> SSHClientInfo {
+        var info = identifyWithoutSnapshot(pid: pid)
+        info.requesterSnapshot = requesterSnapshot(pid: pid)
+        return info
+    }
+
+    static func requesterSnapshot(pid: pid_t) -> RequesterProcessSnapshot? {
+        RequesterProcessCapture.capture(pid: pid, readNode: RequesterProcessCapture.readNode,
+                                       readArguments: RequesterProcessCapture.readArguments)
+    }
+
+    @MainActor
+    private static func identifyWithoutSnapshot(pid: pid_t) -> SSHClientInfo {
         let command = getCommandLine(pid: pid)
         let triggerCommand = makeTriggerCommand(pid: pid, command: command)
 
@@ -154,9 +177,16 @@ nonisolated extension ProcessIdentifier {
         let parentPID = getParentPID(pid)
         guard parentPID > 1 else { return command.flatMap { parseDestination($0) } }
 
-        if let parentCommand = getCommandLine(pid: parentPID) {
+        return triggerCommand(command: command, parentCommand: getCommandLine(pid: parentPID))
+    }
+
+    /// Derive the trigger independently of process I/O so shell attribution is deterministic.
+    static func triggerCommand(command: String?, parentCommand: String?) -> String? {
+        if let parentCommand {
             let parentExec = parentCommand.split(separator: " ").first.map(String.init) ?? ""
-            if !shellNames.contains(parentExec) {
+            // Login shells prefix argv[0] with "-" (for example "-zsh").
+            let shellName = parentExec.hasPrefix("-") ? String(parentExec.dropFirst()) : parentExec
+            if !shellNames.contains(shellName) {
                 return parentCommand
             }
         }

@@ -15,6 +15,17 @@
         }
       }
     },
+    "Add" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat"
+          }
+        }
+      }
+    },
     "Broader scope: %@" : {
       "comment" : "Explicit command-prefix permission. Placeholder is the unchanged command prefix, not the exact argument vector.",
       "extractionState" : "manual",
@@ -23,6 +34,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Širší rozsah: %@"
+          }
+        }
+      }
+    },
+    "Add Executable…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat spustitelný soubor…"
           }
         }
       }
@@ -63,6 +85,17 @@
         }
       }
     },
+    "Choose a terminal host executable, not an application bundle." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyberte spustitelný soubor terminálové aplikace, nikoli balíček aplikace."
+          }
+        }
+      }
+    },
     "Exact command: %@" : {
       "comment" : "Exact argv scope option. Placeholder is natural full command text; do not translate the command.",
       "extractionState" : "manual",
@@ -75,6 +108,17 @@
         }
       }
     },
+    "Choose an available executable file." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyberte dostupný spustitelný soubor."
+          }
+        }
+      }
+    },
     "Exact matches every argument. Broader scopes also match commands with different arguments." : {
       "comment" : "Explains exact argv matching versus explicit broader prefix permissions in the Run authorization prompt.",
       "extractionState" : "manual",
@@ -83,6 +127,184 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Přesný příkaz porovnává všechny argumenty. Širší rozsahy zahrnují i příkazy s jinými argumenty."
+          }
+        }
+      }
+    },
+    "Display name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zobrazovaný název"
+          }
+        }
+      }
+    },
+    "Enable %@" : {
+      "comment" : "Accessibility action for a terminal host; %@ is its user-configured display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povolit %@"
+          }
+        }
+      }
+    },
+    "Enter a nonempty, single-line terminal host name." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zadejte neprázdný jednořádkový název terminálové aplikace."
+          }
+        }
+      }
+    },
+    "Remove %@" : {
+      "comment" : "Accessibility action for a terminal host; %@ is its user-configured display name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odstranit %@"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obnovit"
+          }
+        }
+      }
+    },
+    "Reset Saved Terminal Hosts?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obnovit uložené terminálové aplikace?"
+          }
+        }
+      }
+    },
+    "Reset Terminal Hosts…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obnovit terminálové aplikace…"
+          }
+        }
+      }
+    },
+    "Reset unreadable terminal host settings before making changes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Před prováděním změn obnovte nečitelná nastavení terminálových aplikací."
+          }
+        }
+      }
+    },
+    "Saved terminal host settings could not be read. Reset them to enable configuration and automatic detection." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uložená nastavení terminálových aplikací se nepodařilo přečíst. Obnovte je pro povolení konfigurace a automatické detekce."
+          }
+        }
+      }
+    },
+    "Show Herdr pane details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zobrazit podrobnosti panelu Herdr"
+          }
+        }
+      }
+    },
+    "Terminal Hosts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminálové aplikace"
+          }
+        }
+      }
+    },
+    "Terminal host name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Název terminálové aplikace"
+          }
+        }
+      }
+    },
+    "Terminal host settings could not be updated." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nastavení terminálových aplikací se nepodařilo aktualizovat."
+          }
+        }
+      }
+    },
+    "This discards unreadable terminal host settings and detects Herdr again. Authorization decisions are not changed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tímto se odstraní nečitelná nastavení terminálových aplikací a znovu se vyhledá Herdr. Autorizační rozhodnutí se nezmění."
+          }
+        }
+      }
+    },
+    "This executable already has a terminal host mapping." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tento spustitelný soubor je již přiřazen k terminálové aplikaci."
+          }
+        }
+      }
+    },
+    "Used by SSH and Run authorization." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Používá se při autorizaci SSH a Run."
           }
         }
       }
@@ -2521,6 +2743,18 @@
         }
       }
     },
+    "Pane title" : {
+      "comment" : "Accessibility label for untrusted display-only terminal pane title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Název panelu"
+          }
+        }
+      }
+    },
     "Pass CLI" : {
       "localizations" : {
         "cs" : {
@@ -4410,6 +4644,30 @@
         }
       }
     },
+    "Working directory" : {
+      "comment" : "Accessibility label for untrusted display-only terminal working directory.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pracovní adresář"
+          }
+        }
+      }
+    },
+    "Workspace and tab" : {
+      "comment" : "Accessibility label for untrusted display-only Herdr workspace/tab context; not permission scope.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pracovní prostor a karta"
+          }
+        }
+      }
+    },
     "X Handle" : {
       "localizations" : {
         "cs" : {
@@ -4574,8 +4832,15 @@
           "state" : "new",
           "value" : "Unavailable"
         }
+      },
+      "cs" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Nedostupné"
+        }
       }
-    }
+    },
+    "extractionState" : "manual"
   },
   "Remove offline copy of %@" : {
     "localizations" : {

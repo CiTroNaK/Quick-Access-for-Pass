@@ -133,6 +133,10 @@ Read the setup guide: [Run Proxy and qa-run](docs/run-proxy.md)
 
 ## Settings
 
+**Settings → General → Terminal hosts** is shared by SSH and Run authorization prompts. Herdr is detected automatically and enabled on first detection; you can rename or disable it, turn off **Show Herdr pane details**, or add a custom executable mapping. Explicit opt-out and edits survive rediscovery and restart. Existing identified macOS apps keep their names and icons.
+
+For Herdr, prompts may show the requesting pane's workspace/tab, title, and working directory. This best-effort, untrusted context is display-only: it never changes authorization scopes or remembered decisions. No pane output, transcripts, or agent session files are read; unavailable or ambiguous metadata leaves the base prompt usable.
+
 Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI source/version, security preferences, and optional SSH/Run proxy settings.
 
 <table>
