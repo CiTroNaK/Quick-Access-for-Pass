@@ -12,8 +12,7 @@ struct RememberedDecisionsManagerView<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             content
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             HStack {
                 Spacer()
                 Button("Done") { dismiss() }

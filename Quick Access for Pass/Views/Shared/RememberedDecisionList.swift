@@ -18,7 +18,7 @@ struct RememberedDecisionList<Content: View>: View {
                 content
             }
         }
-        .frame(height: 260)
+        .frame(maxHeight: .infinity)
         .accessibilityLabel(accessibilityLabel)
     }
 }
