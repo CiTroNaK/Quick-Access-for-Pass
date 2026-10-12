@@ -30,12 +30,6 @@ nonisolated struct KeychainService: Sendable {
         try retrieve(accessGroup: accessGroup)
     }
 
-    /// Diagnostic-only lookup matching the historical implicit-group query.
-    /// Callers must never use its result to copy, update, or rekey an existing item.
-    func retrieveLegacyPassphrase() throws -> Data? {
-        try retrieve(accessGroup: nil)
-    }
-
     func getOrCreatePassphrase() throws -> Data {
         if let existing = try retrievePassphrase() {
             return existing
