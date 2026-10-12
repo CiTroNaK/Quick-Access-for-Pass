@@ -100,6 +100,173 @@ struct AutoFillDescriptorStoreTests {
         )).count == 20)
     }
 
+}
+
+extension AutoFillDescriptorStoreTests {
+    @Test("global candidates collapse hosts without merging distinct logins", arguments: [AutoFillValueKind.password, .oneTimeCode])
+    func globalCandidatesDeduplicateLogins(kind: AutoFillValueKind) async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in try db.usePassphrase(passphrase) }
+        let writer = try DatabaseQueue(path: fixture.databaseURL.path, configuration: configuration)
+        try await writer.write { db in
+            // More than the result limit: descriptors must not crowd out other logins.
+            for index in 0..<24 {
+                try AutoFillCredentialDescriptor(
+                    id: UUID(), vaultID: "vault", itemID: "item", shareID: "share",
+                    title: "Example", username: "person@example.com",
+                    serviceIdentifier: "host-\(index).example.com", hasTOTP: true
+                ).insert(db)
+            }
+            for (vault, item, username) in [
+                ("vault", "other-item", "person@example.com"),
+                ("other-vault", "item", "person@example.com"),
+                ("vault", "item", "other@example.com")
+            ] {
+                try AutoFillCredentialDescriptor(
+                    id: UUID(), vaultID: vault, itemID: item, shareID: "share",
+                    title: "Example", username: username,
+                    serviceIdentifier: "login.example.com", hasTOTP: true
+                ).insert(db)
+            }
+        }
+        let store = AutoFillDescriptorStore(
+            databaseURL: fixture.databaseURL,
+            keychainService: fakeKeychain(result: .success(passphrase))
+        )
+
+        let query = AutoFillCandidateQuery.global(
+            requestID: UUID(), search: "Example", kind: kind, deadlineUptimeNanoseconds: 1
+        )
+        let candidates = try await store.candidates(for: query)
+        #expect(candidates.count == 4)
+        #expect(candidates.allSatisfy { $0.kind == kind && $0.matchTier == 0 })
+        var identities = Set<[String]>()
+        for candidate in candidates {
+            let descriptor = try #require(try await store.descriptor(id: candidate.descriptorID))
+            identities.insert([descriptor.vaultID, descriptor.itemID, descriptor.username])
+        }
+        #expect(identities == Set([
+            ["vault", "item", "person@example.com"],
+            ["vault", "other-item", "person@example.com"],
+            ["other-vault", "item", "person@example.com"],
+            ["vault", "item", "other@example.com"]
+        ]))
+        #expect(try await store.candidates(for: query) == candidates)
+    }
+
+    @Test("site candidates collapse hosts and retain the earliest matching descriptor", arguments: [AutoFillValueKind.password, .oneTimeCode])
+    func siteCandidatesDeduplicateLogins(kind: AutoFillValueKind) async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in try db.usePassphrase(passphrase) }
+        let writer = try DatabaseQueue(path: fixture.databaseURL.path, configuration: configuration)
+        let alternate = AutoFillCredentialDescriptor(
+            id: UUID(), vaultID: "vault", itemID: "item", shareID: "share",
+            title: "Example", username: "person@example.com",
+            serviceIdentifier: "alternate.example.com", hasTOTP: true
+        )
+        try await writer.write { db in try alternate.insert(db) }
+        let store = AutoFillDescriptorStore(
+            databaseURL: fixture.databaseURL,
+            keychainService: fakeKeychain(result: .success(passphrase))
+        )
+        let login = try AutoFillServiceIdentifier(kind: .domain, identifier: "login.example.com", displayName: nil)
+        let other = try AutoFillServiceIdentifier(kind: .url, identifier: "https://alternate.example.com/path", displayName: nil)
+
+        for (services, expectedID) in [([login, other], fixture.descriptor.id), ([other, login], alternate.id)] {
+            let candidates = try await store.candidates(for: .site(
+                requestID: UUID(), services: services, kind: kind, deadlineUptimeNanoseconds: 1
+            ))
+            #expect(candidates.map(\.descriptorID) == [expectedID])
+            #expect(candidates.map(\.matchTier) == [0])
+        }
+    }
+
+    @Test("global candidate limit counts logins rather than host descriptors")
+    func globalLimitCountsLogins() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in try db.usePassphrase(passphrase) }
+        let writer = try DatabaseQueue(path: fixture.databaseURL.path, configuration: configuration)
+        try await writer.write { db in
+            for index in 0..<21 {
+                for host in 0..<3 {
+                    try AutoFillCredentialDescriptor(
+                        id: UUID(), vaultID: "vault", itemID: "limit-\(index)", shareID: "share",
+                        title: String(format: "Limit %02d", index), username: "person@example.com",
+                        serviceIdentifier: "host-\(host).example.com", hasTOTP: false
+                    ).insert(db)
+                }
+            }
+        }
+        let store = AutoFillDescriptorStore(
+            databaseURL: fixture.databaseURL,
+            keychainService: fakeKeychain(result: .success(passphrase))
+        )
+        let candidates = try await store.candidates(for: .global(
+            requestID: UUID(), search: "Limit", kind: .password, deadlineUptimeNanoseconds: 1
+        ))
+        #expect(candidates.map(\.title) == (0..<20).map { String(format: "Limit %02d", $0) })
+        #expect(try await store.candidates(for: .global(
+            requestID: UUID(), search: "Limit", kind: .oneTimeCode, deadlineUptimeNanoseconds: 1
+        )).isEmpty)
+    }
+
+    @Test("app associations skip duplicate hosts without hiding later logins")
+    func appAssociationsDeduplicateBeforeLimiting() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in try db.usePassphrase(passphrase) }
+        let writer = try DatabaseQueue(path: fixture.databaseURL.path, configuration: configuration)
+        let other = AutoFillCredentialDescriptor(
+            id: UUID(), vaultID: "vault", itemID: "other", shareID: "share",
+            title: "ZZ Other", username: "person@example.com",
+            serviceIdentifier: "other.example.com", hasTOTP: false
+        )
+        try await writer.write { db in
+            try db.create(table: "autoFillAppAssociations") { table in
+                table.column("descriptorID", .text).notNull()
+                table.column("serviceKind", .text).notNull()
+                table.column("serviceIdentifier", .text).notNull()
+            }
+            for index in 0..<24 {
+                let descriptor = AutoFillCredentialDescriptor(
+                    id: UUID(), vaultID: "vault", itemID: "item", shareID: "share",
+                    title: "Example", username: "person@example.com",
+                    serviceIdentifier: "host-\(index).example.com", hasTOTP: true
+                )
+                try descriptor.insert(db)
+                try db.execute(
+                    sql: "INSERT INTO autoFillAppAssociations VALUES (?, 'app', 'com.example.native')",
+                    arguments: [descriptor.id]
+                )
+            }
+            try other.insert(db)
+            try db.execute(
+                sql: "INSERT INTO autoFillAppAssociations VALUES (?, 'app', 'com.example.native')",
+                arguments: [other.id]
+            )
+        }
+        let store = AutoFillDescriptorStore(
+            databaseURL: fixture.databaseURL,
+            keychainService: fakeKeychain(result: .success(passphrase))
+        )
+        let login = try AutoFillServiceIdentifier(kind: .domain, identifier: "login.example.com", displayName: nil)
+        let app = try AutoFillServiceIdentifier(kind: .app, identifier: "com.example.native", displayName: nil)
+        let candidates = try await store.candidates(for: .site(
+            requestID: UUID(), services: [login, app], kind: .password, deadlineUptimeNanoseconds: 1
+        ))
+        #expect(candidates.map(\.descriptorID) == [fixture.descriptor.id, other.id])
+        #expect(candidates.map(\.matchTier) == [0, 1])
+    }
+}
+
+extension AutoFillDescriptorStoreTests {
     @Test("long-lived read-only connection observes committed host updates")
     func observesHostUpdates() async throws {
         let fixture = try makeFixture()

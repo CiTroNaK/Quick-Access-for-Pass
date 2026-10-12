@@ -63,6 +63,14 @@ actor AutoFillDescriptorStore: AutoFillDescriptorStoring {
         }
     }
 
+    /// Website descriptors remain independent for matching and opaque-ID resolution,
+    /// but the picker presents each underlying login only once.
+    nonisolated private struct LoginIdentity: Hashable {
+        let vaultID: String
+        let itemID: String
+        let username: String
+    }
+
     nonisolated private static func siteCandidates(
         for services: [AutoFillServiceIdentifier],
         kind: AutoFillValueKind,
@@ -73,40 +81,46 @@ actor AutoFillDescriptorStore: AutoFillDescriptorStoring {
             throw AutoFillProtocolError.malformedMessage
         }
         var candidates: [AutoFillCandidate] = []
-        var seen = Set<UUID>()
+        var seen = Set<LoginIdentity>()
         for (tier, service) in services.enumerated() {
-            let rows: [Row]
+            let rows: RowCursor
             switch service.kind {
             case .domain, .url:
                 guard let host = AutoFillServiceIdentifier.normalizedHost(for: service) else {
                     throw AutoFillProtocolError.malformedMessage
                 }
-                rows = try Row.fetchAll(
+                rows = try Row.fetchCursor(
                     connection,
                     sql: """
-                        SELECT id, title, username FROM autoFillDescriptors
+                        SELECT id, vaultID, itemID, title, username FROM autoFillDescriptors
                         WHERE serviceIdentifier = ? AND (? = 'password' OR hasTOTP = 1)
-                        ORDER BY title, username, id LIMIT ?
+                        ORDER BY title, username, id
                         """,
-                    arguments: [host, kind.rawValue, AutoFillCandidate.maximumCandidates]
+                    arguments: [host, kind.rawValue]
                 )
             case .app:
-                rows = try Row.fetchAll(
+                rows = try Row.fetchCursor(
                     connection,
                     sql: """
-                        SELECT descriptor.id, descriptor.title, descriptor.username
+                        SELECT descriptor.id, descriptor.vaultID, descriptor.itemID,
+                               descriptor.title, descriptor.username
                         FROM autoFillAppAssociations AS association
                         JOIN autoFillDescriptors AS descriptor ON descriptor.id = association.descriptorID
                         WHERE association.serviceKind = ? AND association.serviceIdentifier = ?
                           AND (? = 'password' OR descriptor.hasTOTP = 1)
-                        ORDER BY descriptor.title, descriptor.username, descriptor.id LIMIT ?
+                        ORDER BY descriptor.title, descriptor.username, descriptor.id
                         """,
-                    arguments: [service.kind.rawValue, service.identifier, kind.rawValue, AutoFillCandidate.maximumCandidates]
+                    arguments: [service.kind.rawValue, service.identifier, kind.rawValue]
                 )
             }
-            for row in rows where candidates.count < AutoFillCandidate.maximumCandidates {
+            // Stream until the login limit, not a per-service descriptor limit:
+            // duplicate hosts or earlier-tier matches must not hide later logins.
+            while candidates.count < AutoFillCandidate.maximumCandidates, let row = try rows.next() {
+                let identity = LoginIdentity(
+                    vaultID: row["vaultID"], itemID: row["itemID"], username: row["username"]
+                )
+                guard seen.insert(identity).inserted else { continue }
                 let descriptorID: UUID = row["id"]
-                guard seen.insert(descriptorID).inserted else { continue }
                 candidates.append(AutoFillCandidate(
                     descriptorID: descriptorID,
                     title: row["title"],
@@ -131,8 +145,12 @@ actor AutoFillDescriptorStore: AutoFillDescriptorStoring {
             connection,
             sql: """
                 SELECT id, title, username FROM autoFillDescriptors
-                WHERE (title LIKE ? COLLATE NOCASE OR username LIKE ? COLLATE NOCASE)
-                  AND (? = 'password' OR hasTOTP = 1)
+                WHERE id IN (
+                    SELECT MIN(id) FROM autoFillDescriptors
+                    WHERE (title LIKE ? COLLATE NOCASE OR username LIKE ? COLLATE NOCASE)
+                      AND (? = 'password' OR hasTOTP = 1)
+                    GROUP BY vaultID, itemID, username
+                )
                 ORDER BY title, username, id LIMIT ?
                 """,
             arguments: ["%\(normalized)%", "%\(normalized)%", kind.rawValue, AutoFillCandidate.maximumCandidates]
