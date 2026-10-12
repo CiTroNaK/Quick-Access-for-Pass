@@ -228,7 +228,8 @@ struct UnlockWaiterTests {
             },
             activateApplication: {
                 activatedProcessIdentifiers.append($0.processIdentifier)
-            }
+            },
+            monitorOutsideClicks: { _ in nil }
         )
         let timeout = ManualUnlockWaiterTimeout()
         defer {
@@ -242,6 +243,7 @@ struct UnlockWaiterTests {
         delegate.lastActivityAt = nil
         delegate.panelController = panelController
         delegate.waitForUnlockTimeout = { _ in await timeout.wait() }
+        // Live desktop clicks are not inputs to this panel-session test.
         panelController.show()
 
         async let unlocked = delegate.showPanelAndWaitForUnlock()
@@ -256,6 +258,7 @@ struct UnlockWaiterTests {
         }
 
         #expect(frontmostLookupCount == 1)
+        #expect(!delegate.panelShownForLockWait)
         #expect(delegate.beginPanelUnlock() != nil)
         delegate.resetAuthTimestamp()
         #expect(await unlocked)
@@ -273,7 +276,7 @@ struct UnlockWaiterTests {
         defaults.set(true, forKey: DefaultsKey.lockoutEnabled)
 
         let delegate = AppDelegate()
-        let panelController = PanelController()
+        let panelController = PanelController(monitorOutsideClicks: { _ in nil })
         let trace = UnlockPanelVisibilityTrace(delegate: delegate, panelController: panelController)
         let visibilityWaiter = WindowVisibilityWaiter(
             window: panelController.windowForPresentation,
@@ -349,7 +352,7 @@ struct UnlockWaiterTests {
     @Test("Panel authentication is single-flight and stale completions cannot hide the panel")
     func panelAuthenticationIsSingleFlight() async {
         let delegate = AppDelegate()
-        let panelController = PanelController(activateApplication: { _ in })
+        let panelController = PanelController(activateApplication: { _ in }, monitorOutsideClicks: { _ in nil })
         defer { panelController.hide(ignoringBlock: true) }
         delegate.panelController = panelController
         delegate.panelShownForLockWait = true
@@ -384,7 +387,7 @@ struct UnlockWaiterTests {
         defaults.set(true, forKey: DefaultsKey.lockoutEnabled)
 
         let delegate = AppDelegate()
-        let panelController = PanelController()
+        let panelController = PanelController(monitorOutsideClicks: { _ in nil })
         let timeout = ManualUnlockWaiterTimeout()
         defer {
             timeout.fireAll()
@@ -450,7 +453,7 @@ struct UnlockWaiterTests {
         defaults.set(true, forKey: DefaultsKey.lockoutEnabled)
 
         let delegate = AppDelegate()
-        let panelController = PanelController()
+        let panelController = PanelController(monitorOutsideClicks: { _ in nil })
         let timeout = ManualUnlockWaiterTimeout()
         defer {
             timeout.fireAll()

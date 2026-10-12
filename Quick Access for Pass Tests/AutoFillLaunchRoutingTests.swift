@@ -62,9 +62,11 @@ struct AutoFillLaunchRoutingTests {
 
     @Test("a warm URL registers asynchronously without re-gating admission")
     func warmURLRegistersWithoutRegating() async {
-        let registry = AutoFillRequestRegistry()
+        let clock = ManualDeadlineClock()
+        let registry = AutoFillRequestRegistry(now: { clock.now })
         let delegate = AppDelegate()
         delegate.autoFillRequestRegistry = registry
+        delegate.autoFillLaunchNow = { clock.now }
         delegate.autoFillLaunchGate.markListenerReady()
 
         #expect(delegate.handleAutoFillLaunchURL(makeURL(nonce: UUID())))

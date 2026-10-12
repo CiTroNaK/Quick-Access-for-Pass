@@ -109,7 +109,12 @@ Quick Access for Pass/
 ## Testing Notes
 
 - Use in-memory `DatabaseManager` instances for persistence tests
+- When profiling shows synchronous database fixture construction causing contention, use `FixtureSetupExecutor` to bound that setup work. Test bodies remain parallel; do not weaken encryption, migrations, security deadlines, or assertions to accommodate fixture load.
 - Prefer real implementations with controlled inputs over broad mocking
+- Keep fixture scheduling separate from security deadlines: when substituting an AutoFill clock, drive its watchdog sleeper from the same clock (`ManualDeadlineClock`), while retaining real-time native CLI deadline tests. Observe delayed diagnostics after the deadline-bound operation returns, never inside its result path.
+- Deadline-sensitive native fixtures may use the test-owned `CLIRunnerTestTaskExecutor` to keep caller/default-actor continuations off the busy cooperative pool. Keep real deadlines unchanged and forward the original absolute deadline through every native layer; executor preference must not replace `MainActor` isolation or production CLI executors.
+- Native timeout fixtures must have a finite escape without busy-spinning or leaving inherited writers. Arrange overflow so only a small builtin write crosses the accepted cap after TERM; do not require a child launch or a large transfer to fit inside termination grace.
+- Keep AppKit rendering on `MainActor`, but run expensive, pure pixel comparisons off the UI thread. Panel tests should inject outside-click monitoring rather than consume live desktop input.
 - Add regression tests for migration changes, concurrency fixes, health/recovery logic, and security-sensitive behavior
 - If you change SSH or Run proxy behavior, update or add probe/lifecycle tests as needed
 - AutoFill tests must use injected fakes or temporary/in-memory fixtures only; never access real credentials, Keychain items, or the real database. Candidate metadata stays capped at 20 and memory-only; test typed global search only after non-empty input and explicit host-local native-app association behavior. Offline AutoFill fallback is host-broker-only; the extension must never receive selection/source/cache diagnostics.

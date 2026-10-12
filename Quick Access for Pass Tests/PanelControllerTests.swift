@@ -57,6 +57,35 @@ struct PanelControllerTests {
         #expect(hideCount == 1)
     }
 
+    @Test("Outside clicks honor the hide block and restore the previous application", arguments: [false, true])
+    func outsideClicksRespectPanelSession(isHideBlocked: Bool) throws {
+        let previousApplication = NSRunningApplication.current
+        var activatedProcessIdentifiers: [pid_t] = []
+        var outsideClick: (@MainActor () -> Void)?
+        let controller = PanelController(
+            frontmostApplication: { previousApplication },
+            activateApplication: { activatedProcessIdentifiers.append($0.processIdentifier) },
+            monitorOutsideClicks: { handler in
+                outsideClick = handler
+                return nil
+            }
+        )
+        defer { controller.hide(ignoringBlock: true) }
+        controller.shouldBlockHide = { isHideBlocked }
+        controller.show()
+        #expect(controller.isVisible)
+        let dismissFromOutsideClick = try #require(outsideClick)
+
+        dismissFromOutsideClick()
+
+        #expect(controller.isVisible == isHideBlocked)
+        if isHideBlocked {
+            #expect(activatedProcessIdentifiers.isEmpty)
+        } else {
+            #expect(activatedProcessIdentifiers == [previousApplication.processIdentifier])
+        }
+    }
+
     @Test("Ordinary hide restores the previous application")
     func ordinaryHideRestoresPreviousApplication() {
         let previousApplication = NSRunningApplication.current

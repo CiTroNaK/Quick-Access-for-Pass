@@ -67,8 +67,8 @@ struct AutoFillBrokerClientTests {
 
     @Test("verified unauthorized wake response retries after delayed host registration")
     func delayedWakeRegistrationRetries() async throws {
-        let clock = UInt64(1_000_000_000)
-        let registry = AutoFillRequestRegistry(now: { clock })
+        let clock = ManualDeadlineClock()
+        let registry = AutoFillRequestRegistry(now: { clock.now })
         let firstConnectionID = UUID()
         let secondConnectionID = UUID()
         try await registry.bindConnection(firstConnectionID, peer: verifiedExtensionPeer())
@@ -93,7 +93,7 @@ struct AutoFillBrokerClientTests {
         let attempts = OSAllocatedUnfairLock(initialState: 0)
         let sleepCalls = OSAllocatedUnfairLock(initialState: 0)
         let opener = RecordingAutoFillHostOpener()
-        let deadline = clock + 2_000_000_000
+        let deadline = clock.now + 2_000_000_000
         let client = AutoFillBrokerClient(
             connectionFactory: {
                 try attempts.withLock { count in
@@ -107,7 +107,7 @@ struct AutoFillBrokerClientTests {
             },
             hostOpener: opener,
             retryDelay: .milliseconds(1),
-            now: { clock },
+            now: { clock.now },
             sleep: { _ in
                 let call = sleepCalls.withLock { count in
                     count += 1
@@ -118,7 +118,8 @@ struct AutoFillBrokerClientTests {
                     throw DelayedWakeTestError.missingHandle
                 }
                 try await registry.registerWake(handle: handle, deadline: deadline)
-            }
+            },
+            deadlineSleep: { try await clock.sleep(for: $0) }
         )
 
         let value = try await client.resolve(
@@ -920,5 +921,39 @@ private final class ClientSocketFixture {
             buffer.copyBytes(from: bytes.prefix(buffer.count))
         }
         return address
+    }
+}
+
+extension AutoFillBrokerClientTests {
+    @Test("Host wake expiry uses the original deadline and cancels the pending opener")
+    @MainActor
+    func hostWakeExpiresOnControlledClock() async throws {
+        let clock = ManualDeadlineClock()
+        let opener = ControlledAutoFillHostOpener()
+        let attempts = OSAllocatedUnfairLock(initialState: 0)
+        let client = AutoFillBrokerClient(
+            connectionFactory: {
+                attempts.withLock { $0 += 1 }
+                throw AutoFillBrokerClientError.unavailable
+            },
+            hostOpener: opener,
+            now: { clock.now },
+            deadlineSleep: { try await clock.sleep(for: $0) }
+        )
+        let task = Task {
+            try await client.resolve(descriptorID: UUID(), kind: .password,
+                                     deadline: 3_000_000_000, appAssociationIntent: nil)
+        }
+        defer { task.cancel() }
+        let registered = await waitForTestCondition { opener.isActive && clock.pendingSleepCount == 1 }
+        try #require(registered)
+
+        clock.advance(to: 3_000_000_000)
+        await #expect(throws: AutoFillBrokerClientError.expired) { try await task.value }
+
+        #expect(opener.openCount == 1)
+        #expect(opener.cancellationCount == 1)
+        #expect(attempts.withLock { $0 } == 1)
+        #expect(clock.pendingSleepCount == 0)
     }
 }

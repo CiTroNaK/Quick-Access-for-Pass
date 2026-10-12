@@ -903,11 +903,17 @@ struct OfflineSecretResolverTests {
         let codec = DecodeCountingCodec(codec: selected.codec)
         let cli = PassCLIService(cliPath: "/bin/sh", runner: NativeTimeoutOverflowRunner(fixture: native))
         let resolver = OfflineSecretResolver(live: cli, repository: selected.repository, codec: codec, readiness: selected.service)
-        let context = SecretResolutionContext(deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 5_000_000_000, expectedUsername: nil)
+        let executor = CLIRunnerTestTaskExecutor()
+        let originalDeadline = OSAllocatedUnfairLock(initialState: Optional<CLIExecutionDeadline>.none)
         let released = OSAllocatedUnfairLock(initialState: false)
         await #expect {
-            _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share", context: context)
-            released.withLock { $0 = true }
+            try await withTaskExecutorPreference(executor) {
+                let deadline = CLIExecutionDeadline(uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds + 5_000_000_000)
+                originalDeadline.withLock { $0 = deadline }
+                let context = SecretResolutionContext(deadlineUptimeNanoseconds: deadline.uptimeNanoseconds, expectedUsername: nil)
+                _ = try await resolver.resolveItem(itemId: "item", vaultId: "vault", shareId: "share", context: context)
+                released.withLock { $0 = true }
+            }
         } throws: { error in
             guard let typed = error as? CLIError, case .outputLimitExceeded = typed else { return false }
             return true
@@ -915,8 +921,10 @@ struct OfflineSecretResolverTests {
         #expect(await codec.decodeCount() == 0)
         #expect(released.withLock { $0 } == false)
         #expect(try await selected.repository.hasPersistedSnapshots() == false)
-        native.expectTimeoutTrapAndSingleCompletion()
+        await native.expectTimeoutTrapAndSingleCompletion()
+        let expectedDeadline = try #require(originalDeadline.withLock { $0 })
         #expect(native.observedDeadlines().incoming.count == 1)
+        #expect(native.observedDeadlines().incoming == [expectedDeadline])
         #expect(native.observedDeadlines().incoming == native.observedDeadlines().forwarded)
     }
 
@@ -968,7 +976,9 @@ struct OfflineSecretResolverTests {
         username: String = "person@example.test",
         email: String = ""
     ) async throws -> SelectedResolverFixture {
-        let repositoryFixture = try OfflineLifecycleFixture(itemIDs: ["item"])
+        let repositoryFixture = try await withTaskExecutorPreference(FixtureSetupExecutor.shared) {
+            try OfflineLifecycleFixture(itemIDs: ["item"])
+        }
         let item = try #require(repositoryFixture.items.first)
         let viewer = ResolverViewer(totp: totp, username: username, email: email)
         let codec = repositoryFixture.codec()

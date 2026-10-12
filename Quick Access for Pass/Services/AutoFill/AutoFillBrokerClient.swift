@@ -50,19 +50,24 @@ nonisolated final class AutoFillBrokerClient: AutoFillBrokerListing, AutoFillBro
     private let retryDelay: Duration
     private let now: @Sendable () -> UInt64
     private let sleep: Sleep
+    private let deadlineSleep: Sleep
 
+    // A substituted clock must also supply its watchdog sleeper. Retry pacing
+    // remains separate so immediate test retries cannot expire host-opening work.
     init(
         connectionFactory: @escaping ConnectionFactory,
         hostOpener: any AutoFillHostOpening,
         retryDelay: Duration = .milliseconds(50),
         now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        sleep: @escaping Sleep = { try await Task.sleep(for: $0) }
+        sleep: @escaping Sleep = { try await Task.sleep(for: $0) },
+        deadlineSleep: @escaping Sleep = { try await Task.sleep(for: $0) }
     ) {
         self.connectionFactory = connectionFactory
         self.hostOpener = hostOpener
         self.retryDelay = retryDelay
         self.now = now
         self.sleep = sleep
+        self.deadlineSleep = deadlineSleep
     }
 
     convenience init(
@@ -280,11 +285,12 @@ nonisolated final class AutoFillBrokerClient: AutoFillBrokerListing, AutoFillBro
         guard deadline > current else { throw AutoFillBrokerClientError.expired }
         let remaining = Duration.nanoseconds(Int64(min(deadline - current, UInt64(Int64.max))))
         let hostOpener = hostOpener
+        let deadlineSleep = deadlineSleep
 
         return try await withThrowingTaskGroup(of: Bool.self) { group in
             group.addTask { try await hostOpener.open(handle: handle) }
             group.addTask {
-                try await Task.sleep(for: remaining)
+                try await deadlineSleep(remaining)
                 throw AutoFillBrokerClientError.expired
             }
             defer { group.cancelAll() }
