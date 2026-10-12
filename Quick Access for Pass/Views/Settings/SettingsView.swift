@@ -39,7 +39,7 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("General", systemImage: "gearshape", value: SettingsTab.general) {
-                GeneralSettingsTab(hotkeyCode: $hotkeyCode, hotkeyModifiers: $hotkeyModifiers, terminalHostStore: terminalHostStore)
+                GeneralSettingsTab(hotkeyCode: $hotkeyCode, hotkeyModifiers: $hotkeyModifiers)
             }
             Tab("Shortcuts", systemImage: "command", value: SettingsTab.shortcuts) {
                 ShortcutsSettingsTab(
@@ -96,11 +96,14 @@ struct SettingsView: View {
             Tab("Run", systemImage: "play.circle", value: SettingsTab.run) {
                 RunSettingsTab(runProxyEnabled: $runProxyEnabled)
             }
+            Tab("Integrations", systemImage: "puzzlepiece.extension", value: SettingsTab.integrations) {
+                IntegrationsSettingsTab(store: terminalHostStore)
+            }
             Tab("About", systemImage: "info.circle", value: SettingsTab.about) {
                 AboutSettingsTab()
             }
         }
-        .frame(width: 480)
+        .frame(width: 560)
         .background {
             SettingsWindowObserver(onWindowAvailable: onWindowAvailable)
         }

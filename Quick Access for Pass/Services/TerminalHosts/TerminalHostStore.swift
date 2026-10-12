@@ -41,6 +41,18 @@ import Observation
         refreshDetectedHosts()
     }
 
+    var hasCustomHerdrOverride: Bool {
+        _ = revision
+        guard !configurationError else { return false }
+        let herdrPath = entries.first(where: { $0.id == "herdr" })?.executablePath
+            ?? discovery.discoverHerdr()?.path
+        guard let herdrPath else { return false }
+        let canonicalHerdrPath = discovery.canonicalPath(for: URL(fileURLWithPath: herdrPath))
+        return entries.contains {
+            $0.provider == .generic && canonicalPath($0) == canonicalHerdrPath
+        }
+    }
+
     var availableIDs: Set<String> {
         // Refresh changes revision even when preferences did not change (e.g. a removed installation).
         _ = revision
@@ -70,13 +82,16 @@ import Observation
         finishChange(previousEntries: previous)
     }
 
-    func addExecutable(at url: URL) throws {
+    func addExecutable(at url: URL, displayName: String? = nil) throws {
         guard !configurationError else { throw StoreError.invalidPreferences }
+        let name = (displayName ?? url.deletingPathExtension().lastPathComponent)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isValidName(name) else { throw StoreError.invalidEntry }
         guard discovery.isExecutableRegularFile(url) else { throw StoreError.invalidExecutable }
         guard !hasDuplicatePath(url, excluding: nil) else { throw StoreError.duplicateExecutable }
         let entry = TerminalHostConfiguration(
             id: UUID().uuidString, executablePath: url.standardizedFileURL.path,
-            displayName: url.deletingPathExtension().lastPathComponent, isEnabled: true,
+            displayName: name, isEnabled: true,
             provider: .generic, showPaneDetails: false, isAutomaticallyDetected: false
         )
         guard Self.isValid([entry]) else { throw StoreError.invalidEntry }
@@ -183,6 +198,11 @@ import Observation
         revision &+= 1
         // Snapshot callbacks so observers can remove themselves during notification.
         for handler in Array(observers.values) { handler() }
+    }
+
+    private static func isValidName(_ name: String) -> Bool {
+        !name.isEmpty && name.rangeOfCharacter(from: .newlines) == nil &&
+            name.rangeOfCharacter(from: .controlCharacters) == nil
     }
 
     private static func isValid(_ entries: [TerminalHostConfiguration]) -> Bool {

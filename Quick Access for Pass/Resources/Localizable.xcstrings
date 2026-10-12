@@ -2713,6 +2713,30 @@
         }
       }
     },
+    "Requester context available" : {
+      "comment" : "Non-secret accessibility announcement that requester display context became available.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontext žadatele je k dispozici"
+          }
+        }
+      }
+    },
+    "Requester context unavailable" : {
+      "comment" : "Non-secret accessibility announcement that requester display context was cleared.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontext žadatele není k dispozici"
+          }
+        }
+      }
+    },
     "Open Quick Access" : {
       "localizations" : {
         "cs" : {
@@ -4911,7 +4935,197 @@
         }
       }
     }
-  }
+  },
+    "Integrations" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Integrace"
+          }
+        }
+      }
+    },
+    "Optional integrations used by SSH and Run authorization." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volitelné integrace používané při autorizaci SSH a Run."
+          }
+        }
+      }
+    },
+    "Supported apps" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podporované aplikace"
+          }
+        }
+      }
+    },
+    "Custom terminal hosts" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní terminály"
+          }
+        }
+      }
+    },
+    "Not configured" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Není nastaveno"
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nainstalováno"
+          }
+        }
+      }
+    },
+    "Custom override" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní náhrada"
+          }
+        }
+      }
+    },
+    "Herdr is not configured." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herdr není nastaven."
+          }
+        }
+      }
+    },
+    "A custom mapping uses the Herdr path; automatic Herdr details are disabled." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vlastní mapování používá cestu Herdr; automatické podrobnosti Herdr jsou vypnuté."
+          }
+        }
+      }
+    },
+    "No custom terminal hosts." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Žádné vlastní terminály."
+          }
+        }
+      }
+    },
+    "Add Custom Terminal…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat vlastní terminál…"
+          }
+        }
+      }
+    },
+    "Edit Terminal" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upravit terminál"
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vybrat…"
+          }
+        }
+      }
+    },
+    "Executable path" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cesta ke spustitelnému souboru"
+          }
+        }
+      }
+    },
+    "Paste an absolute path or a path beginning with ~/." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vložte absolutní cestu nebo cestu začínající ~/."
+          }
+        }
+      }
+    },
+    "Enter an absolute executable path or a path beginning with ~/." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zadejte absolutní cestu ke spustitelnému souboru nebo cestu začínající ~/."
+          }
+        }
+      }
+    },
+    "This terminal host is no longer available." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tento terminál již není k dispozici."
+          }
+        }
+      }
+    },
+    "Add Custom Terminal" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přidat vlastní terminál"
+          }
+        }
+      }
+    },
+    "Enable Herdr" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povolit Herdr"
+          }
+        }
+      }
+    }
   },
   "version" : "1.0"
 }

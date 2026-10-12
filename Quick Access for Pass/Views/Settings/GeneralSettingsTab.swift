@@ -4,7 +4,6 @@ import ServiceManagement
 struct GeneralSettingsTab: View {
     @Binding var hotkeyCode: Int
     @Binding var hotkeyModifiers: Int
-    let terminalHostStore: TerminalHostStore
 
     @State private var launchAtLoginEnabled: Bool = (SMAppService.mainApp.status == .enabled)
     @State private var selectedLanguage: String = {
@@ -17,7 +16,6 @@ struct GeneralSettingsTab: View {
 
     var body: some View {
         SettingsLayout.settingsPane {
-            TerminalHostsSettingsView(store: terminalHostStore)
             SettingsLayout.settingsRow(label: "Launch at Login") {
                 Toggle("", isOn: $launchAtLoginEnabled)
                     .toggleStyle(.switch)

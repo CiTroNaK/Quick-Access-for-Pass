@@ -5,6 +5,47 @@ import Testing
 @MainActor
 @Suite("SSHAuthWindowController Tests", .timeLimit(.minutes(1)))
 struct SSHAuthWindowControllerTests {
+    @Test func lateGeometryFromCompletedRequestCannotChangeQueuedRequestOutcome() async throws {
+        let database = try DatabaseManager(inMemory: true, passphrase: Data("fixture".utf8))
+        let prompts = AsyncStream.makeStream(of: SSHAuthRequest.self)
+        let controller = SSHAuthWindowController(databaseManager: database,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop,
+            identifyRequester: { _ in .unknown }, presentDialog: { prompts.continuation.yield($0) })
+        let first = Task { await controller.authorize(keyBlob: Data("first".utf8), connection: .init(fd: -1, identity: .trustedHelper, pid: 100)) }
+        var iterator = prompts.stream.makeAsyncIterator()
+        let firstPrompt = try #require(await iterator.next())
+        let second = Task { await controller.authorize(keyBlob: Data("second".utf8), connection: .init(fd: -1, identity: .trustedHelper, pid: 200)) }
+        firstPrompt.onContentHeightChange?(420)
+        firstPrompt.onResult(false, .doNotRemember)
+        #expect(await first.value == .deny)
+        let secondPrompt = try #require(await iterator.next())
+        firstPrompt.onContentHeightChange?(900)
+        secondPrompt.onContentHeightChange?(320)
+        secondPrompt.onResult(true, .doNotRemember)
+        #expect(await second.value == .allow)
+        controller.cancelAll()
+    }
+
+    @Test func cancelledRequestGeometryCannotChangeLaterRequestOutcome() async throws {
+        let database = try DatabaseManager(inMemory: true, passphrase: Data("fixture".utf8))
+        let prompts = AsyncStream.makeStream(of: SSHAuthRequest.self)
+        let controller = SSHAuthWindowController(databaseManager: database,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop,
+            identifyRequester: { _ in .unknown }, presentDialog: { prompts.continuation.yield($0) })
+        let first = Task { await controller.authorize(keyBlob: Data("cancelled".utf8), connection: .init(fd: -1, identity: .trustedHelper, pid: 100)) }
+        var iterator = prompts.stream.makeAsyncIterator()
+        let cancelledPrompt = try #require(await iterator.next())
+        controller.cancelAll()
+        #expect(await first.value == .deny)
+        let successor = Task { await controller.authorize(keyBlob: Data("successor".utf8), connection: .init(fd: -1, identity: .trustedHelper, pid: 200)) }
+        let successorPrompt = try #require(await iterator.next())
+        cancelledPrompt.onContentHeightChange?(900)
+        successorPrompt.onContentHeightChange?(320)
+        successorPrompt.onResult(true, .doNotRemember)
+        #expect(await successor.value == .allow)
+        controller.cancelAll()
+    }
+
     @Test(arguments: ["rename", "disable", "details"])
     func sharedHeaderChangesNeverAlterQueuedOrPersistedIdentity(change: String) async throws {
         let fixture = try RequesterHeaderFixture(); defer { fixture.cleanUp() }

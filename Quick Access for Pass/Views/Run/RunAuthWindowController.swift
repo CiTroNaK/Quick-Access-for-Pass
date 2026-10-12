@@ -277,7 +277,11 @@ private extension RunAuthWindowController {
             command: pending.fullCommand,
             scopeOptions: pending.scopeOptions,
             keychainService: keychainService,
-            callbacks: callbacks
+            callbacks: callbacks,
+            onContentHeightChange: { [weak self] height in
+                guard let self, self.currentRequest?.id == pending.id, let panel = self.panel else { return }
+                AuthorizationPanelSizing.resize(panel, contentHeight: height)
+            }
         ) { [weak self] allowed, duration, chosenScope in
             self?.completeDialogRequest(
                 pending, allowed: allowed, duration: duration, chosenScope: chosenScope

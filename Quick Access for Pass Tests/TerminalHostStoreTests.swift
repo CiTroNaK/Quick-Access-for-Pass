@@ -431,13 +431,44 @@ import Testing
             fixture.defaults.set(Data("invalid synthetic preferences".utf8), forKey: DefaultsKey.terminalHosts)
         }
         let displayedStore = invalidPreferences ? TerminalHostStore(defaults: fixture.defaults, discovery: fixture.discovery) : store
-        let view = NSHostingView(rootView: GeneralSettingsTab(
-            hotkeyCode: .constant(0), hotkeyModifiers: .constant(0), terminalHostStore: displayedStore
-        ).frame(width: 480))
-        view.frame = NSRect(x: 0, y: 0, width: 480, height: 500)
+        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: displayedStore).frame(width: 560))
+        view.frame = NSRect(x: 0, y: 0, width: 560, height: 500)
         view.layoutSubtreeIfNeeded()
-        #expect(view.fittingSize.width <= 480)
+        #expect(view.fittingSize.width <= 560)
         #expect(view.fittingSize.height <= 500)
+    }
+
+    @Test func namedAdditionValidatesAtomicallyAndNotifiesOnce() throws {
+        let fixture = try Fixture(); defer { fixture.cleanUp() }
+        let store = TerminalHostStore(defaults: fixture.defaults, discovery: fixture.discovery)
+        let url = try fixture.executable("terminal with spaces")
+        var notifications = 0
+        let token = store.observeChanges { notifications += 1 }
+        defer { store.removeObserver(token) }
+        let originalDefaults = fixture.defaults.object(forKey: DefaultsKey.terminalHosts) as? Data
+
+        for invalidName in ["", "  ", "two\nlines"] {
+            #expect(throws: TerminalHostStore.StoreError.invalidEntry) {
+                try store.addExecutable(at: url, displayName: invalidName)
+            }
+            #expect(store.entries.isEmpty)
+            #expect((fixture.defaults.object(forKey: DefaultsKey.terminalHosts) as? Data) == originalDefaults)
+            #expect(notifications == 0)
+        }
+        #expect(throws: TerminalHostStore.StoreError.invalidExecutable) {
+            try store.addExecutable(at: fixture.directory, displayName: "Directory")
+        }
+        #expect(throws: TerminalHostStore.StoreError.invalidExecutable) {
+            try store.addExecutable(at: URL(fileURLWithPath: "relative/path"), displayName: "Relative")
+        }
+        #expect(notifications == 0)
+        try store.addExecutable(at: url, displayName: "Named terminal")
+        #expect(store.entries.first?.displayName == "Named terminal")
+        #expect(notifications == 1)
+        #expect(throws: TerminalHostStore.StoreError.duplicateExecutable) {
+            try store.addExecutable(at: url, displayName: "Duplicate")
+        }
+        #expect(notifications == 1)
     }
 
 }

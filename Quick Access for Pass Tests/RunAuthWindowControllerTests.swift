@@ -4,6 +4,73 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1))) @MainActor
 struct RunAuthWindowControllerTests {
+    @Test func lateGeometryFromCompletedRequestCannotChangeQueuedRequestOutcome() async throws {
+        let database = try DatabaseManager(inMemory: true, passphrase: Data("fixture".utf8))
+        let prompts = AsyncStream.makeStream(of: RunAuthRequest.self)
+        let identities = AsyncStream.makeStream(of: Int32.self)
+        let controller = RunAuthWindowController(databaseManager: database,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop,
+            identifyParent: { connection in identities.continuation.yield(connection.pid); return .unknown },
+            dialogPresenter: { prompts.continuation.yield($0) })
+        let first = Task {
+            await controller.authorize(
+                request: .init(profile: "fixture", command: ["git", "fetch"], pid: 100),
+                profileName: "Fixture", env: [:],
+                connection: .init(fd: -1, identity: .trustedHelper, pid: 100)
+            )
+        }
+        var iterator = prompts.stream.makeAsyncIterator()
+        let firstPrompt = try #require(await iterator.next())
+        let second = Task {
+            await controller.authorize(
+                request: .init(profile: "fixture", command: ["git", "push"], pid: 200),
+                profileName: "Fixture", env: [:],
+                connection: .init(fd: -1, identity: .trustedHelper, pid: 200)
+            )
+        }
+        var identified = identities.stream.makeAsyncIterator()
+        while await identified.next() != 200 { }
+        firstPrompt.onContentHeightChange?(420)
+        firstPrompt.onResult(false, .doNotRemember, nil)
+        #expect(await first.value.decision == .deny)
+        let secondPrompt = try #require(await iterator.next())
+        firstPrompt.onContentHeightChange?(900)
+        secondPrompt.onContentHeightChange?(320)
+        secondPrompt.onResult(true, .doNotRemember, RunAuthorizationIdentity(prefix: "git push"))
+        #expect(await second.value.decision == .allow)
+        controller.cancelAll()
+    }
+
+    @Test func cancelledRequestGeometryCannotChangeLaterRequestOutcome() async throws {
+        let database = try DatabaseManager(inMemory: true, passphrase: Data("fixture".utf8))
+        let prompts = AsyncStream.makeStream(of: RunAuthRequest.self)
+        let identities = AsyncStream.makeStream(of: Int32.self)
+        let controller = RunAuthWindowController(databaseManager: database,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop,
+            identifyParent: { connection in identities.continuation.yield(connection.pid); return .unknown },
+            dialogPresenter: { prompts.continuation.yield($0) })
+        let first = Task {
+            await controller.authorize(request: .init(profile: "fixture", command: ["git", "fetch"], pid: 100),
+                profileName: "Fixture", env: [:], connection: .init(fd: -1, identity: .trustedHelper, pid: 100))
+        }
+        var iterator = prompts.stream.makeAsyncIterator()
+        let cancelledPrompt = try #require(await iterator.next())
+        controller.cancelAll()
+        #expect(await first.value.decision == .deny)
+        let successor = Task {
+            await controller.authorize(request: .init(profile: "fixture", command: ["git", "push"], pid: 200),
+                profileName: "Fixture", env: [:], connection: .init(fd: -1, identity: .trustedHelper, pid: 200))
+        }
+        var identified = identities.stream.makeAsyncIterator()
+        while await identified.next() != 200 { }
+        let successorPrompt = try #require(await iterator.next())
+        cancelledPrompt.onContentHeightChange?(900)
+        successorPrompt.onContentHeightChange?(320)
+        successorPrompt.onResult(true, .doNotRemember, RunAuthorizationIdentity(prefix: "git push"))
+        #expect(await successor.value.decision == .allow)
+        controller.cancelAll()
+    }
+
     @Test(arguments: ["rename", "disable", "details"])
     func detachedParentHeaderNeverChangesUnknownAuthorizationIdentity(change: String) async throws {
         let fixture = try RequesterHeaderFixture(); defer { fixture.cleanUp() }
@@ -116,7 +183,7 @@ struct RunAuthWindowControllerTests {
             connection: .init(fd: -1, identity: .trustedHelper, pid: 100)) }
         let prompt = try #require(await iterator.next())
         #expect(prompt.headerModel?.presentation.name == "Fixture App")
-        #expect(prompt.headerModel?.reservesDetailRows == false)
+        #expect(prompt.headerModel?.detailsEligible == false)
         prompt.onResult(true, .forever, RunAuthorizationIdentity(prefix: "git fetch"))
         #expect(await helper.value.decision == .allow)
         #expect(try database.findValidRunDecision(

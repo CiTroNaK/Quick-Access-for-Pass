@@ -291,7 +291,11 @@ private extension SSHAuthWindowController {
             showCommand: pending.clientInfo.showCommand,
             host: host,
             keychainService: self.keychainService,
-            callbacks: self.callbacks
+            callbacks: self.callbacks,
+            onContentHeightChange: { [weak self] height in
+                guard let self, self.currentRequest?.id == pending.id, let panel = self.panel else { return }
+                AuthorizationPanelSizing.resize(panel, contentHeight: height)
+            }
         ) { [weak self] allowed, duration in
             Task { @MainActor [weak self] in
                 self?.completeDialogRequest(pending, allowed: allowed, duration: duration)

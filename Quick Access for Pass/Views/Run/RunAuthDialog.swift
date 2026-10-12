@@ -12,6 +12,7 @@ nonisolated struct RunAuthRequest: Sendable {
     let scopeOptions: [RunAuthorizationScope]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
+    var onContentHeightChange: (@MainActor (CGFloat) -> Void)? = nil
     let onResult: @MainActor @Sendable (Bool, RememberDuration, RunAuthorizationIdentity?) -> Void
 }
 
@@ -43,9 +44,30 @@ struct RunAuthDialogView: View {
     }
 
     var body: some View {
+        geometryContent
+            .task {
+                while !Task.isCancelled && timeRemaining > 0 {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    timeRemaining -= 1
+                }
+                if timeRemaining <= 0 {
+                    sendResult(allowed: false)
+                }
+            }
+            .task {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                await authenticate()
+            }
+    }
+
+    /// Produces the dialog's measured content without starting its authentication/countdown lifecycle.
+    var geometryContent: some View {
         VStack(spacing: 16) {
             RequesterHeaderView(model: request.headerModel, fallbackName: request.appName,
-                                fallbackBundleURL: request.appBundleURL, subtitle: "wants to use secrets from \(request.profileName)")
+                                fallbackBundleURL: request.appBundleURL, subtitle: "wants to use secrets from \(request.profileName)",
+                                displayedCommand: request.command)
 
             HStack {
                 Image(systemName: "terminal")
@@ -167,20 +189,8 @@ struct RunAuthDialogView: View {
         }
         .padding(20)
         .frame(width: 380)
-        .task {
-            while !Task.isCancelled && timeRemaining > 0 {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
-                timeRemaining -= 1
-            }
-            if timeRemaining <= 0 {
-                sendResult(allowed: false)
-            }
-        }
-        .task {
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            await authenticate()
+        .onGeometryChange(for: CGFloat.self) { proxy in proxy.size.height } action: { height in
+            request.onContentHeightChange?(height)
         }
     }
 

@@ -49,7 +49,6 @@ struct RequesterHeaderModelTests {
         let model = fixture.model()
         await model.loadDetails()
         #expect(model.presentation.name == "ssh")
-        #expect(model.reservesDetailRows)
         #expect(await fixture.provider.calls == 0)
         entry.isEnabled = true
         try fixture.store.update(entry)
@@ -79,7 +78,7 @@ struct RequesterHeaderModelTests {
     }
 
     @Test(arguments: ["host", "details", "collision", "newMapping"])
-    func fixedDetailAllocationKeepsBothDialogsSizedBeforeLateEnable(change: String) async throws {
+    func dialogFitsVisibleContextAfterLateEnableOrConfigurationChange(change: String) async throws {
         let fixture = try RequesterHeaderFixture(); defer { fixture.cleanUp() }
         var entry = try #require(fixture.store.entries.first)
         if change == "host" { entry.isEnabled = false }
@@ -95,9 +94,8 @@ struct RequesterHeaderModelTests {
         let store = TerminalHostStore(defaults: fixture.defaults, discovery: TerminalHostDiscovery(candidates: { [] }))
         let model = RequesterHeaderModel(clientInfo: fixture.client, snapshot: fixture.client.requesterSnapshot,
                                         store: store, detailsProvider: fixture.detailsProvider)
-        #expect(model.reservesDetailRows)
         let before = dialogSizes(model)
-        #expect(before.allSatisfy { $0.height < 600 })
+        #expect(before.allSatisfy { $0.height > 0 && $0.height < 600 })
         if change == "collision" || change == "newMapping" {
             store.remove(id: "custom")
             store.observeExecutable(at: fixture.executable)
@@ -108,7 +106,9 @@ struct RequesterHeaderModelTests {
         let load = Task { await model.loadDetails() }
         await fixture.provider.started(); await fixture.provider.finish(); await load.value
         #expect(model.presentation.details != nil)
-        #expect(dialogSizes(model) == before)
+        let after = dialogSizes(model)
+        #expect(after.count == 2)
+        #expect(zip(after, before).allSatisfy { $0.height > $1.height })
         model.cancel()
     }
 
@@ -134,11 +134,13 @@ struct RequesterHeaderModelTests {
         let model = RequesterHeaderModel(clientInfo: fixture.client, snapshot: fixture.client.requesterSnapshot,
             store: fixture.store, detailsProvider: TestHeaderDetailsProvider(gate: gate))
         let before = dialogSizes(model)
-        #expect(before.allSatisfy { $0.height < 600 })
+        #expect(before.allSatisfy { $0.height > 0 && $0.height < 600 })
         let load = Task { await model.loadDetails() }
         await gate.started(); await gate.finish(); await load.value
         #expect(model.presentation.details?.paneTitle == long)
-        #expect(dialogSizes(model) == before)
+        let after = dialogSizes(model)
+        #expect(zip(after, before).allSatisfy { $0.height >= $1.height })
+        #expect(after.allSatisfy { $0.height < 600 })
         model.cancel()
     }
 

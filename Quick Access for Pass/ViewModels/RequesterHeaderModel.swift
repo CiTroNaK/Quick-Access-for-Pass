@@ -5,8 +5,6 @@ import Observation
 @MainActor @Observable final class RequesterHeaderModel {
     private(set) var presentation: RequesterPresentation
     private(set) var detailsEligible = false
-    /// Keep the initial panel's detail allocation stable as settings/results change.
-    let reservesDetailRows: Bool
     private let clientInfo: SSHClientInfo
     private let snapshot: RequesterProcessSnapshot?
     private let store: TerminalHostStore
@@ -40,10 +38,6 @@ import Observation
         hostMatch = resolved.hostMatch
         let entry = entries.first { $0.configuration.id == resolved.hostMatch?.configurationID }?.configuration
         detailsEligible = entry?.provider == .herdr && entry?.showPaneDetails == true
-        // A fallback may acquire its first mapping while mounted. Reserve before panel sizing,
-        // independently of consent/collisions; empty slots never expose metadata.
-        let identifiedApp = clientInfo.bundleURL != nil || (clientInfo.bundleIdentifier.map { !$0.hasPrefix("unverified.") } ?? false)
-        reservesDetailRows = snapshot != nil && !identifiedApp
         subscription = store.observeChanges { [weak self] in self?.refreshConfiguration() }
     }
 

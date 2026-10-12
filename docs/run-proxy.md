@@ -43,48 +43,65 @@ gh auth status
 
 ## Scripts and non-interactive shells
 
-Shell aliases are convenient for interactive terminals, but scripts, launch agents, cron jobs, and other non-interactive shells usually do not expand them. For those cases, create a real executable wrapper earlier in `PATH`. The command still needs to run in a macOS user session where Quick Access can authorize it, unless an existing remembered decision or cache entry applies.
+Shell aliases are convenient for interactive terminals, but scripts, launch agents, cron jobs, and other non-interactive shells usually do not expand them. For those cases, install a real executable wrapper earlier in `PATH`. The command still needs to run in a macOS user session where Quick Access can authorize it, unless an existing remembered decision or cache entry applies. Launch agents and other sessions without the logged-in user's UI may not be able to present authorization.
 
-For GitHub CLI, put this wrapper at `/Users/petr/.local/bin/gh`:
+Create a Run profile named `github-cli` (or `heroku-cli`) in **Settings → Run**, then add the environment-variable mappings required by that CLI. For example, use a placeholder Pass reference such as `pass://GitHub/token` for `GH_TOKEN`; use a separate mapping/profile for Heroku if needed. Replace the helper path below if the app is installed somewhere other than `/Applications`. Install the actual GitHub CLI and Heroku CLI separately using their official distribution instructions; these examples do not install either CLI.
 
-```sh
-#!/bin/sh
+The wrappers pass the command name and every argument as separate quoted arguments. They remove their own directory from `PATH` before starting `qa-run`, comparing existing directories by their physical filesystem paths so trailing slashes, relative paths and symlink aliases cannot point back to the shim. Retained entries keep their original spelling and order (including empty entries, which mean the current directory). Thus `qa-run` resolves the installed command instead of finding the wrapper again. If the command is not installed or cannot be resolved from the remaining `PATH`, `qa-run` reports the failure rather than recursively invoking the shim.
+
+### Wrapper: ~/.local/bin/heroku
+
+```bash
+#!/bin/bash
 set -eu
 
 QA_RUN="/Applications/Quick Access for Pass.app/Contents/Helpers/qa-run"
+SHIM_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+RETAINED_PATH_ENTRIES=()
+# Append a delimiter so read also retains a final empty PATH entry.
+IFS=: read -r -a PATH_ENTRIES <<< "${PATH-}:"
+for PATH_ENTRY in "${PATH_ENTRIES[@]}"; do
+  PATH_ENTRY_DIR="$(CDPATH= cd -- "${PATH_ENTRY:-.}" 2>/dev/null && pwd -P)" || PATH_ENTRY_DIR=""
+  if [[ "$PATH_ENTRY_DIR" != "$SHIM_DIR" ]]; then
+    RETAINED_PATH_ENTRIES+=("$PATH_ENTRY")
+  fi
+done
+PATH_WITHOUT_SHIM="$(IFS=:; printf '%s' "${RETAINED_PATH_ENTRIES[*]}")"
 
-if [ -x /opt/homebrew/bin/gh ]; then
-  REAL_GH="/opt/homebrew/bin/gh"
-elif [ -x /usr/local/bin/gh ]; then
-  REAL_GH="/usr/local/bin/gh"
-else
-  echo "gh wrapper: install GitHub CLI at /opt/homebrew/bin/gh or /usr/local/bin/gh" >&2
-  exit 127
-fi
-
-exec "$QA_RUN" --profile github-cli -- "$REAL_GH" "$@"
+exec env PATH="$PATH_WITHOUT_SHIM" "$QA_RUN" --profile heroku-cli -- heroku "$@"
 ```
 
-Make it executable:
+### Wrapper: ~/.local/bin/gh
 
 ```bash
-chmod +x /Users/petr/.local/bin/gh
+#!/bin/bash
+set -eu
+
+QA_RUN="/Applications/Quick Access for Pass.app/Contents/Helpers/qa-run"
+SHIM_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+RETAINED_PATH_ENTRIES=()
+# Append a delimiter so read also retains a final empty PATH entry.
+IFS=: read -r -a PATH_ENTRIES <<< "${PATH-}:"
+for PATH_ENTRY in "${PATH_ENTRIES[@]}"; do
+  PATH_ENTRY_DIR="$(CDPATH= cd -- "${PATH_ENTRY:-.}" 2>/dev/null && pwd -P)" || PATH_ENTRY_DIR=""
+  if [[ "$PATH_ENTRY_DIR" != "$SHIM_DIR" ]]; then
+    RETAINED_PATH_ENTRIES+=("$PATH_ENTRY")
+  fi
+done
+PATH_WITHOUT_SHIM="$(IFS=:; printf '%s' "${RETAINED_PATH_ENTRIES[*]}")"
+
+exec env PATH="$PATH_WITHOUT_SHIM" "$QA_RUN" --profile github-cli -- gh "$@"
 ```
 
-Then make sure `/Users/petr/.local/bin` appears before Homebrew in the environment that runs your command:
+Save the snippets as `~/.local/bin/heroku` and `~/.local/bin/gh` (create `~/.local/bin` first if needed), then make them executable:
 
 ```bash
-export PATH="/Users/petr/.local/bin:$PATH"
+chmod +x "$HOME/.local/bin/heroku" "$HOME/.local/bin/gh"
 ```
 
-Now both interactive and non-interactive commands can call `gh` normally:
+Put `"$HOME/.local/bin"` before the directories containing the real CLIs in the `PATH` used by your terminal or script launcher, and confirm the real `heroku`/`gh` executables are discoverable after the wrapper directory is excluded. Restart terminals or update the relevant session configuration after changing `PATH`. These wrappers are for command-line invocation, not app-managed wrapper generation or installation.
 
-```bash
-gh auth status
-gh api user
-```
-
-The wrapper intentionally calls the real `gh` binary by absolute path. Do not use `gh` as the wrapped command inside `/Users/petr/.local/bin/gh`, or the wrapper will recursively call itself.
+Herdr's optional settings in **Settings → Integrations** only affect best-effort display context in SSH/Run authorization prompts; they are independent of these wrappers and Run profiles. When a distinct Herdr pane title is available, it can appear separately from the command text; an empty or whitespace-equivalent title is omitted by case-sensitive equality, not substring or prefix matching. Display hints are untrusted and do not establish process ownership, permission, or authorization scope.
 
 ## Profiles and environment mappings
 
@@ -101,7 +118,7 @@ When `qa-run --profile github-cli -- gh auth status` runs, Quick Access resolves
 
 ## Prompt context and terminal hosts
 
-**Settings → General → Terminal hosts** controls the same executable-to-display-name mappings as SSH prompts. Herdr is automatically detected and enabled on first detection, including nonstandard installations encountered in requester ancestry. Rename or disable the entry, turn off **Show Herdr pane details**, or use **Add Executable…** for a custom terminal. Explicit opt-out and edits survive rediscovery/restart; an unavailable installation remains listed. A custom mapping of the same executable suppresses automatic Herdr activation even when disabled. Custom mappings are not launched. Existing identified macOS apps keep their names/icons.
+**Settings → Integrations** contains the supported-app and custom-terminal settings shared by SSH and Run prompts. Herdr is automatically detected and enabled on first detection, including nonstandard installations encountered in requester ancestry. Rename or disable its entry, turn off **Show Herdr pane details**, or choose **Add Custom Terminal…** to add a custom mapping. In the editor, paste an absolute or `~`-relative executable path (spaces are supported) or use the optional **Choose…** picker; entering a path only records a mapping and never runs that executable. Explicit opt-out and edits survive rediscovery/restart; an unavailable installation remains listed. A custom mapping of the same executable suppresses automatic Herdr activation even when disabled. Custom mappings are not launched. Existing identified macOS apps keep their names/icons. Path, picker, and mapping availability do not establish ownership or permission evidence.
 
 For the verified `qa-run` helper, app identity is attributed through its parent. The separate display-only process snapshot includes the helper and its bounded ancestry, so inherited Herdr socket/pane hints remain available even when the parent shell's kernel-visible environment lacks them. The helper is not promoted to an authorization identity. Best-effort Herdr context may show the requesting pane's workspace/tab, title, and working directory. These untrusted hints are display-only, not an authorization identity or permission scope. A detached helper's authorization identifier remains `unknown` regardless of the displayed terminal name; app/team IDs, subcommand/profile scopes, session decisions, and remembered decisions are unchanged. Unverified peers are rejected before header/model lookup.
 

@@ -6,10 +6,15 @@ struct RequesterHeaderView: View {
     let fallbackName: String
     let fallbackBundleURL: URL?
     let subtitle: LocalizedStringResource
+    var displayedCommand: String? = nil
 
     private var presentation: RequesterPresentation {
         model?.presentation ?? .init(name: fallbackName, bundleURL: fallbackBundleURL,
                                      symbolName: "questionmark.app", hostID: nil, details: nil)
+    }
+
+    private var contextRows: [RequesterHeaderContext.Row] {
+        RequesterHeaderContext.rows(for: presentation, displayedCommand: displayedCommand)
     }
 
     private var appIcon: NSImage {
@@ -18,14 +23,10 @@ struct RequesterHeaderView: View {
             ?? NSImage(named: NSImage.applicationIconName)!
     }
 
-    private var workspaceAndTab: String? {
-        let labels = [presentation.details?.workspaceLabel, presentation.details?.tabLabel].compactMap { $0 }
-        return labels.isEmpty ? nil : labels.joined(separator: " / ")
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
+                Spacer(minLength: 0)
                 Image(nsImage: appIcon)
                     .resizable()
                     .frame(width: 48, height: 48)
@@ -38,14 +39,16 @@ struct RequesterHeaderView: View {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                Spacer(minLength: 0)
             }
-            if model?.reservesDetailRows == true {
-                // Fixed one-line slots participate in initial sizeThatFits, even before enrichment.
+            if !contextRows.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    detailRow(workspaceAndTab, symbol: "rectangle.stack", label: "Workspace and tab")
-                    detailRow(presentation.details?.paneTitle, symbol: "terminal", label: "Pane title")
-                    detailRow(presentation.details?.workingDirectory, symbol: "folder", label: "Working directory")
+                    ForEach(Array(contextRows.enumerated()), id: \.offset) { _, row in
+                        detailRow(row)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -54,20 +57,39 @@ struct RequesterHeaderView: View {
         }
         .task(id: model?.detailsEligible) { await model?.loadDetails() }
         .onDisappear { model?.cancel() }
+        .onChange(of: contextRows.isEmpty) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            AccessibilityNotification.Announcement(
+                newValue ? String(localized: "Requester context unavailable") : String(localized: "Requester context available")
+            ).post()
+        }
     }
 
-    private func detailRow(_ value: String?, symbol: String, label: LocalizedStringResource) -> some View {
+    private func detailRow(_ row: RequesterHeaderContext.Row) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: symbol).accessibilityHidden(true)
-            Text(value ?? " ")
+            Image(systemName: symbol(for: row.kind)).accessibilityHidden(true)
+            Text(row.value)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .frame(height: 16, alignment: .leading)
-        .opacity(value == nil ? 0 : 1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(label))
-        .accessibilityValue(Text(value ?? ""))
-        .accessibilityHidden(value == nil)
+        .accessibilityLabel(Text(accessibilityLabel(for: row.kind)))
+        .accessibilityValue(Text(row.value))
+    }
+
+    private func symbol(for kind: RequesterHeaderContext.Kind) -> String {
+        switch kind {
+        case .workspaceAndTab: "rectangle.stack"
+        case .paneTitle: "terminal"
+        case .workingDirectory: "folder"
+        }
+    }
+
+    private func accessibilityLabel(for kind: RequesterHeaderContext.Kind) -> LocalizedStringResource {
+        switch kind {
+        case .workspaceAndTab: "Workspace and tab"
+        case .paneTitle: "Pane title"
+        case .workingDirectory: "Working directory"
+        }
     }
 }
