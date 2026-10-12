@@ -8,31 +8,40 @@ struct IntegrationsSettingsTab: View {
 
     var body: some View {
         SettingsLayout.settingsPane {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Integrations").font(.headline)
-                Text("Optional integrations used by SSH and Run authorization.")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Supported apps").font(.body)
+                Text("Identify requests from supported terminal hosts and show their context in SSH and Run dialogs.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                GroupBox("Supported apps") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        herdrSection
+                herdrSection
+
+                Text("Context is best-effort and informational. It never changes permission scope. Herdr is the only pane-detail integration currently supported.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+
+                HStack {
+                    Text("Custom terminal hosts").font(.body)
+                    Spacer()
+                    if !store.configurationError {
+                        Button("Add…") { presentEditor() }
+                            .disabled(store.configurationError)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .padding(.top, 10)
 
-                GroupBox("Custom terminal hosts") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if store.configurationError {
-                            Text("Saved terminal host settings could not be read. Reset them to enable configuration and automatic detection.")
-                                .fixedSize(horizontal: false, vertical: true)
-                            Button("Reset Terminal Hosts…") { isResetConfirmationPresented = true }
-                        } else {
-                            customHosts
-                            Button("Add Custom Terminal…") { presentEditor() }
-                                .disabled(store.configurationError)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if store.configurationError {
+                    Text("Saved terminal host settings could not be read. Reset them to enable configuration and automatic detection.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Reset Terminal Hosts…") { isResetConfirmationPresented = true }
+                } else {
+                    customHosts
+                    Text("Map another executable to a display name. Custom mappings do not run the executable or read pane details.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
                 }
             }
             .onAppear { store.refreshDetectedHosts() }
@@ -52,83 +61,109 @@ struct IntegrationsSettingsTab: View {
 
     @ViewBuilder private var herdrSection: some View {
         let entry = store.entries.first(where: { $0.id == SupportedTerminalHost.herdr.rawValue })
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(SupportedTerminalHost.herdr.displayName).font(.body.weight(.medium))
-                Text(herdrStatus(entry))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        HStack(spacing: 10) {
+            Image(systemName: "terminal")
+                .font(.system(size: 18))
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(SupportedTerminalHost.herdr.displayName).font(.body)
+                    Text(herdrStatus(entry))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
                 if let entry {
                     Text(verbatim: entry.executablePath)
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
             if let entry {
-                Button("Edit") { presentEditor(entryID: entry.id) }
+                Toggle("Enable Herdr", isOn: binding(for: entry, keyPath: \.isEnabled))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityLabel(Text("Enable Herdr"))
                     .disabled(store.configurationError)
+                Button("Edit…") { presentEditor(entryID: entry.id) }
+                    .disabled(store.configurationError)
+            } else {
+                Text("Herdr is not configured.").font(.caption).foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, 4)
+
         if let entry {
-            Toggle("Enable Herdr", isOn: binding(for: entry, keyPath: \.isEnabled))
-                .disabled(store.configurationError)
-            Toggle("Show Herdr pane details", isOn: binding(for: entry, keyPath: \.showPaneDetails))
-                .disabled(store.configurationError)
-        } else {
-            Text("Herdr is not configured.").font(.caption).foregroundStyle(.secondary)
+            SettingsLayout.settingsRow(label: "Show workspace, pane title and directory") {
+                Toggle("Show Herdr pane details", isOn: binding(for: entry, keyPath: \.showPaneDetails))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityLabel(Text("Show Herdr pane details"))
+                    .disabled(store.configurationError)
+            }
         }
         if store.hasCustomHerdrOverride {
             Label("A custom mapping uses the Herdr path; automatic Herdr details are disabled.", systemImage: "arrow.trianglehead.2.clockwise")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        Divider()
     }
 
     @ViewBuilder private var customHosts: some View {
         let entries = store.entries.filter { $0.provider == .generic }
         if entries.isEmpty {
-            Text("No custom terminal hosts.").font(.caption).foregroundStyle(.secondary)
+            Text("No custom terminal hosts.")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 42)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        } else if entries.count > 2 {
+            ScrollView {
+                customHostRows(entries)
+            }
+            .frame(maxHeight: 150)
         } else {
-            Group {
-                if entries.count > 2 {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(entries) { customHostRow($0) }
-                        }
-                    }
-                    .frame(maxHeight: 150)
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(entries) { customHostRow($0) }
-                    }
-                }
+            customHostRows(entries)
+        }
+    }
+
+    private func customHostRows(_ entries: [TerminalHostConfiguration]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                customHostRow(entry)
+                if index < entries.count - 1 { Divider() }
             }
         }
     }
 
     private func customHostRow(_ entry: TerminalHostConfiguration) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Toggle(isOn: binding(for: entry, keyPath: \.isEnabled)) {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
                     Text(verbatim: entry.displayName).lineLimit(1).truncationMode(.tail)
+                    if !store.availableIDs.contains(entry.id) {
+                        Text("Unavailable").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                .accessibilityLabel(Text("Enable \(entry.displayName)"))
-                .disabled(store.configurationError)
-                if !store.availableIDs.contains(entry.id) {
-                    Text("Unavailable").font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Edit") { presentEditor(entryID: entry.id) }
-                    .disabled(store.configurationError)
-                Button("Remove", role: .destructive) { store.remove(id: entry.id) }
-                    .accessibilityLabel(Text("Remove \(entry.displayName)"))
-                    .disabled(store.configurationError)
+                Text(verbatim: entry.executablePath)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             }
-            Text(verbatim: entry.executablePath)
-                .font(.caption).foregroundStyle(.secondary)
-                .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            Spacer(minLength: 8)
+            Toggle(isOn: binding(for: entry, keyPath: \.isEnabled)) {
+                Text(verbatim: entry.displayName)
+            }
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .accessibilityLabel(Text("Enable \(entry.displayName)"))
+            .disabled(store.configurationError)
+            Button("Edit…") { presentEditor(entryID: entry.id) }
+                .disabled(store.configurationError)
+            Button("Remove", role: .destructive) { store.remove(id: entry.id) }
+                .accessibilityLabel(Text("Remove \(entry.displayName)"))
+                .disabled(store.configurationError)
         }
-        .padding(8)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.vertical, 6)
     }
 
     private func herdrStatus(_ entry: TerminalHostConfiguration?) -> String {

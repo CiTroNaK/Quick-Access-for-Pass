@@ -83,7 +83,20 @@ import Testing
         view.frame = NSRect(x: 0, y: 0, width: 560, height: 800)
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width <= 560)
-        #expect(view.fittingSize.height < 500)
+        #expect(view.fittingSize.height <= 400)
+    }
+
+    @Test func longCustomListsStayWithinBoundedSettingsPaneHeight() throws {
+        let fixture = try Fixture(); defer { fixture.clean() }
+        for index in 0..<8 {
+            try fixture.store.addExecutable(at: fixture.executable("long-terminal-\(index)"))
+        }
+        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: fixture.store).frame(width: 560))
+        view.frame = NSRect(x: 0, y: 0, width: 560, height: 800)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.fittingSize.width <= 560)
+        #expect(view.fittingSize.height <= 450,
+                "Long custom-host lists must scroll instead of expanding the Settings pane")
     }
 
     @Test func homePathExpansionIsFilesystemOnlyAndPreservesSpaces() {

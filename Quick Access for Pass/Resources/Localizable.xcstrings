@@ -4966,6 +4966,36 @@
         }
       }
     },
+    "Identify requests from supported terminal hosts and show their context in SSH and Run dialogs." : {
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Rozpoznávat požadavky podporovaných terminálů a zobrazovat jejich kontext v dialozích SSH a Run." } }
+      }
+    },
+    "Context is best-effort and informational. It never changes permission scope. Herdr is the only pane-detail integration currently supported." : {
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Kontext je pouze informativní a jeho získání není zaručeno. Nemění rozsah oprávnění. Herdr je jediná podporovaná integrace podrobností panelu." } }
+      }
+    },
+    "Show workspace, pane title and directory" : {
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Zobrazit pracovní prostor, název panelu a složku" } }
+      }
+    },
+    "Map another executable to a display name. Custom mappings do not run the executable or read pane details." : {
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Namapujte jiný spustitelný soubor na zobrazovaný název. Vlastní mapování soubor nespouští ani nečte podrobnosti panelu." } }
+      }
+    },
+    "Add…" : {
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Přidat…" } }
+      }
+    },
+    "Edit…" : {
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Upravit…" } }
+      }
+    },
     "Custom terminal hosts" : {
       "localizations" : {
         "cs" : {
