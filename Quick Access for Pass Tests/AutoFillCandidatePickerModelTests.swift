@@ -5,6 +5,60 @@ import Testing
 
 @Suite("AutoFill candidate picker model", .serialized)
 struct AutoFillCandidatePickerModelTests {
+    @Test("missing service context waits for search without issuing an invalid site query", arguments: [AutoFillValueKind.password, .oneTimeCode])
+    @MainActor
+    func missingServiceContextWaitsForSearch(kind: AutoFillValueKind) async throws {
+        let result = candidate(kind: kind, tier: 0)
+        let broker = FakePickerBroker(globalResult: [result])
+        let model = AutoFillCandidatePickerModel(
+            lister: broker,
+            completion: FakePickerGateway(),
+            searchDebounce: .zero
+        )
+
+        await model.load(services: [], kind: kind)
+
+        #expect(model.state == .empty)
+        #expect(model.selectedCandidateID == nil)
+        #expect(model.canRememberForApp == false)
+        #expect(broker.queries().isEmpty)
+
+        model.updateSearchQuery("credential")
+        #expect(await eventually { model.state == .searchResults([result]) })
+        #expect(model.selectedCandidateID == result.descriptorID)
+
+        model.updateSearchQuery("")
+        #expect(await eventually { model.state == .empty })
+        #expect(model.selectedCandidateID == nil)
+        #expect(broker.queries().count == 1)
+    }
+
+    @Test("removing service context cancels older search publication")
+    @MainActor
+    func missingContextInvalidatesOldSearch() async throws {
+        let website = try service(.domain, "example.com")
+        let broker = FakePickerBroker(delayedSearches: true)
+        let model = AutoFillCandidatePickerModel(
+            lister: broker, completion: FakePickerGateway(), searchDebounce: .zero
+        )
+        await model.load(services: [website], kind: .password)
+        model.updateSearchQuery("old")
+        #expect(await eventually { broker.queries().count == 2 })
+
+        await model.load(services: [], kind: .password)
+        broker.finishSearch(named: "old", with: [candidate(kind: .password, tier: 0)])
+        // A new search supplies a deterministic publication barrier for the replaced task.
+        model.updateSearchQuery("new")
+        #expect(await eventually { broker.queries().contains {
+            if case .global(_, "new", _, _, _) = $0 { return true }
+            return false
+        } })
+        broker.finishSearch(named: "new", with: [])
+        #expect(await eventually { model.state == .empty })
+        #expect(broker.queries().count == 3)
+        #expect(model.selectedCandidateID == nil)
+    }
+
     @Test("loads site candidates in supplied service order")
     @MainActor
     func loadsSiteCandidates() async throws {

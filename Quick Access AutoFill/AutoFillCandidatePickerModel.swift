@@ -132,6 +132,14 @@ final class AutoFillCandidatePickerModel {
             state = .waitingForRequest
             return
         }
+        // Some native fields provide no usable service context. Keep global
+        // search available without encoding an invalid empty site request.
+        guard services.isEmpty == false else {
+            replaceTask()
+            state = .empty
+            selectedCandidateID = nil
+            return
+        }
         startList(.site(
             requestID: UUID(),
             services: services,

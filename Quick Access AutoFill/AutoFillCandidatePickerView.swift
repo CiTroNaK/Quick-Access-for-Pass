@@ -266,7 +266,7 @@ struct AutoFillCandidatePickerView: View {
             focusTarget = AutoFillCandidatePickerFocus.initialTarget(for: newState)
             updateContentSize()
             guard oldState != .unavailable, newState == .unavailable else { return }
-            AccessibilityNotification.Announcement("Unable to load credentials. Try again after unlocking your Mac.").post()
+            AccessibilityNotification.Announcement("Unable to load credentials. Try searching or reopen the picker.").post()
         }
     }
 
@@ -286,11 +286,10 @@ struct AutoFillCandidatePickerView: View {
         case .siteResults(let candidates), .searchResults(let candidates):
             candidateList(candidates)
         case .empty:
-            Text("No matching credentials")
+            Text("No matching credentials. Search by title or username.")
                 .font(.body)
-                .accessibilityLabel("No matching credentials")
         case .unavailable:
-            Text("Unable to load credentials. Try again after unlocking your Mac.")
+            Text("Unable to load credentials. Try searching or reopen the picker.")
                 .font(.body)
                 .accessibilityLabel("Unable to load credentials")
         case .resolving:
