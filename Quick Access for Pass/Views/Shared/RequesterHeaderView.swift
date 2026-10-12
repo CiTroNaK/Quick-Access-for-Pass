@@ -6,7 +6,7 @@ struct RequesterHeaderView: View {
     let fallbackName: String
     let fallbackBundleURL: URL?
     let subtitle: LocalizedStringResource
-    var displayedCommand: String? = nil
+    var displayedCommand: String?
 
     private var presentation: RequesterPresentation {
         model?.presentation ?? .init(name: fallbackName, bundleURL: fallbackBundleURL,

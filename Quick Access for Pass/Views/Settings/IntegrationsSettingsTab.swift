@@ -16,7 +16,10 @@ struct IntegrationsSettingsTab: View {
 
                 herdrSection
 
-                Text("Context is best-effort and informational. It never changes permission scope. Herdr is the only pane-detail integration currently supported.")
+                Text("""
+                    Context is best-effort and informational. It never changes permission scope. \
+                    Herdr is the only pane-detail integration currently supported.
+                    """)
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)

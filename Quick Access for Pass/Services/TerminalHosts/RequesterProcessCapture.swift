@@ -59,25 +59,29 @@ nonisolated enum RequesterProcessCapture {
         var socket: String?
         var pane: String?
         while offset < bytes.count {
-            guard let value = field() else { return nil }
-            if value.isEmpty { continue }
-            // Decode only the two allowlisted fields.
-            for key in ["HERDR_SOCKET_PATH=", "HERDR_PANE_ID="] {
-                let prefix = Array(key.utf8)
-                guard value.starts(with: prefix) else { continue }
-                guard let text = String(bytes: value.dropFirst(prefix.count), encoding: .utf8), !text.isEmpty,
-                      text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return nil }
-                if key == "HERDR_SOCKET_PATH=" {
-                    guard socket == nil, text.hasPrefix("/") else { return nil }
-                    socket = text
-                } else {
-                    guard pane == nil else { return nil }
-                    pane = text
-                }
-            }
+            guard let value = field(), decodeRoutingField(value, socket: &socket, pane: &pane) else { return nil }
         }
         guard let socket else { return nil }
         return .init(socketPath: socket, paneID: pane, originatingPID: pid, originatingStartTimeMicroseconds: startTimeMicroseconds)
+    }
+
+    /// Decode only the two allowlisted fields; reject invalid or duplicate routing values.
+    private static func decodeRoutingField(_ value: ArraySlice<UInt8>, socket: inout String?, pane: inout String?) -> Bool {
+        for key in ["HERDR_SOCKET_PATH=", "HERDR_PANE_ID="] {
+            let prefix = Array(key.utf8)
+            guard value.starts(with: prefix) else { continue }
+            guard let text = String(bytes: value.dropFirst(prefix.count), encoding: .utf8), !text.isEmpty,
+                  text.utf8.count <= 4096,
+                  !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return false }
+            if key == "HERDR_SOCKET_PATH=" {
+                guard socket == nil, text.hasPrefix("/") else { return false }
+                socket = text
+            } else {
+                guard pane == nil else { return false }
+                pane = text
+            }
+        }
+        return true
     }
 
     static func readNode(_ pid: pid_t) -> RequesterProcessSnapshot.ProcessNode? {
@@ -87,7 +91,7 @@ nonisolated enum RequesterProcessCapture {
               info.pbi_pid == UInt32(pid), info.pbi_start_tvsec > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        let path = buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
         return .init(pid: pid, parentPID: pid_t(info.pbi_ppid), startTimeMicroseconds: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
                      executablePath: path, canonicalExecutablePath: URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path)
     }

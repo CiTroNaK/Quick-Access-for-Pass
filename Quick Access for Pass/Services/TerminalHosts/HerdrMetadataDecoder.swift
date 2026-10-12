@@ -5,15 +5,11 @@ nonisolated enum HerdrMetadataDecoder {
     nonisolated struct Workspace: Decodable, Sendable {
         let workspaceID: String
         let label: String?
-        enum CodingKeys: String, CodingKey { case workspaceID = "workspace_id", label }
     }
     nonisolated struct Tab: Decodable, Sendable {
         let tabID: String
         let workspaceID: String
         let label: String?
-        enum CodingKeys: String, CodingKey {
-            case tabID = "tab_id", workspaceID = "workspace_id", label
-        }
     }
     nonisolated struct Pane: Decodable, Sendable {
         let paneID: String
@@ -22,10 +18,6 @@ nonisolated enum HerdrMetadataDecoder {
         let terminalTitleStripped: String?
         let foregroundCWD: String?
         let cwd: String?
-        enum CodingKeys: String, CodingKey {
-            case paneID = "pane_id", workspaceID = "workspace_id", tabID = "tab_id"
-            case terminalTitleStripped = "terminal_title_stripped", foregroundCWD = "foreground_cwd", cwd
-        }
 
         func hasSameAssociation(as other: Pane) -> Bool {
             paneID == other.paneID && workspaceID == other.workspaceID && tabID == other.tabID
@@ -45,24 +37,22 @@ nonisolated enum HerdrMetadataDecoder {
         }
     }
     nonisolated private struct SnapshotEnvelope: Decodable {
-        nonisolated struct Result: Decodable {
-            let type: String
-            let snapshot: Snapshot
-        }
-        let result: Result
+        let result: SnapshotResult
+    }
+    nonisolated private struct SnapshotResult: Decodable {
+        let type: String
+        let snapshot: Snapshot
     }
     nonisolated private struct ProcessEnvelope: Decodable {
-        nonisolated struct Result: Decodable {
-            nonisolated struct Info: Decodable {
-                let paneID: String
-                let shellPID: UInt32?
-                enum CodingKeys: String, CodingKey { case paneID = "pane_id", shellPID = "shell_pid" }
-            }
-            let type: String
-            let processInfo: Info
-            enum CodingKeys: String, CodingKey { case type, processInfo = "process_info" }
-        }
-        let result: Result
+        let result: ProcessResult
+    }
+    nonisolated fileprivate struct ProcessResult: Decodable {
+        let type: String
+        let processInfo: ProcessInfo
+    }
+    nonisolated fileprivate struct ProcessInfo: Decodable {
+        let paneID: String
+        let shellPID: UInt32?
     }
 
     static func snapshot(_ data: Data) throws -> Snapshot {
@@ -109,17 +99,21 @@ nonisolated enum HerdrMetadataDecoder {
         }
         var text = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
         if !homeDirectory.isEmpty && homeDirectory != "/" {
-            if text == homeDirectory { text = "~" }
-            else if text.hasPrefix(homeDirectory + "/") { text = "~" + text.dropFirst(homeDirectory.count) }
+            if text == homeDirectory {
+                text = "~"
+            } else if text.hasPrefix(homeDirectory + "/") {
+                text = "~" + text.dropFirst(homeDirectory.count)
+            }
         }
         text = String(text.prefix(256))
         return text.isEmpty ? nil : text
     }
 
+    nonisolated private enum TerminalEscapeState { case text, escape, csi, string, stringEscape }
+
     /// Strip complete escape sequences, including their printable payload, and all line/format controls.
     nonisolated private struct TerminalEscapeFilter {
-        private enum State { case text, escape, csi, string, stringEscape }
-        private var state = State.text
+        private var state = TerminalEscapeState.text
 
         mutating func visibleScalar(_ scalar: Unicode.Scalar) -> Unicode.Scalar? {
             switch state {
@@ -128,8 +122,11 @@ nonisolated enum HerdrMetadataDecoder {
             case .csi:
                 if (0x40...0x7e).contains(scalar.value) { state = .text }
             case .string:
-                if scalar.value == 0x07 || scalar.value == 0x9c { state = .text }
-                else if scalar.value == 0x1b { state = .stringEscape }
+                if scalar.value == 0x07 || scalar.value == 0x9c {
+                    state = .text
+                } else if scalar.value == 0x1b {
+                    state = .stringEscape
+                }
             case .stringEscape:
                 state = scalar.value == 0x5c ? .text : .string
             }
@@ -158,4 +155,29 @@ nonisolated enum HerdrMetadataDecoder {
         }
     }
 
+}
+
+nonisolated extension HerdrMetadataDecoder.Workspace {
+    enum CodingKeys: String, CodingKey { case workspaceID = "workspace_id", label }
+}
+
+nonisolated extension HerdrMetadataDecoder.Tab {
+    enum CodingKeys: String, CodingKey {
+        case tabID = "tab_id", workspaceID = "workspace_id", label
+    }
+}
+
+nonisolated extension HerdrMetadataDecoder.Pane {
+    enum CodingKeys: String, CodingKey {
+        case paneID = "pane_id", workspaceID = "workspace_id", tabID = "tab_id"
+        case terminalTitleStripped = "terminal_title_stripped", foregroundCWD = "foreground_cwd", cwd
+    }
+}
+
+nonisolated private extension HerdrMetadataDecoder.ProcessResult {
+    enum CodingKeys: String, CodingKey { case type, processInfo = "process_info" }
+}
+
+nonisolated private extension HerdrMetadataDecoder.ProcessInfo {
+    enum CodingKeys: String, CodingKey { case paneID = "pane_id", shellPID = "shell_pid" }
 }

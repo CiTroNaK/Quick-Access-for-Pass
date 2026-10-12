@@ -2,7 +2,6 @@ import AppKit
 import Darwin
 
 // MARK: - Process Info
-
 nonisolated struct SSHClientInfo: Sendable {
     let name: String
     let bundleIdentifier: String?
@@ -21,7 +20,7 @@ nonisolated struct SSHClientInfo: Sendable {
     /// probe that will timeout before any auth dialog can be answered.
     let batchMode: Bool
     /// Bounded display-only context, separate from connection/authorization identity.
-    var requesterSnapshot: RequesterProcessSnapshot? = nil
+    var requesterSnapshot: RequesterProcessSnapshot?
 
     static let unknown = SSHClientInfo(
         name: "Unknown application",
@@ -35,7 +34,6 @@ nonisolated struct SSHClientInfo: Sendable {
 }
 
 // MARK: - Process Identifier
-
 nonisolated enum ProcessIdentifier {
     private static let terminalBundleIDs: Set<String> = [
         "com.apple.Terminal",
@@ -57,7 +55,6 @@ nonisolated enum ProcessIdentifier {
 }
 
 // MARK: - Public Identification API
-
 nonisolated extension ProcessIdentifier {
     @MainActor
     static func identify(connection: VerifiedConnection) -> SSHClientInfo {

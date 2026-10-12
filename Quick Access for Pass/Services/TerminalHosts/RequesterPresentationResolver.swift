@@ -13,7 +13,9 @@ nonisolated enum RequesterPresentationResolver {
         guard !identifiedApp, let snapshot else { return (fallback, nil) }
         let nodes = [snapshot.requester] + snapshot.ancestors.prefix(10)
         for (index, node) in nodes.enumerated() {
-            guard let entry = entries.first(where: { $0.configuration.isEnabled && $0.canonicalExecutablePath == node.canonicalExecutablePath }) else { continue }
+            guard let entry = entries.first(where: {
+                $0.configuration.isEnabled && $0.canonicalExecutablePath == node.canonicalExecutablePath
+            }) else { continue }
             let below = Array(nodes.prefix(index))
             let hints = snapshot.routingHints.filter { hint in
                 below.contains { $0.pid == hint.originatingPID && $0.startTimeMicroseconds == hint.originatingStartTimeMicroseconds }

@@ -6,7 +6,7 @@ import AppKit
 nonisolated struct SSHAuthRequest: Sendable {
     let appName: String
     let appBundleURL: URL?
-    var headerModel: RequesterHeaderModel? = nil
+    var headerModel: RequesterHeaderModel?
     let keyName: String
     /// The user-facing command that triggered the SSH connection (e.g., "git fetch --all"
     /// or "ssh git@github.com" for direct SSH). Shown in the dialog and copied by the copy button.
@@ -17,7 +17,7 @@ nonisolated struct SSHAuthRequest: Sendable {
     let host: String?
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
-    var onContentHeightChange: (@MainActor (CGFloat) -> Void)? = nil
+    var onContentHeightChange: (@MainActor (CGFloat) -> Void)?
     let onResult: @Sendable (Bool, RememberDuration) -> Void
 }
 

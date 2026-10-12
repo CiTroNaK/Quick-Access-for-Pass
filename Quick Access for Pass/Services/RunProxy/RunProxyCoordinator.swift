@@ -295,6 +295,9 @@ final class RunProxyCoordinator {
         }
     }
 
+}
+
+extension RunProxyCoordinator {
     /// Called by WakeObserver after the 2-second debounce.
     func handleWake() async {
         AppLogger.coordinator.notice("run handleWake")

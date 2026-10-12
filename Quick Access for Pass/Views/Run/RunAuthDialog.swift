@@ -6,13 +6,13 @@ import AppKit
 nonisolated struct RunAuthRequest: Sendable {
     let appName: String
     let appBundleURL: URL?
-    var headerModel: RequesterHeaderModel? = nil
+    var headerModel: RequesterHeaderModel?
     let profileName: String
     let command: String
     let scopeOptions: [RunAuthorizationScope]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
-    var onContentHeightChange: (@MainActor (CGFloat) -> Void)? = nil
+    var onContentHeightChange: (@MainActor (CGFloat) -> Void)?
     let onResult: @MainActor @Sendable (Bool, RememberDuration, RunAuthorizationIdentity?) -> Void
 }
 

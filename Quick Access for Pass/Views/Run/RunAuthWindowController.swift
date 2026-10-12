@@ -281,12 +281,13 @@ private extension RunAuthWindowController {
             onContentHeightChange: { [weak self] height in
                 guard let self, self.currentRequest?.id == pending.id, let panel = self.panel else { return }
                 AuthorizationPanelSizing.resize(panel, contentHeight: height)
+            },
+            onResult: { [weak self] allowed, duration, chosenScope in
+                self?.completeDialogRequest(
+                    pending, allowed: allowed, duration: duration, chosenScope: chosenScope
+                )
             }
-        ) { [weak self] allowed, duration, chosenScope in
-            self?.completeDialogRequest(
-                pending, allowed: allowed, duration: duration, chosenScope: chosenScope
-            )
-        }
+        )
         if let dialogPresenter {
             dialogPresenter(request)
             return

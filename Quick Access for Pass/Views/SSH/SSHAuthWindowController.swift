@@ -295,12 +295,13 @@ private extension SSHAuthWindowController {
             onContentHeightChange: { [weak self] height in
                 guard let self, self.currentRequest?.id == pending.id, let panel = self.panel else { return }
                 AuthorizationPanelSizing.resize(panel, contentHeight: height)
+            },
+            onResult: { [weak self] allowed, duration in
+                Task { @MainActor [weak self] in
+                    self?.completeDialogRequest(pending, allowed: allowed, duration: duration)
+                }
             }
-        ) { [weak self] allowed, duration in
-            Task { @MainActor [weak self] in
-                self?.completeDialogRequest(pending, allowed: allowed, duration: duration)
-            }
-        }
+        )
     }
 
     private func completeDialogRequest(
