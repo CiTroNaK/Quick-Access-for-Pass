@@ -93,8 +93,10 @@ Key behaviors:
 3. `RunProxyCoordinator` resolves `pass://` URIs through `pass-cli run --env-file ... -- qa-env-export ...`
 4. The bundled `qa-env-export` helper writes only approved environment variables to a private FIFO channel, avoiding stdout/stderr masking and local secret persistence
 5. Resolved secrets are cached in memory per profile using the profile `cacheDuration`
-6. `RunAuthWindowController` authorizes by app + subcommand + profile
-7. Allowed responses return environment variables for client-side injection
+6. `RunAuthWindowController` authorizes by app identity + scope + profile, defaulting to exact ordered received argv (including executable, flags, values, and argument boundaries). Users may select explicit broader prefixes; existing broad decisions are retained. Exact scope binds neither working directory/environment nor executable contents, and version commands are not automatically approved.
+7. Exact matching/persistence uses the full versioned SHA256 digest key, never transient quoted labels or short IDs. Fingerprinting is not encryption/confidentiality; do not persist or publicly log arbitrary arguments to identify exact decisions, or add executable metadata. Settings shows a 12-hex ID also present in the prompt, with full-key help; selection/removal uses full identity.
+8. Approvals and denials retain existing durations and the 10-second burst cache even for Do Not Remember. Exact-before-prefix lookup spans session and persistent tiers; session wins only within the same scope. An initial cached denial prevents resolution; queued rechecks prevent release, not earlier resolution or already-released values.
+9. Allowed responses return environment variables for client-side injection
 
 ## Health Checks & Recovery
 

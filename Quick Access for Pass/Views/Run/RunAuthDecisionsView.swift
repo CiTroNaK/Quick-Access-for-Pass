@@ -54,7 +54,8 @@ nonisolated struct RunAuthDecisionRowPresentation: Sendable {
     let profileName: String
 
     var bundleID: String { decision.appIdentifier }
-    var primaryText: String { decision.subcommand }
+    var primaryText: String { RunAuthorizationScope.persistedLabel(for: decision.subcommand) }
+    var scopeHelpText: String { decision.subcommand }
 
     func secondaryText(relativeExpiration: String) -> String {
         let outcome = decision.allowed ? String(localized: "Allowed") : String(localized: "Denied")
@@ -72,6 +73,7 @@ private struct RunDecisionRow: View {
 
     var body: some View {
         RememberedDecisionRow(config: rowConfig, onDelete: onDelete)
+            .help(presentation.scopeHelpText)
     }
 
     private var rowConfig: RememberedDecisionRowConfig {
@@ -86,5 +88,21 @@ private struct RunDecisionRow: View {
 
     private var relativeExpiration: String {
         FormatHelpers.relativeExpiration(presentation.decision.expiresAt)
+    }
+}
+
+extension RunAuthorizationScope {
+    /// Formats only valid versioned exact fingerprints; legacy/malformed stored keys stay literal.
+    nonisolated static func persistedLabel(for key: String) -> String {
+        guard key.range(of: "^exact-v1:[0-9a-f]{64}$", options: .regularExpression) != nil,
+              key.utf8.count == "exact-v1:".utf8.count + 64 else { return key }
+        let fingerprint = String(key.dropFirst("exact-v1:".count).prefix(12))
+        return String(
+            localized: "Exact command (\(fingerprint))",
+            comment: """
+            Remembered exact-command decision. Placeholder is the first 12 lowercase hexadecimal characters of a SHA256 fingerprint, \
+            not a command or secret. The complete fingerprint is available in help text.
+            """
+        )
     }
 }

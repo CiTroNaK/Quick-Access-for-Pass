@@ -11,6 +11,7 @@ final class RunAuthWindowController {
     private var isShowingDialog = false
     let databaseManager: DatabaseManager
     private let keychainService: any BiometricAuthorizing
+    private let dialogPresenter: (@MainActor @Sendable (RunAuthRequest) -> Void)?
     private let callbacks: AuthDialogHelper.Callbacks
     var sessionCache: [SessionCacheKey: (allowed: Bool, expiresAt: Date)] = [:]
     let sessionCacheDuration: TimeInterval = 10
@@ -33,21 +34,28 @@ final class RunAuthWindowController {
     }
 
     private struct PendingRunAuthRequest {
+        let id = UUID()
         let appName: String
         let appBundleURL: URL?
         let profileName: String
         let profileSlug: String
-        let scopeOptions: [String]
+        let scopeOptions: [RunAuthorizationScope]
         let fullCommand: String
         let appIdentifier: String
         let appTeamID: String?
         let continuation: CheckedContinuation<DialogOutcome, Never>
     }
 
-    init(databaseManager: DatabaseManager, keychainService: any BiometricAuthorizing, callbacks: AuthDialogHelper.Callbacks) {
+    init(
+        databaseManager: DatabaseManager,
+        keychainService: any BiometricAuthorizing,
+        callbacks: AuthDialogHelper.Callbacks,
+        dialogPresenter: (@MainActor @Sendable (RunAuthRequest) -> Void)? = nil
+    ) {
         self.databaseManager = databaseManager
         self.keychainService = keychainService
         self.callbacks = callbacks
+        self.dialogPresenter = dialogPresenter
     }
 
     /// Returns whether a cached denial applies without resolving secrets or displaying a prompt.
@@ -59,11 +67,11 @@ final class RunAuthWindowController {
             return true
         }
 
-        let scopeOptions = Self.scopeOptions(from: request.command)
+        let scopeOptions = Self.authorizationScopes(from: request.command)
         guard let match = anyCachedMatch(
             appIdentifier: identity.appIdentifier,
             profileSlug: request.profile,
-            scopeOptions: scopeOptions
+            scopeOptions: scopeOptions.map(\.key)
         ), match.allowed == false else {
             return false
         }
@@ -88,11 +96,11 @@ final class RunAuthWindowController {
             return RunProxyResponse(decision: .deny, env: nil)
         }
 
-        let scopeOptions = Self.scopeOptions(from: request.command)
+        let scopeOptions = Self.authorizationScopes(from: request.command)
         if let match = anyCachedMatch(
             appIdentifier: identity.appIdentifier,
             profileSlug: request.profile,
-            scopeOptions: scopeOptions
+            scopeOptions: scopeOptions.map(\.key)
         ) {
             logDecision(
                 appIdentifier: identity.appIdentifier,
@@ -122,7 +130,7 @@ final class RunAuthWindowController {
             logDecision(
                 appIdentifier: identity.appIdentifier,
                 profile: request.profile,
-                command: persistedScope ?? scopeOptions.first ?? "",
+                command: persistedScope ?? scopeOptions.first?.key ?? "",
                 allowed: allowed,
                 source: "dialog"
             )
@@ -180,7 +188,7 @@ final class RunAuthWindowController {
             if let match = anyCachedMatch(
                 appIdentifier: pending.appIdentifier,
                 profileSlug: pending.profileSlug,
-                scopeOptions: pending.scopeOptions
+                scopeOptions: pending.scopeOptions.map(\.key)
             ) {
                 logDecision(
                     appIdentifier: pending.appIdentifier,
@@ -212,7 +220,7 @@ final class RunAuthWindowController {
         identity: ResolvedIdentity,
         request: RunProxyRequest,
         profileName: String,
-        scopeOptions: [String]
+        scopeOptions: [RunAuthorizationScope]
     ) async -> DialogOutcome {
         await withCheckedContinuation { (continuation: CheckedContinuation<DialogOutcome, Never>) in
             let pending = PendingRunAuthRequest(
@@ -258,20 +266,13 @@ private extension RunAuthWindowController {
             keychainService: keychainService,
             callbacks: callbacks
         ) { [weak self] allowed, duration, chosenScope in
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    pending.continuation.resume(
-                        returning: .dialog(allowed: allowed, persistedScope: nil)
-                    )
-                    return
-                }
-                self.completeDialogRequest(
-                    pending,
-                    allowed: allowed,
-                    duration: duration,
-                    chosenScope: chosenScope
-                )
-            }
+            self?.completeDialogRequest(
+                pending, allowed: allowed, duration: duration, chosenScope: chosenScope
+            )
+        }
+        if let dialogPresenter {
+            dialogPresenter(request)
+            return
         }
         let hostingController = NSHostingController(rootView: RunAuthDialogView(request: request))
         self.hostingController = hostingController
@@ -284,8 +285,11 @@ private extension RunAuthWindowController {
         duration: RememberDuration,
         chosenScope: String?
     ) {
+        // A cancelled or already completed prompt cannot act on a later request.
+        guard currentRequest?.id == pending.id else { return }
+        currentRequest = nil
         var persistedScope: String?
-        if let scope = chosenScope {
+        if let scope = chosenScope, pending.scopeOptions.contains(where: { $0.key == scope }) {
             storeSessionCache(
                 appIdentifier: pending.appIdentifier,
                 profileSlug: pending.profileSlug,

@@ -15,6 +15,54 @@
         }
       }
     },
+    "Broader scope: %@" : {
+      "comment" : "Explicit command-prefix permission. Placeholder is the unchanged command prefix, not the exact argument vector.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Širší rozsah: %@"
+          }
+        }
+      }
+    },
+    "Exact command (%@)" : {
+      "comment" : "Remembered exact-command decision. Placeholder is the first 12 lowercase hexadecimal characters of a SHA256 fingerprint, not a command or secret. The complete fingerprint is available in help text.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz (%@)"
+          }
+        }
+      }
+    },
+    "Exact command (%@): %@" : {
+      "comment" : "Exact argv scope option. First placeholder is a 12-character SHA256 fingerprint for Settings correlation, not a secret; second is the quoted full command. Do not translate the fingerprint or command.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz (%@): %@"
+          }
+        }
+      }
+    },
+    "Exact matches every argument. Broader scopes also match commands with different arguments." : {
+      "comment" : "Explains exact argv matching versus explicit broader prefix permissions in the Run authorization prompt.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz porovnává všechny argumenty. Širší rozsahy zahrnují i příkazy s jinými argumenty."
+          }
+        }
+      }
+    },
     "·" : {
       "shouldTranslate" : false
     },

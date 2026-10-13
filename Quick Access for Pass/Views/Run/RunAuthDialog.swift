@@ -8,10 +8,10 @@ nonisolated struct RunAuthRequest: Sendable {
     let appBundleURL: URL?
     let profileName: String
     let command: String
-    let scopeOptions: [String]
+    let scopeOptions: [RunAuthorizationScope]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
-    let onResult: @Sendable (Bool, RememberDuration, String?) -> Void
+    let onResult: @MainActor @Sendable (Bool, RememberDuration, String?) -> Void
 }
 
 struct RunAuthDialogView: View {
@@ -32,7 +32,7 @@ struct RunAuthDialogView: View {
 
     init(request: RunAuthRequest) {
         self.request = request
-        _selectedScope = State(initialValue: request.scopeOptions.first ?? "")
+        _selectedScope = State(initialValue: request.scopeOptions.first?.key ?? "")
     }
 
     private enum AuthState {
@@ -110,7 +110,8 @@ struct RunAuthDialogView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else if request.scopeOptions.count == 1 {
-                    Text("Applies to \(request.scopeOptions[0])")
+                    Text(request.scopeOptions[0].optionLabel)
+                        .accessibilityLabel(request.scopeOptions[0].optionLabel)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else {
@@ -120,15 +121,21 @@ struct RunAuthDialogView: View {
                             .foregroundStyle(.tertiary)
                         Spacer()
                         Picker("", selection: $selectedScope) {
-                            ForEach(request.scopeOptions, id: \.self) { scope in
-                                Text(scope)
+                            ForEach(request.scopeOptions, id: \.key) { scope in
+                                Text(scope.optionLabel)
                                     .font(.system(.caption, design: .monospaced))
-                                    .tag(scope)
+                                    .tag(scope.key)
+                                    .accessibilityLabel(scope.optionLabel)
                             }
                         }
                         .frame(width: 180)
                         .accessibilityLabel(String(localized: "Scope"))
                     }
+                }
+                if !request.scopeOptions.isEmpty {
+                    Text("Exact matches every argument. Broader scopes also match commands with different arguments.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -229,5 +236,23 @@ struct RunAuthDialogView: View {
             authState = .failed(presentation)
             isTryAgainFocused = presentation.showsRetryButton
         }
+    }
+}
+
+// Prompt labels are transient; only scope.key is used for selection and authorization.
+extension RunAuthorizationScope {
+    nonisolated var optionLabel: String {
+        if isExact {
+            let fingerprint = String(key.dropFirst("exact-v1:".count).prefix(12))
+            return String(
+                localized: "Exact command (\(fingerprint)): \(label)",
+                comment: """
+                Exact argv scope option. First placeholder is a 12-character SHA256 fingerprint for Settings correlation, not a secret; \
+                second is the quoted full command. Do not translate the fingerprint or command.
+                """
+            )
+        }
+        return String(localized: "Broader scope: \(label)",
+                      comment: "Explicit command-prefix permission. Placeholder is the unchanged command prefix, not the exact argument vector.")
     }
 }

@@ -47,6 +47,45 @@ Quick Access for Pass is designed around a few core invariants:
 - **Authorization is contextual** — remembered decisions are scoped to app identity and command/profile context rather than globally
 - **Clipboard exposure is reduced** — copied secrets are marked with `org.nspasteboard.ConcealedType` and auto-cleared on a timer
 
+## Run Proxy Authorization Boundary
+
+Run Proxy authorization defaults to exact-command scope, matching the complete
+ordered argument vector received from `qa-run`, including the executable string,
+flags, values, empty arguments, and argument boundaries. Changed values, order,
+or grouping do not match that exact decision. App identity and profile remain
+separate authorization boundaries. Exact scope does not bind the working directory,
+environment, or executable contents, and version commands are not automatically
+approved. Peer verification and biometric authorization are unchanged.
+
+Users may explicitly choose broader command-prefix scopes where offered. Existing
+legacy broad approvals and denials are retained without migration or reset; these
+can still match changed commands. Matching checks exact then narrow-to-broad
+prefixes across session and persistent decisions; session takes precedence only
+within the same scope. Both approval and denial support the existing durations,
+including Forever. Do Not Remember still uses the existing 10-second in-memory
+burst cache, but writes no persistent decision.
+
+Exact stored keys are versioned SHA256 digests (`exact-v1:` plus the full digest),
+not raw arguments or new executable metadata. Fingerprinting is not encryption
+and provides no confidentiality guarantee: guessed commands can be hashed and
+compared. Exact labels and command Copy remain transient prompt presentation;
+arbitrary arguments are not persisted or publicly logged merely to identify an
+exact decision. Explicit broader prefixes retain their existing literal format.
+Settings trades command readability for this privacy choice: exact rows show the
+first 12 hexadecimal characters for correlation with the prompt, with the full
+stored key in help text. Short labels are not authority; matching, selection,
+and removal use full keys. **Settings → Run → Manage Run decisions… → Remove**
+deletes a remembered decision; a still-live burst cache or another applicable
+broad decision may continue to apply.
+
+An initially matching denial prevents secret resolution. A queued request is
+rechecked before showing its prompt; a newly matching queued denial prevents
+release of environment variables, rather than undoing resolution that may already
+have occurred. Already released values cannot be recalled. The profile's
+in-memory secret-resolution cache is separate from authorization decisions;
+Offline Mode snapshots remain excluded from Run Proxy resolution. See
+[Run Proxy documentation](docs/run-proxy.md) for usage and decision management.
+
 ## System AutoFill Boundary
 
 System AutoFill is available only on macOS 27 and later. The credential-provider extension advertises passwords and one-time codes only; it does not register, retrieve, or sign passkeys. Proton Pass can remain enabled as the passkey provider while Quick Access supplies passwords and current TOTP codes in Safari and compatible native apps.

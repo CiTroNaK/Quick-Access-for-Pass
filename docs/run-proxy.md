@@ -101,11 +101,21 @@ When `qa-run --profile github-cli -- gh auth status` runs, Quick Access resolves
 
 ## Remembered decisions
 
-Run Proxy authorization decisions are context-aware. They can remember either an approval or a denial for the selected duration, scoped to the requesting app, subcommand, and profile, so a decision for one command profile does not apply to unrelated commands.
+Run Proxy can remember either an approval or a denial for the selected duration, bounded by the requesting app identity and profile. The authorization prompt defaults to **Exact command**: the complete ordered argument vector received from `qa-run`, including the executable string, flags, values, empty arguments, and argument boundaries. Matching uses literal UTF-8 bytes without normalization or shell parsing. Changing an argument, its order, or its grouping produces a different exact identity. For example, `gh api "user repos"` is not the same as `gh api user repos`. The quoted, escaped exact-scope label makes those boundaries visible; it is display text, not a shell command or matching key.
 
-Matching checks the most specific subcommand scope first across both session and persistent decisions. A broader session approval cannot override a more specific remembered denial. Within the same scope, a current session decision takes precedence.
+Where available, **Broader scope** choices retain the existing command-prefix behavior and must be selected explicitly. They can match commands with different arguments. Existing legacy broad decisions are retained without migration or reset and can still apply to a changed command. Exact scope does not bind the working directory, environment, or executable contents; the same executable string can refer to a changed binary. Version commands such as `gh --version` are not automatically approved.
 
-Open **Settings → Run → Manage Run decisions…** to review remembered approvals and denials in a separate management sheet. Each decision retains its app, subcommand, profile, expiration, and Remove action. Use **Done** or Escape to close the sheet. Run profiles remain in the main Run settings.
+Matching checks exact scope first, then existing prefixes from narrowest to broadest, across both session and persistent decisions. A broader session approval cannot override a more specific remembered denial. Within the same scope, a current session decision takes precedence. **Do Not Remember** avoids a persistent decision but still uses the existing **10-second** in-memory burst cache for approvals and denials. Other remember durations, including Forever, are unchanged. This authorization cache is separate from the profile's resolved-secret cache.
+
+A denial already matching at the initial check prevents secret resolution. A request waiting in the authorization queue is checked again when it reaches the front: a newly applicable queued denial prevents release of environment variables to the helper, but does not undo secret resolution that may already have happened. It cannot recall values already released.
+
+### Fingerprints and managing decisions
+
+Exact persisted identities contain only `exact-v1:` and a full SHA256 digest, not raw arguments or executable metadata. Arbitrary arguments are not persisted or publicly logged merely to identify an exact decision. The prompt still shows the command transiently and retains the command Copy action. Fingerprinting is **not encryption** or a confidentiality guarantee: someone who guesses a command can hash it and compare the result. Explicit broader prefixes keep their existing literal storage format.
+
+Open **Settings → Run → Manage Run decisions…** to review remembered approvals and denials. Exact rows show **Exact command** with the first **12 hexadecimal** digest characters, also shown in the prompt for correlation. This privacy choice makes Settings less readable: a row cannot reconstruct the original command. Its help text exposes the **full stored key**, including the complete digest. Short IDs are display-only and may collide; matching, row selection, and removal always use full identities.
+
+Each decision retains its app, profile, outcome, expiration, and **Remove** action. Remove a remembered decision to require authorization again once any applicable brief session cache expires (another explicit broad decision may still match). Use **Done** or Escape to close the sheet. Run profiles remain in the main Run settings.
 
 ## Secret cache duration
 

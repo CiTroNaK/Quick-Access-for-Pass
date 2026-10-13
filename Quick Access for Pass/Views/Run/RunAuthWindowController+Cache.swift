@@ -1,7 +1,7 @@
 import Foundation
 
 extension RunAuthWindowController {
-    /// Matches narrowest scope first, preferring a session decision only within the same scope.
+    /// Matches ordered full scope keys (exact before prefixes), preferring session only within the same scope.
     func anyCachedMatch(
         appIdentifier: String,
         profileSlug: String,

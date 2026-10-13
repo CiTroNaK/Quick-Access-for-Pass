@@ -87,7 +87,8 @@ struct RunProxyCoordinatorLockTests {
         let controller = RunAuthWindowController(
             databaseManager: database,
             keychainService: FakeBiometricAuthorizer(outcome: .success(())),
-            callbacks: .noop
+            callbacks: .noop,
+            dialogPresenter: { $0.onResult(false, .doNotRemember, $0.scopeOptions.first?.key) }
         )
 
         let request = RunProxyRequest(
@@ -96,29 +97,19 @@ struct RunProxyCoordinatorLockTests {
             pid: Int32(ProcessInfo.processInfo.processIdentifier)
         )
 
-        // The authController.authorize path drives a real NSWindow, so we
-        // don't run it to completion. Detach the Task so it doesn't keep
-        // the test waiting at scope end, yield so the non-locked branch
-        // runs past the point where lock-context calls would happen, then
-        // cancel.
-        let task = Task {
-            _ = await coordinator.authorizeRunRequest(
-                request,
-                connection: stubConnection(),
-                authController: controller
-            )
-        }
-        for _ in 0..<10 { await Task.yield() }
+        let response = await coordinator.authorizeRunRequest(
+            request, connection: stubConnection(), authController: controller
+        )
+        #expect(response.decision == .deny)
+        #expect(response.env == nil)
 
         #expect(recorder.events.contains("set") == false)
         #expect(recorder.events.contains("showPanel") == false)
 
-        task.cancel()
-        controller.cancelAll()
     }
 
-    @Test(arguments: [false, true])
-    func cachedDenialSkipsLockUiAndSecretResolution(broaderSessionApproval: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func cachedDenialSkipsLockUiAndSecretResolution(broaderSessionApproval: Bool, exactDenial: Bool) async throws {
         let resolutionRecorder = SecretResolutionRecorder()
         let (coordinator, recorder, database) = try makeFixture(
             isLocked: true,
@@ -149,7 +140,7 @@ struct RunProxyCoordinatorLockTests {
         let identity = try #require(controller.resolveIdentity(for: connection, profile: "test-profile"))
         try database.saveRunDecision(
             appIdentifier: identity.appIdentifier,
-            subcommand: "gh pr list",
+            subcommand: exactDenial ? try #require(RunAuthorizationScope.exact(command: ["gh", "pr", "list"])).key : "gh pr list",
             profileSlug: "test-profile",
             expiresAt: Date().addingTimeInterval(300),
             allowed: false
