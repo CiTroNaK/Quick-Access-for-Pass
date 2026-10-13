@@ -72,8 +72,8 @@ compared. Exact labels and command Copy remain transient prompt presentation;
 arbitrary arguments are not persisted or publicly logged merely to identify an
 exact decision. Explicit broader prefixes retain their existing literal format.
 Settings trades command readability for this privacy choice: exact rows show the
-first 12 hexadecimal characters for correlation with the prompt, with the full
-stored key in help text. Short labels are not authority; matching, selection,
+first 12 hexadecimal characters, with the full stored key in help text. The
+prompt shows the readable command without a fingerprint. Short labels are not authority; matching, selection,
 and removal use full keys. **Settings → Run → Manage Run decisions… → Remove**
 deletes a remembered decision; a still-live burst cache or another applicable
 broad decision may continue to apply.

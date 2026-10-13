@@ -110,7 +110,7 @@ struct RunAuthDialogView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else if request.scopeOptions.count == 1 {
-                    Text(request.scopeOptions[0].optionLabel)
+                    RunAuthScopeText(text: request.scopeOptions[0].optionLabel)
                         .accessibilityLabel(request.scopeOptions[0].optionLabel)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -133,7 +133,7 @@ struct RunAuthDialogView: View {
                     }
                 }
                 if !request.scopeOptions.isEmpty {
-                    Text("Exact matches every argument. Broader scopes also match commands with different arguments.")
+                    RunAuthScopeText(text: String(localized: "Exact matches every argument. Broader scopes also match commands with different arguments."))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -243,13 +243,9 @@ struct RunAuthDialogView: View {
 extension RunAuthorizationScope {
     nonisolated var optionLabel: String {
         if isExact {
-            let fingerprint = String(key.dropFirst("exact-v1:".count).prefix(12))
             return String(
-                localized: "Exact command (\(fingerprint)): \(label)",
-                comment: """
-                Exact argv scope option. First placeholder is a 12-character SHA256 fingerprint for Settings correlation, not a secret; \
-                second is the quoted full command. Do not translate the fingerprint or command.
-                """
+                localized: "Exact command: \(label)",
+                comment: "Exact argv scope option. Placeholder is the quoted full command; do not translate the command."
             )
         }
         return String(localized: "Broader scope: \(label)",

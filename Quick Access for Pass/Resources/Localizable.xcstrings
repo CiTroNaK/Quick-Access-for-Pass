@@ -39,14 +39,15 @@
         }
       }
     },
-    "Exact command (%@): %@" : {
-      "comment" : "Exact argv scope option. First placeholder is a 12-character SHA256 fingerprint for Settings correlation, not a secret; second is the quoted full command. Do not translate the fingerprint or command.",
+    "Exact command: %@" : {
+      "comment" : "Exact argv scope option. Placeholder is the quoted full command; do not translate the command. Swift symbol generation is disabled to avoid colliding with the Settings fingerprint label.",
       "extractionState" : "manual",
+      "generatesSymbol" : false,
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Přesný příkaz (%@): %@"
+            "value" : "Přesný příkaz: %@"
           }
         }
       }

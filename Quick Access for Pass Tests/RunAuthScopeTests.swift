@@ -84,8 +84,8 @@ struct ScopeOptionsTests {
     func exactPromptLabelsAreNotIdentity() throws {
         let scopes = RunAuthWindowController.authorizationScopes(from: ["gh", "pr", "list", "--limit", "5"])
         let exact = try #require(scopes.first)
-        #expect(exact.optionLabel.hasPrefix("Exact command ("))
-        #expect(exact.optionLabel.contains(String(exact.key.dropFirst(9).prefix(12))))
+        #expect(exact.optionLabel.hasPrefix("Exact command: "))
+        #expect(!exact.optionLabel.contains(String(exact.key.dropFirst(9).prefix(12))))
         #expect(exact.optionLabel.contains("\"--limit\" \"5\""))
         #expect(scopes[1].optionLabel == "Broader scope: gh pr list")
         #expect(scopes[2].optionLabel == "Broader scope: gh pr")
