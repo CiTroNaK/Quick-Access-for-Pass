@@ -11,13 +11,13 @@ nonisolated struct RunAuthRequest: Sendable {
     let scopeOptions: [RunAuthorizationScope]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
-    let onResult: @MainActor @Sendable (Bool, RememberDuration, String?) -> Void
+    let onResult: @MainActor @Sendable (Bool, RememberDuration, RunAuthorizationIdentity?) -> Void
 }
 
 struct RunAuthDialogView: View {
     let request: RunAuthRequest
     @State private var rememberDuration: RememberDuration = .doNotRemember
-    @State private var selectedScope: String
+    @State private var selectedScope: RunAuthorizationIdentity?
     @State private var authState: AuthState = .idle
     @State private var timeRemaining: Int = 30
     @State private var resultSent = false
@@ -32,7 +32,7 @@ struct RunAuthDialogView: View {
 
     init(request: RunAuthRequest) {
         self.request = request
-        _selectedScope = State(initialValue: request.scopeOptions.first?.key ?? "")
+        _selectedScope = State(initialValue: request.scopeOptions.first?.identity)
     }
 
     private enum AuthState {
@@ -121,10 +121,10 @@ struct RunAuthDialogView: View {
                             .foregroundStyle(.tertiary)
                         Spacer()
                         Picker("", selection: $selectedScope) {
-                            ForEach(request.scopeOptions, id: \.key) { scope in
+                            ForEach(request.scopeOptions, id: \.identity) { scope in
                                 Text(scope.optionLabel)
                                     .font(.system(.caption, design: .monospaced))
-                                    .tag(scope.key)
+                                    .tag(Optional(scope.identity))
                                     .accessibilityLabel(scope.optionLabel)
                             }
                         }
@@ -205,8 +205,7 @@ struct RunAuthDialogView: View {
     private func sendResult(allowed: Bool) {
         guard !resultSent else { return }
         resultSent = true
-        let scope: String? = selectedScope.isEmpty ? nil : selectedScope
-        request.onResult(allowed, rememberDuration, scope)
+        request.onResult(allowed, rememberDuration, selectedScope)
     }
 
     private func authenticate() async {
@@ -239,13 +238,13 @@ struct RunAuthDialogView: View {
     }
 }
 
-// Prompt labels are transient; only scope.key is used for selection and authorization.
+// Prompt labels are transient; typed scope identities alone drive selection and authorization.
 extension RunAuthorizationScope {
     nonisolated var optionLabel: String {
         if isExact {
             return String(
                 localized: "Exact command: \(label)",
-                comment: "Exact argv scope option. Placeholder is the quoted full command; do not translate the command."
+                comment: "Exact argv scope option. Placeholder is the natural full command text; do not translate the command."
             )
         }
         return String(localized: "Broader scope: \(label)",

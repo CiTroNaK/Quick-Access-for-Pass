@@ -254,6 +254,54 @@ nonisolated extension DatabaseManager {
                 t.add(column: "allowed", .boolean).notNull().defaults(to: true)
             }
         }
+        migrator.registerMigration("v14") { db in
+            try db.execute(sql: """
+                CREATE TABLE runAuthDecisions_v14 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    matchType TEXT COLLATE BINARY NOT NULL,
+                    matchValue TEXT COLLATE BINARY NOT NULL,
+                    commandText TEXT NOT NULL,
+                    appIdentifier TEXT COLLATE BINARY NOT NULL,
+                    profileSlug TEXT COLLATE BINARY NOT NULL,
+                    expiresAt DATETIME,
+                    allowed INTEGER NOT NULL CHECK(allowed IN (0, 1)),
+                    appTeamID TEXT,
+                    UNIQUE(appIdentifier, profileSlug, matchType, matchValue),
+                    CHECK (matchType != 'exact-argv-v1' OR (
+                        length(CAST(matchValue AS BLOB)) = 64 AND
+                        instr(matchValue, char(0)) = 0 AND
+                        matchValue NOT GLOB '*[^0-9a-f]*'
+                    ))
+                )
+                """)
+            let oldRows = try Row.fetchAll(db, sql: """
+                SELECT appIdentifier, CAST(subcommand AS BLOB) AS subcommandBytes,
+                    profileSlug, expiresAt, appTeamID, allowed
+                FROM runAuthDecisions
+                """)
+            let exactPrefix = Array("exact-v1:".utf8)
+            for row in oldRows {
+                let keyData: Data = row["subcommandBytes"]
+                let keyBytes = Array(keyData)
+                let digestBytes = keyBytes.starts(with: exactPrefix) ? Array(keyBytes.dropFirst(exactPrefix.count)) : []
+                let isValidLegacyExact = digestBytes.count == 64 && digestBytes.allSatisfy {
+                    (48...57).contains($0) || (97...102).contains($0)
+                }
+                guard !isValidLegacyExact else { continue }
+                let appIdentifier: String = row["appIdentifier"]
+                let profileSlug: String = row["profileSlug"]
+                let expiresAt: Date? = row["expiresAt"]
+                let appTeamID: String? = row["appTeamID"]
+                let allowed: Bool = row["allowed"]
+                try db.execute(sql: """
+                    INSERT INTO runAuthDecisions_v14
+                        (matchType, matchValue, commandText, appIdentifier, profileSlug, expiresAt, allowed, appTeamID)
+                    VALUES ('command-prefix-v1', CAST(? AS TEXT), CAST(? AS TEXT), ?, ?, ?, ?, ?)
+                    """, arguments: [keyData, keyData, appIdentifier, profileSlug, expiresAt, allowed, appTeamID])
+            }
+            try db.drop(table: "runAuthDecisions")
+            try db.rename(table: "runAuthDecisions_v14", to: "runAuthDecisions")
+        }
         // swiftlint:enable identifier_name
     }
 

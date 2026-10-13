@@ -15,10 +15,10 @@ struct ScopeOptionsTests {
     func fixedExactDigests(command: [String], digest: String) throws {
         // Fixtures calculated independently with Python hashlib and struct.pack(">Q", ...).
         let scope = try #require(RunAuthorizationScope.exact(command: command))
-        #expect(scope.key == "exact-v1:" + digest)
-        #expect(scope.key.range(of: "^exact-v1:[0-9a-f]{64}$", options: .regularExpression) != nil)
+        #expect(scope.identity.matchValue == digest)
+        #expect(scope.identity.matchType == .exactArgumentsV1)
         #expect(scope.isExact)
-        #expect(RunAuthorizationScope.exact(command: command)?.key == scope.key)
+        #expect(RunAuthorizationScope.exact(command: command)?.identity == scope.identity)
     }
 
     @Test("exact framing preserves literal argument boundaries and bytes", arguments: [
@@ -38,19 +38,22 @@ struct ScopeOptionsTests {
     func literalVectorsDiffer(first: [String], second: [String]) throws {
         let firstScope = try #require(RunAuthorizationScope.exact(command: first))
         let secondScope = try #require(RunAuthorizationScope.exact(command: second))
-        #expect(firstScope.key != secondScope.key)
+        #expect(firstScope.identity != secondScope.identity)
     }
 
-    @Test("exact labels distinguish grouped, empty, and escaped arguments")
+    @Test("exact labels use natural words and retain argument boundaries")
     func boundaryPreservingLabels() throws {
+        #expect(RunAuthorizationScope.exact(command: ["gh", "--version"])?.label == "gh --version")
+        #expect(RunAuthorizationScope.exact(command: ["tool", "a b"])?.label == "tool \"a b\"")
+        #expect(RunAuthorizationScope.exact(command: ["tool", "a", "b"])?.label == "tool a b")
+        #expect(RunAuthorizationScope.exact(command: ["tool", ""])?.label == "tool \"\"")
         let grouped = try #require(RunAuthorizationScope.exact(command: ["cmd", "a b"]))
         let separate = try #require(RunAuthorizationScope.exact(command: ["cmd", "a", "b"]))
         #expect(grouped.label != separate.label)
-        #expect(RunAuthorizationScope.exact(command: ["cmd", ""])?.label != RunAuthorizationScope.exact(command: ["cmd"])?.label)
         #expect(RunAuthorizationScope.exact(command: ["cmd", "a\nb"])?.label != RunAuthorizationScope.exact(command: ["cmd", "a\\nb"])?.label)
         let sentinel = "DISTINCTIVE_CREDENTIAL_SENTINEL_987654"
         let scope = try #require(RunAuthorizationScope.exact(command: ["cmd", sentinel]))
-        #expect(!scope.key.contains(sentinel))
+        #expect(!scope.identity.matchValue.contains(sentinel))
     }
 
     @Test("exact rejects only empty vectors and empty executables")
@@ -67,16 +70,16 @@ struct ScopeOptionsTests {
         let command = ["gh", "pr", "list", "--limit", "5"]
         let scopes = RunAuthWindowController.authorizationScopes(from: command)
         let exact = try #require(RunAuthorizationScope.exact(command: command))
-        #expect(scopes.map(\.key) == [exact.key, "gh pr list", "gh pr"])
+        #expect(scopes.map(\.identity) == [exact.identity, RunAuthorizationIdentity(prefix: "gh pr list"), RunAuthorizationIdentity(prefix: "gh pr")])
         #expect(scopes.first == exact)
-        #expect(scopes.dropFirst().allSatisfy { !$0.isExact && $0.key == $0.label })
-        #expect(RunAuthorizationScope.prefix("gh pr").key == "gh pr")
+        #expect(scopes.dropFirst().allSatisfy { !$0.isExact && $0.identity.matchValue == $0.label })
+        #expect(RunAuthorizationScope.prefix("gh pr").identity.matchValue == "gh pr")
         #expect(RunAuthorizationScope.prefix("gh pr").label == "gh pr")
         #expect(!RunAuthorizationScope.prefix("gh pr").isExact)
         #expect(RunAuthWindowController.authorizationScopes(from: ["gh", "--version"]).count == 1)
         #expect(RunAuthWindowController.authorizationScopes(from: ["/usr/bin/gh", "status"]).count == 1)
-        #expect(RunAuthWindowController.authorizationScopes(from: ["gh"]).map(\.key) == [
-            try #require(RunAuthorizationScope.exact(command: ["gh"])).key, "gh"
+        #expect(RunAuthWindowController.authorizationScopes(from: ["gh"]).map(\.identity) == [
+            try #require(RunAuthorizationScope.exact(command: ["gh"])).identity, RunAuthorizationIdentity(prefix: "gh")
         ])
     }
 
@@ -85,11 +88,11 @@ struct ScopeOptionsTests {
         let scopes = RunAuthWindowController.authorizationScopes(from: ["gh", "pr", "list", "--limit", "5"])
         let exact = try #require(scopes.first)
         #expect(exact.optionLabel.hasPrefix("Exact command: "))
-        #expect(!exact.optionLabel.contains(String(exact.key.dropFirst(9).prefix(12))))
-        #expect(exact.optionLabel.contains("\"--limit\" \"5\""))
+        #expect(!exact.optionLabel.contains(String(exact.identity.matchValue.prefix(12))))
+        #expect(exact.optionLabel.contains("--limit 5"))
         #expect(scopes[1].optionLabel == "Broader scope: gh pr list")
         #expect(scopes[2].optionLabel == "Broader scope: gh pr")
-        #expect(scopes.map(\.key).count == Set(scopes.map(\.key)).count)
+        #expect(scopes.map(\.identity).count == Set(scopes.map(\.identity)).count)
     }
 
     @Test("bare command → single-token scope")
@@ -164,7 +167,7 @@ struct ScopeMatchingTests {
         let command = ["gh", "pr", "list", "--limit", "5"]
         let exact = try #require(RunAuthorizationScope.exact(command: command))
         try db.saveRunDecision(
-            appIdentifier: "com.test.app", subcommand: exact.key, profileSlug: "gh",
+            appIdentifier: "com.test.app", scope: exact, profileSlug: "gh",
             expiresAt: nil, allowed: allowed
         )
         let controller = RunAuthWindowController(
@@ -172,9 +175,9 @@ struct ScopeMatchingTests {
         )
         let match = try #require(controller.anyCachedMatch(
             appIdentifier: "com.test.app", profileSlug: "gh",
-            scopeOptions: RunAuthWindowController.authorizationScopes(from: command).map(\.key)
+            scopeOptions: RunAuthWindowController.authorizationScopes(from: command).map(\.identity)
         ))
-        #expect(match.scope == exact.key)
+        #expect(match.identity == exact.identity)
         #expect(match.allowed == allowed)
         for changed in [
             ["gh", "pr", "list", "--limit", "6"], ["gh", "pr", "list", "--limit"],
@@ -182,11 +185,11 @@ struct ScopeMatchingTests {
         ] {
             #expect(controller.anyCachedMatch(
                 appIdentifier: "com.test.app", profileSlug: "gh",
-                scopeOptions: RunAuthWindowController.authorizationScopes(from: changed).map(\.key)
+                scopeOptions: RunAuthWindowController.authorizationScopes(from: changed).map(\.identity)
             ) == nil)
         }
-        #expect(controller.anyCachedMatch(appIdentifier: "other", profileSlug: "gh", scopeOptions: [exact.key]) == nil)
-        #expect(controller.anyCachedMatch(appIdentifier: "com.test.app", profileSlug: "other", scopeOptions: [exact.key]) == nil)
+        #expect(controller.anyCachedMatch(appIdentifier: "other", profileSlug: "gh", scopeOptions: [exact.identity]) == nil)
+        #expect(controller.anyCachedMatch(appIdentifier: "com.test.app", profileSlug: "other", scopeOptions: [exact.identity]) == nil)
     }
 
     @Test("exact persistent decisions beat opposite broader session decisions", arguments: [false, true])
@@ -195,22 +198,22 @@ struct ScopeMatchingTests {
         let command = ["gh", "pr", "list", "--limit", "5"]
         let exact = try #require(RunAuthorizationScope.exact(command: command))
         try db.saveRunDecision(
-            appIdentifier: "com.test.app", subcommand: exact.key, profileSlug: "gh", expiresAt: nil, allowed: allowed
+            appIdentifier: "com.test.app", scope: exact, profileSlug: "gh", expiresAt: nil, allowed: allowed
         )
         let controller = RunAuthWindowController(
             databaseManager: db, keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop
         )
-        controller.storeSessionCache(appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr list", allowed: !allowed)
+        controller.storeSessionCache(appIdentifier: "com.test.app", profileSlug: "gh", scope: RunAuthorizationIdentity(prefix: "gh pr list"), allowed: !allowed)
         let match = try #require(controller.anyCachedMatch(
             appIdentifier: "com.test.app", profileSlug: "gh",
-            scopeOptions: RunAuthWindowController.authorizationScopes(from: command).map(\.key)
+            scopeOptions: RunAuthWindowController.authorizationScopes(from: command).map(\.identity)
         ))
-        #expect(match.scope == exact.key)
+        #expect(match.identity == exact.identity)
         #expect(match.allowed == allowed)
-        controller.storeSessionCache(appIdentifier: "com.test.app", profileSlug: "gh", scope: exact.key, allowed: !allowed)
+        controller.storeSessionCache(appIdentifier: "com.test.app", profileSlug: "gh", scope: exact.identity, allowed: !allowed)
         #expect(controller.anyCachedMatch(
             appIdentifier: "com.test.app", profileSlug: "gh",
-            scopeOptions: RunAuthWindowController.authorizationScopes(from: command).map(\.key)
+            scopeOptions: RunAuthWindowController.authorizationScopes(from: command).map(\.identity)
         )?.allowed == !allowed)
     }
 
@@ -221,12 +224,12 @@ struct ScopeMatchingTests {
             keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop
         )
         let exact = try #require(RunAuthorizationScope.exact(command: ["gh", "--version"]))
-        controller.storeSessionCache(appIdentifier: "app", profileSlug: "work", scope: exact.key, allowed: true)
-        #expect(controller.anyCachedMatch(appIdentifier: "app", profileSlug: "work", scopeOptions: [exact.key])?.allowed == true)
-        #expect(controller.anyCachedMatch(appIdentifier: "other", profileSlug: "work", scopeOptions: [exact.key]) == nil)
-        #expect(controller.anyCachedMatch(appIdentifier: "app", profileSlug: "other", scopeOptions: [exact.key]) == nil)
+        controller.storeSessionCache(appIdentifier: "app", profileSlug: "work", scope: exact.identity, allowed: true)
+        #expect(controller.anyCachedMatch(appIdentifier: "app", profileSlug: "work", scopeOptions: [exact.identity])?.allowed == true)
+        #expect(controller.anyCachedMatch(appIdentifier: "other", profileSlug: "work", scopeOptions: [exact.identity]) == nil)
+        #expect(controller.anyCachedMatch(appIdentifier: "app", profileSlug: "other", scopeOptions: [exact.identity]) == nil)
         #expect(controller.anyCachedMatch(appIdentifier: "app", profileSlug: "work", scopeOptions:
-            RunAuthWindowController.authorizationScopes(from: ["gh", "--version", "--other"]).map(\.key)) == nil)
+            RunAuthWindowController.authorizationScopes(from: ["gh", "--version", "--other"]).map(\.identity)) == nil)
     }
 
     @Test("wider decision matches narrower command")
@@ -234,9 +237,9 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh pr",
+            scope: RunAuthorizationScope.prefix("gh pr"),
             profileSlug: "gh",
-            expiresAt: Date().addingTimeInterval(3600)
+            expiresAt: Date().addingTimeInterval(3600), allowed: true
         )
         let options = RunAuthWindowController.scopeOptions(
             from: ["gh", "pr", "list", "--limit", "5"]
@@ -246,7 +249,7 @@ struct ScopeMatchingTests {
         for scope in options {
             if (try? db.findValidRunDecision(
                 appIdentifier: "com.test.app",
-                subcommand: scope,
+                identity: RunAuthorizationIdentity(prefix: scope),
                 profileSlug: "gh"
             )) != nil {
                 match = scope
@@ -261,7 +264,7 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh pr",
+            scope: RunAuthorizationScope.prefix("gh pr"),
             profileSlug: "gh",
             expiresAt: Date().addingTimeInterval(3600),
             allowed: false
@@ -275,9 +278,9 @@ struct ScopeMatchingTests {
         let match = try #require(controller.anyCachedMatch(
             appIdentifier: "com.test.app",
             profileSlug: "gh",
-            scopeOptions: ["gh pr list", "gh pr"]
+            scopeOptions: ["gh pr list", "gh pr"].map(RunAuthorizationIdentity.init(prefix:))
         ))
-        #expect(match.scope == "gh pr")
+        #expect(match.identity.matchValue == "gh pr")
         #expect(match.allowed == false)
     }
 
@@ -286,7 +289,7 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh pr list",
+            scope: RunAuthorizationScope.prefix("gh pr list"),
             profileSlug: "gh",
             expiresAt: nil,
             allowed: allowed
@@ -297,13 +300,13 @@ struct ScopeMatchingTests {
             callbacks: .noop
         )
         controller.storeSessionCache(
-            appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr", allowed: allowed == false
+            appIdentifier: "com.test.app", profileSlug: "gh", scope: RunAuthorizationIdentity(prefix: "gh pr"), allowed: allowed == false
         )
 
         let match = try #require(controller.anyCachedMatch(
-            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr list", "gh pr"]
+            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr list", "gh pr"].map(RunAuthorizationIdentity.init(prefix:))
         ))
-        #expect(match.scope == "gh pr list")
+        #expect(match.identity.matchValue == "gh pr list")
         #expect(match.allowed == allowed)
     }
 
@@ -311,7 +314,7 @@ struct ScopeMatchingTests {
     func sameScopeSessionDecisionWins(allowed: Bool) throws {
         let db = try makeTestDB()
         try db.saveRunDecision(
-            appIdentifier: "com.test.app", subcommand: "gh pr", profileSlug: "gh",
+            appIdentifier: "com.test.app", scope: RunAuthorizationScope.prefix("gh pr"), profileSlug: "gh",
             expiresAt: nil, allowed: allowed == false
         )
         let controller = RunAuthWindowController(
@@ -320,13 +323,13 @@ struct ScopeMatchingTests {
             callbacks: .noop
         )
         controller.storeSessionCache(
-            appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr", allowed: allowed
+            appIdentifier: "com.test.app", profileSlug: "gh", scope: RunAuthorizationIdentity(prefix: "gh pr"), allowed: allowed
         )
 
         let match = try #require(controller.anyCachedMatch(
-            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr list", "gh pr"]
+            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr list", "gh pr"].map(RunAuthorizationIdentity.init(prefix:))
         ))
-        #expect(match.scope == "gh pr")
+        #expect(match.identity.matchValue == "gh pr")
         #expect(match.allowed == allowed)
     }
 
@@ -334,7 +337,7 @@ struct ScopeMatchingTests {
     func expiredSessionApprovalFallsBackToDenial() throws {
         let db = try makeTestDB()
         try db.saveRunDecision(
-            appIdentifier: "com.test.app", subcommand: "gh pr", profileSlug: "gh",
+            appIdentifier: "com.test.app", scope: RunAuthorizationScope.prefix("gh pr"), profileSlug: "gh",
             expiresAt: nil, allowed: false
         )
         let controller = RunAuthWindowController(
@@ -343,14 +346,14 @@ struct ScopeMatchingTests {
             callbacks: .noop
         )
         controller.storeSessionCache(
-            appIdentifier: "com.test.app", profileSlug: "gh", scope: "gh pr", allowed: true
+            appIdentifier: "com.test.app", profileSlug: "gh", scope: RunAuthorizationIdentity(prefix: "gh pr"), allowed: true
         )
         for key in controller.sessionCache.keys {
             controller.sessionCache[key]?.expiresAt = .distantPast
         }
 
         let match = try #require(controller.anyCachedMatch(
-            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: ["gh pr"]
+            appIdentifier: "com.test.app", profileSlug: "gh", scopeOptions: [RunAuthorizationIdentity(prefix: "gh pr")]
         ))
         #expect(match.allowed == false)
     }
@@ -363,17 +366,17 @@ struct ScopeMatchingTests {
             callbacks: .noop
         )
         controller.storeSessionCache(
-            appIdentifier: "app|profile", profileSlug: "profile", scope: "gh pr", allowed: true
+            appIdentifier: "app|profile", profileSlug: "profile", scope: RunAuthorizationIdentity(prefix: "gh pr"), allowed: true
         )
 
         #expect(controller.anyCachedMatch(
-            appIdentifier: "app", profileSlug: "profile|profile", scopeOptions: ["gh pr"]
+            appIdentifier: "app", profileSlug: "profile|profile", scopeOptions: [RunAuthorizationIdentity(prefix: "gh pr")]
         ) == nil)
         #expect(controller.anyCachedMatch(
-            appIdentifier: "app|profile", profileSlug: "other", scopeOptions: ["gh pr"]
+            appIdentifier: "app|profile", profileSlug: "other", scopeOptions: [RunAuthorizationIdentity(prefix: "gh pr")]
         ) == nil)
         #expect(controller.anyCachedMatch(
-            appIdentifier: "app|profile", profileSlug: "profile", scopeOptions: ["gh issue"]
+            appIdentifier: "app|profile", profileSlug: "profile", scopeOptions: [RunAuthorizationIdentity(prefix: "gh issue")]
         ) == nil)
     }
 
@@ -382,15 +385,15 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh pr list",
+            scope: RunAuthorizationScope.prefix("gh pr list"),
             profileSlug: "gh",
-            expiresAt: Date().addingTimeInterval(3600)
+            expiresAt: Date().addingTimeInterval(3600), allowed: true
         )
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh pr",
+            scope: RunAuthorizationScope.prefix("gh pr"),
             profileSlug: "gh",
-            expiresAt: Date().addingTimeInterval(3600)
+            expiresAt: Date().addingTimeInterval(3600), allowed: true
         )
         let options = RunAuthWindowController.scopeOptions(
             from: ["gh", "pr", "list"]
@@ -399,7 +402,7 @@ struct ScopeMatchingTests {
         for scope in options {
             if (try? db.findValidRunDecision(
                 appIdentifier: "com.test.app",
-                subcommand: scope,
+                identity: RunAuthorizationIdentity(prefix: scope),
                 profileSlug: "gh"
             )) != nil {
                 match = scope
@@ -414,9 +417,9 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "python3",
+            scope: RunAuthorizationScope.prefix("python3"),
             profileSlug: "py",
-            expiresAt: Date().addingTimeInterval(3600)
+            expiresAt: Date().addingTimeInterval(3600), allowed: true
         )
         let options = RunAuthWindowController.scopeOptions(
             from: ["python3", "script.py"]
@@ -430,9 +433,9 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh api repos/:owner/:repo/actions/runs/24529102039/jobs",
+            scope: RunAuthorizationScope.prefix("gh api repos/:owner/:repo/actions/runs/24529102039/jobs"),
             profileSlug: "gh",
-            expiresAt: Date().addingTimeInterval(3600)
+            expiresAt: Date().addingTimeInterval(3600), allowed: true
         )
         let options = RunAuthWindowController.scopeOptions(
             from: ["gh", "api", "repos/:owner/:repo/actions/runs/24529102039/jobs"]
@@ -440,7 +443,7 @@ struct ScopeMatchingTests {
         #expect(options == ["gh api"])
         let match = try db.findValidRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh api",
+            identity: RunAuthorizationIdentity(prefix: "gh api"),
             profileSlug: "gh"
         )
         #expect(match == nil)
@@ -451,9 +454,9 @@ struct ScopeMatchingTests {
         let db = try makeTestDB()
         try db.saveRunDecision(
             appIdentifier: "com.test.app",
-            subcommand: "gh api",
+            scope: RunAuthorizationScope.prefix("gh api"),
             profileSlug: "gh",
-            expiresAt: Date().addingTimeInterval(3600)
+            expiresAt: Date().addingTimeInterval(3600), allowed: true
         )
         let firstCall = ["gh", "api", "repos/:owner/:repo/actions/runs/24565147199/jobs", "--jq", ".jobs[]"]
         let secondCall = ["gh", "api", "repos/:owner/:repo/actions/runs/99999999/jobs", "--jq", ".jobs[]"]
@@ -464,7 +467,7 @@ struct ScopeMatchingTests {
         for scope in firstOptions {
             let match = try? db.findValidRunDecision(
                 appIdentifier: "com.test.app",
-                subcommand: scope,
+                identity: RunAuthorizationIdentity(prefix: scope),
                 profileSlug: "gh"
             )
             #expect(match != nil)
@@ -472,7 +475,7 @@ struct ScopeMatchingTests {
         for scope in secondOptions {
             let match = try? db.findValidRunDecision(
                 appIdentifier: "com.test.app",
-                subcommand: scope,
+                identity: RunAuthorizationIdentity(prefix: scope),
                 profileSlug: "gh"
             )
             #expect(match != nil)

@@ -20,16 +20,16 @@ final class RunAuthWindowController {
     nonisolated struct SessionCacheKey: Hashable, Sendable {
         let appIdentifier: String
         let profileSlug: String
-        let scope: String
+        let scope: RunAuthorizationIdentity
     }
 
     nonisolated struct AuthorizationMatch: Sendable {
-        let scope: String
+        let identity: RunAuthorizationIdentity
         let allowed: Bool
     }
 
     private nonisolated enum DialogOutcome: Sendable {
-        case dialog(allowed: Bool, persistedScope: String?)
+        case dialog(allowed: Bool, persistedScope: RunAuthorizationIdentity?)
         case cached(AuthorizationMatch)
     }
 
@@ -71,7 +71,7 @@ final class RunAuthWindowController {
         guard let match = anyCachedMatch(
             appIdentifier: identity.appIdentifier,
             profileSlug: request.profile,
-            scopeOptions: scopeOptions.map(\.key)
+            scopeOptions: scopeOptions.map(\.identity)
         ), match.allowed == false else {
             return false
         }
@@ -79,7 +79,7 @@ final class RunAuthWindowController {
         logDecision(
             appIdentifier: identity.appIdentifier,
             profile: request.profile,
-            command: match.scope,
+            matchType: match.identity.matchType.rawValue,
             allowed: false,
             source: "cached"
         )
@@ -100,12 +100,12 @@ final class RunAuthWindowController {
         if let match = anyCachedMatch(
             appIdentifier: identity.appIdentifier,
             profileSlug: request.profile,
-            scopeOptions: scopeOptions.map(\.key)
+            scopeOptions: scopeOptions.map(\.identity)
         ) {
             logDecision(
                 appIdentifier: identity.appIdentifier,
                 profile: request.profile,
-                command: match.scope,
+                matchType: match.identity.matchType.rawValue,
                 allowed: match.allowed,
                 source: "cached"
             )
@@ -130,7 +130,7 @@ final class RunAuthWindowController {
             logDecision(
                 appIdentifier: identity.appIdentifier,
                 profile: request.profile,
-                command: persistedScope ?? scopeOptions.first?.key ?? "",
+                matchType: persistedScope?.matchType.rawValue ?? scopeOptions.first?.identity.matchType.rawValue ?? "none",
                 allowed: allowed,
                 source: "dialog"
             )
@@ -162,7 +162,7 @@ final class RunAuthWindowController {
     private func persist(
         decisionFor pending: PendingRunAuthRequest,
         resolved: ResolvedRemember,
-        scope: String,
+        scope: RunAuthorizationScope,
         allowed: Bool
     ) {
         let expiresAt: Date?
@@ -173,7 +173,7 @@ final class RunAuthWindowController {
         }
         try? databaseManager.saveRunDecision(
             appIdentifier: pending.appIdentifier,
-            subcommand: scope,
+            scope: scope,
             profileSlug: pending.profileSlug,
             expiresAt: expiresAt,
             allowed: allowed,
@@ -188,12 +188,12 @@ final class RunAuthWindowController {
             if let match = anyCachedMatch(
                 appIdentifier: pending.appIdentifier,
                 profileSlug: pending.profileSlug,
-                scopeOptions: pending.scopeOptions.map(\.key)
+                scopeOptions: pending.scopeOptions.map(\.identity)
             ) {
                 logDecision(
                     appIdentifier: pending.appIdentifier,
                     profile: pending.profileSlug,
-                    command: match.scope,
+                    matchType: match.identity.matchType.rawValue,
                     allowed: match.allowed,
                     source: "cached"
                 )
@@ -244,12 +244,12 @@ final class RunAuthWindowController {
     func logDecision(
         appIdentifier: String,
         profile: String,
-        command: String,
+        matchType: String,
         allowed: Bool,
         source: String
     ) {
         let decision = allowed ? "allow" : "deny"
-        let message = "Run exec: app=\(appIdentifier) profile=\(profile) command=\(command) decision=\(decision) source=\(source)"
+        let message = "Run exec: app=\(appIdentifier) profile=\(profile) matchType=\(matchType) decision=\(decision) source=\(source)"
         AppLogger.audit.log("\(message, privacy: .public)")
     }
 }
@@ -283,17 +283,17 @@ private extension RunAuthWindowController {
         _ pending: PendingRunAuthRequest,
         allowed: Bool,
         duration: RememberDuration,
-        chosenScope: String?
+        chosenScope: RunAuthorizationIdentity?
     ) {
         // A cancelled or already completed prompt cannot act on a later request.
         guard currentRequest?.id == pending.id else { return }
         currentRequest = nil
-        var persistedScope: String?
-        if let scope = chosenScope, pending.scopeOptions.contains(where: { $0.key == scope }) {
+        var persistedScope: RunAuthorizationIdentity?
+        if let identity = chosenScope, let scope = pending.scopeOptions.first(where: { $0.identity == identity }) {
             storeSessionCache(
                 appIdentifier: pending.appIdentifier,
                 profileSlug: pending.profileSlug,
-                scope: scope,
+                scope: identity,
                 allowed: allowed
             )
             let resolved = duration.resolved()
@@ -301,7 +301,7 @@ private extension RunAuthWindowController {
                 // Session cache covers the rapid-fire burst; skip DB persist.
             } else {
                 persist(decisionFor: pending, resolved: resolved, scope: scope, allowed: allowed)
-                persistedScope = scope
+                persistedScope = identity
             }
         }
         pending.continuation.resume(

@@ -94,7 +94,7 @@ Key behaviors:
 4. The bundled `qa-env-export` helper writes only approved environment variables to a private FIFO channel, avoiding stdout/stderr masking and local secret persistence
 5. Resolved secrets are cached in memory per profile using the profile `cacheDuration`
 6. `RunAuthWindowController` authorizes by app identity + scope + profile, defaulting to exact ordered received argv (including executable, flags, values, and argument boundaries). Users may select explicit broader prefixes; existing broad decisions are retained. Exact scope binds neither working directory/environment nor executable contents, and version commands are not automatically approved.
-7. Exact matching/persistence uses the full versioned SHA256 digest key, never transient quoted labels or short IDs. Fingerprinting is not encryption/confidentiality; do not persist or publicly log arbitrary arguments to identify exact decisions, or add executable metadata. Settings shows a 12-hex ID also present in the prompt, with full-key help; selection/removal uses full identity.
+7. Exact matching uses the unchanged full versioned SHA256 identity; persistent Run decisions store the natural full command text only in the encrypted authorization table. Caller-supplied arguments may contain tokens or passwords: document this narrowly authorized persistence and never claim redaction or secret-free command metadata. Never persist resolved profile environment variables, fetched Pass secrets, or offline snapshots as command text; never publicly log arbitrary arguments or full command text. Settings shows the stored command text and localized exact/prefix/unknown type; IDs and matching identity remain independent of display labels.
 8. Approvals and denials retain existing durations and the 10-second burst cache even for Do Not Remember. Exact-before-prefix lookup spans session and persistent tiers; session wins only within the same scope. An initial cached denial prevents resolution; queued rechecks prevent release, not earlier resolution or already-released values.
 9. Allowed responses return environment variables for client-side injection
 
@@ -127,8 +127,8 @@ Views follow VoiceOver and Voice Control patterns throughout:
 
 These are core constraints, not implementation details:
 
-- **Ordinary database tables are metadata-only** — sync may temporarily load full item content from `pass-cli` to derive metadata, and ordinary selected actions fetch current values on demand
-- **The only approved persisted-secret exception is Offline Mode** — users may explicitly select an individual item or a whole vault (including future items after successful sync); item exclusions and manual selections are retained according to policy. Full snapshots may be stored only in the unified database's encrypted `offlineSnapshots` table, after operation-scoped encryption. Do not write offline secrets to ordinary tables, UserDefaults, logs, diagnostics, UI state, FTS, App Group files, or proxy paths; do not create a second offline database or legacy reader
+- **Ordinary database tables do not store fetched Pass item content** — sync may temporarily load full item content from `pass-cli` to derive metadata, and ordinary selected actions fetch current values on demand. The narrow separate exception is caller-supplied Run command text in the encrypted authorization table for readable remembered decisions; such arguments may contain credentials, as documented in `SECURITY.md`.
+- **Offline Mode is the only approved persisted-secret exception for fetched Pass item content** — users may explicitly select an individual item or a whole vault (including future items after successful sync); item exclusions and manual selections are retained according to policy. Full snapshots may be stored only in the unified database's encrypted `offlineSnapshots` table, after operation-scoped encryption. Do not write offline secrets to ordinary tables, UserDefaults, logs, diagnostics, UI state, FTS, App Group files, or proxy paths; do not create a second offline database or legacy reader
 - **Offline snapshot key material is device-bound** — its distinct snapshot cipher key uses `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; the cipher/key is operation-scoped while the SQLCipher connection passphrase is connection-lifetime. Purge/removal retains keys; maintenance never reads or deletes them. Offline snapshots must stay excluded from SSH and Run proxies and may serve only ordinary host copy/Large Type actions or the existing verified host-broker System AutoFill password/TOTP request
 - **Database encryption** uses GRDB/SQLCipher with a 256-bit passphrase from Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). The unified file and known sidecars are owner-only and backup-excluded, including local Run profiles and remembered decisions; backup exclusion is guidance, not a portable backup/restore or secure-erasure guarantee
 - **Socket permissions are strict** (`0600`), and socket directories are owner-only
@@ -157,7 +157,7 @@ file/Keychain cleanup is permitted.
 
 ## Database Schema
 
-`DatabaseManager` currently defines **13 migrations**:
+`DatabaseManager` currently defines **14 migrations**:
 
 - **v1**
   - `vaults`
@@ -194,6 +194,10 @@ file/Keychain cleanup is permitted.
 - **v13**
   - adds `allowed` to SSH and Run remembered decisions so both allow and deny actions can be persisted
   - existing remembered decisions retain allow behavior
+- **v14**
+  - replaces Run's legacy text key with typed match identity, natural command text, and stable autoincrement row IDs
+  - removes only strictly valid old exact-v1 fingerprint-only Run entries; retains broad and malformed literal entries as command-prefix rules
+  - persists full received command text in the encrypted decision table; this caller-controlled text may itself contain credentials
 
 ### Offline Mode Documentation Verification Checklist
 

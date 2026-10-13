@@ -18,18 +18,14 @@ struct RunAuthDecisionsView: View {
                     .foregroundStyle(.quaternary)
             } else {
                 RememberedDecisionList(accessibilityLabel: String(localized: "Remembered run decisions")) {
-                    ForEach(decisions, id: \.compositeKey) { decision in
+                    ForEach(decisions) { decision in
                         RunDecisionRow(
                             presentation: RunAuthDecisionRowPresentation(
                                 decision: decision,
                                 profileName: profileNames[decision.profileSlug] ?? decision.profileSlug
                             )
                         ) {
-                            try? databaseManager.removeRunAuthDecision(
-                                appIdentifier: decision.appIdentifier,
-                                subcommand: decision.subcommand,
-                                profileSlug: decision.profileSlug
-                            )
+                            try? databaseManager.removeRunAuthDecision(id: decision.id)
                             loadDecisions()
                         }
                     }
@@ -54,12 +50,23 @@ nonisolated struct RunAuthDecisionRowPresentation: Sendable {
     let profileName: String
 
     var bundleID: String { decision.appIdentifier }
-    var primaryText: String { RunAuthorizationScope.persistedLabel(for: decision.subcommand) }
-    var scopeHelpText: String { decision.subcommand }
+    var primaryText: String { decision.commandText }
+    var scopeHelpText: String { decision.commandText }
+
+    var scopeTypeText: String {
+        switch decision.matchType {
+        case RunAuthorizationMatchType.exactArgumentsV1.rawValue:
+            return String(localized: "Exact command")
+        case RunAuthorizationMatchType.commandPrefixV1.rawValue:
+            return String(localized: "Command prefix")
+        default:
+            return String(localized: "Unknown matching type")
+        }
+    }
 
     func secondaryText(relativeExpiration: String) -> String {
         let outcome = decision.allowed ? String(localized: "Allowed") : String(localized: "Denied")
-        return "\(outcome) · \(profileName) · \(relativeExpiration)"
+        return "\(scopeTypeText) · \(outcome) · \(profileName) · \(relativeExpiration)"
     }
 
     var removeHelpText: String {
@@ -88,21 +95,5 @@ private struct RunDecisionRow: View {
 
     private var relativeExpiration: String {
         FormatHelpers.relativeExpiration(presentation.decision.expiresAt)
-    }
-}
-
-extension RunAuthorizationScope {
-    /// Formats only valid versioned exact fingerprints; legacy/malformed stored keys stay literal.
-    nonisolated static func persistedLabel(for key: String) -> String {
-        guard key.range(of: "^exact-v1:[0-9a-f]{64}$", options: .regularExpression) != nil,
-              key.utf8.count == "exact-v1:".utf8.count + 64 else { return key }
-        let fingerprint = String(key.dropFirst("exact-v1:".count).prefix(12))
-        return String(
-            localized: "Exact command (\(fingerprint))",
-            comment: """
-            Remembered exact-command decision. Placeholder is the first 12 lowercase hexadecimal characters of a SHA256 fingerprint, \
-            not a command or secret. The complete fingerprint is available in help text.
-            """
-        )
     }
 }

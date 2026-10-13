@@ -25,7 +25,7 @@ struct DatabaseManagerAutoFillMigrationTests {
         )
         let runDecision = try database.findValidRunDecision(
             appIdentifier: "com.test.run",
-            subcommand: "git fetch",
+            identity: RunAuthorizationIdentity(prefix: "git fetch"),
             profileSlug: "work"
         )
 

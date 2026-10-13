@@ -61,7 +61,7 @@ struct RunAuthQueueTests {
         let exact = try #require(prompt.scopeOptions.first)
         #expect(exact.isExact)
         #expect(prompt.scopeOptions.count == 1)
-        prompt.onResult(allowed, duration, exact.key)
+        prompt.onResult(allowed, duration, exact.identity)
         for task in [first, second] {
             let response = await task.value
             #expect(response.decision == (allowed ? .allow : .deny))
@@ -69,7 +69,13 @@ struct RunAuthQueueTests {
         }
         #expect(fixture.recorder.count == 1)
         let rows = try fixture.db.allRunAuthDecisions()
-        #expect(rows.map(\.subcommand) == (duration == .doNotRemember ? [] : [exact.key]))
+        #expect(rows.map(\.matchValue) == (duration == .doNotRemember ? [] : [exact.identity.matchValue]))
+        if duration != .doNotRemember {
+            let presentation = RunAuthDecisionRowPresentation(decision: try #require(rows.first), profileName: "Work")
+            #expect(presentation.primaryText == "gh --version")
+            #expect(presentation.scopeHelpText == "gh --version")
+            #expect(rows.first?.allowed == allowed)
+        }
         if duration == .forever { #expect(rows.first?.expiresAt == nil) }
         if duration == .oneMinute { #expect(try #require(rows.first?.expiresAt) > Date()) }
     }
@@ -84,12 +90,12 @@ struct RunAuthQueueTests {
         let exact = try #require(prompt.scopeOptions.first)
         #expect(exact.isExact)
         #expect(prompt.command == command.joined(separator: " "))
-        prompt.onResult(true, .forever, exact.key)
+        prompt.onResult(true, .forever, exact.identity)
         #expect(await first.value.decision == .allow)
         let changed = try #require(await prompts.next())
         #expect(changed.scopeOptions.first?.isExact == true)
-        #expect(changed.scopeOptions.first?.key != exact.key)
-        changed.onResult(false, .forever, changed.scopeOptions.first?.key)
+        #expect(changed.scopeOptions.first?.identity != exact.identity)
+        changed.onResult(false, .forever, changed.scopeOptions.first?.identity)
         let response = await second.value
         #expect(response.decision == .deny)
         #expect(response.env == nil)
@@ -103,16 +109,16 @@ struct RunAuthQueueTests {
         var prompts = fixture.stream.makeAsyncIterator()
         let first = await start(fixture.controller, command: ["gh", "pr", "list", "--limit", "5"])
         let prompt = try #require(await prompts.next())
-        #expect(prompt.scopeOptions.map(\.key).dropFirst() == ["gh pr list", "gh pr"])
+        #expect(prompt.scopeOptions.map(\.identity.matchValue).dropFirst() == ["gh pr list", "gh pr"])
         let second = await start(fixture.controller, command: ["gh", "pr", "list", "--limit", "6"])
-        prompt.onResult(allowed, .forever, "gh pr list")
+        prompt.onResult(allowed, .forever, RunAuthorizationIdentity(prefix: "gh pr list"))
         for task in [first, second] {
             let response = await task.value
             #expect(response.decision == (allowed ? .allow : .deny))
             #expect(response.env == (allowed ? ["TOKEN": "secret"] : nil))
         }
         #expect(fixture.recorder.count == 1)
-        #expect(try fixture.db.allRunAuthDecisions().map(\.subcommand) == ["gh pr list"])
+        #expect(try fixture.db.allRunAuthDecisions().map(\.matchValue) == ["gh pr list"])
     }
 
     @Test func queueRecheckPrefersExactDenialToBroaderSessionApproval() async throws {
@@ -123,11 +129,11 @@ struct RunAuthQueueTests {
         let secondCommand = ["gh", "pr", "list", "--limit", "5"]
         let second = await start(fixture.controller, command: secondCommand)
         let exact = try #require(RunAuthorizationScope.exact(command: secondCommand))
-        try fixture.db.saveRunDecision(appIdentifier: "TEAM.com.test.app", subcommand: exact.key,
+        try fixture.db.saveRunDecision(appIdentifier: "TEAM.com.test.app", scope: exact,
                                        profileSlug: "work", expiresAt: nil, allowed: false)
         fixture.controller.storeSessionCache(appIdentifier: "TEAM.com.test.app", profileSlug: "work",
-                                             scope: "gh pr", allowed: true)
-        prompt.onResult(true, .doNotRemember, prompt.scopeOptions.first?.key)
+                                             scope: RunAuthorizationIdentity(prefix: "gh pr"), allowed: true)
+        prompt.onResult(true, .doNotRemember, prompt.scopeOptions.first?.identity)
         #expect(await first.value.decision == .allow)
         let response = await second.value
         #expect(response.decision == .deny)
@@ -146,15 +152,15 @@ struct RunAuthQueueTests {
         #expect(await queued.value.env == nil)
         let live = await start(fixture.controller, command: ["/usr/bin/gh", "--version"])
         let prompt = try #require(await prompts.next())
-        stale.onResult(true, .forever, stale.scopeOptions.first?.key)
+        stale.onResult(true, .forever, stale.scopeOptions.first?.identity)
         #expect(try fixture.db.allRunAuthDecisions().isEmpty)
         #expect(fixture.controller.sessionCache.isEmpty)
-        prompt.onResult(false, .forever, prompt.scopeOptions.first?.key)
+        prompt.onResult(false, .forever, prompt.scopeOptions.first?.identity)
         let response = await live.value
         #expect(response.decision == .deny)
         #expect(response.env == nil)
-        prompt.onResult(true, .forever, prompt.scopeOptions.first?.key)
-        stale.onResult(true, .forever, stale.scopeOptions.first?.key)
+        prompt.onResult(true, .forever, prompt.scopeOptions.first?.identity)
+        stale.onResult(true, .forever, stale.scopeOptions.first?.identity)
         let rows = try fixture.db.allRunAuthDecisions()
         #expect(rows.count == 1)
         #expect(rows.first?.allowed == false)
@@ -168,7 +174,7 @@ struct RunAuthQueueTests {
         var prompts = fixture.stream.makeAsyncIterator()
         let task = await start(fixture.controller, command: ["gh", "--version"])
         let prompt = try #require(await prompts.next())
-        prompt.onResult(false, .forever, key)
+        prompt.onResult(false, .forever, RunAuthorizationIdentity(prefix: key))
         #expect(await task.value.env == nil)
         #expect(try fixture.db.allRunAuthDecisions().isEmpty)
         #expect(fixture.controller.sessionCache.isEmpty)

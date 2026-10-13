@@ -88,7 +88,7 @@ struct RunProxyCoordinatorLockTests {
             databaseManager: database,
             keychainService: FakeBiometricAuthorizer(outcome: .success(())),
             callbacks: .noop,
-            dialogPresenter: { $0.onResult(false, .doNotRemember, $0.scopeOptions.first?.key) }
+            dialogPresenter: { $0.onResult(false, .doNotRemember, $0.scopeOptions.first?.identity) }
         )
 
         let request = RunProxyRequest(
@@ -138,9 +138,12 @@ struct RunProxyCoordinatorLockTests {
         )
         let connection = stubConnection()
         let identity = try #require(controller.resolveIdentity(for: connection, profile: "test-profile"))
+        let decisionScope = exactDenial
+            ? try #require(RunAuthorizationScope.exact(command: ["gh", "pr", "list"]))
+            : RunAuthorizationScope.prefix("gh pr list")
         try database.saveRunDecision(
             appIdentifier: identity.appIdentifier,
-            subcommand: exactDenial ? try #require(RunAuthorizationScope.exact(command: ["gh", "pr", "list"])).key : "gh pr list",
+            scope: decisionScope,
             profileSlug: "test-profile",
             expiresAt: Date().addingTimeInterval(300),
             allowed: false
@@ -149,7 +152,7 @@ struct RunProxyCoordinatorLockTests {
             controller.storeSessionCache(
                 appIdentifier: identity.appIdentifier,
                 profileSlug: "test-profile",
-                scope: "gh pr",
+                scope: RunAuthorizationIdentity(prefix: "gh pr"),
                 allowed: true
             )
         }

@@ -27,22 +27,45 @@
         }
       }
     },
-    "Exact command (%@)" : {
-      "comment" : "Remembered exact-command decision. Placeholder is the first 12 lowercase hexadecimal characters of a SHA256 fingerprint, not a command or secret. The complete fingerprint is available in help text.",
+    "Command prefix" : {
+      "comment" : "Scope type shown for a remembered explicit command-prefix authorization.",
       "extractionState" : "manual",
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Přesný příkaz (%@)"
+            "value" : "Předpona příkazu"
+          }
+        }
+      }
+    },
+    "Exact command" : {
+      "comment" : "Scope type shown for a remembered exact argv authorization.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz"
+          }
+        }
+      }
+    },
+    "Unknown matching type" : {
+      "comment" : "Fallback scope type for a remembered authorization created by a newer app version.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neznámý typ shody"
           }
         }
       }
     },
     "Exact command: %@" : {
-      "comment" : "Exact argv scope option. Placeholder is the quoted full command; do not translate the command. Swift symbol generation is disabled to avoid colliding with the Settings fingerprint label.",
+      "comment" : "Exact argv scope option. Placeholder is natural full command text; do not translate the command.",
       "extractionState" : "manual",
-      "generatesSymbol" : false,
       "localizations" : {
         "cs" : {
           "stringUnit" : {

@@ -1,14 +1,14 @@
 import CryptoKit
 import Foundation
 
-/// A matching key and transient display label for an exact argv or explicit broader prefix.
+/// A typed authorization identity and transient display label for an exact argv or explicit broader prefix.
 nonisolated struct RunAuthorizationScope: Hashable, Sendable {
-    let key: String
+    let identity: RunAuthorizationIdentity
     let label: String
     let isExact: Bool
 
-    private init(key: String, label: String, isExact: Bool) {
-        self.key = key
+    private init(identity: RunAuthorizationIdentity, label: String, isExact: Bool) {
+        self.identity = identity
         self.label = label
         self.isExact = isExact
     }
@@ -26,15 +26,24 @@ nonisolated struct RunAuthorizationScope: Hashable, Sendable {
             input.append(bytes)
         }
         let digest = SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
-        // Quoted, escaped Swift string displays retain empty arguments and argument boundaries;
-        // this is display text, never a shell command or a persisted matching identity.
-        let label = command.map { $0.debugDescription }.joined(separator: " ")
-        return RunAuthorizationScope(key: "exact-v1:" + digest, label: label, isExact: true)
+        guard let identity = RunAuthorizationIdentity(exactDigest: digest) else { return nil }
+        let label = RunCommandDisplayFormatter.text(for: command)
+        return RunAuthorizationScope(identity: identity, label: label, isExact: true)
     }
 
-    /// Preserves the existing explicit broader prefix's literal matching key and display label.
+    /// Preserves the existing explicit broader prefix's literal identity and display label.
     static func prefix(_ value: String) -> RunAuthorizationScope {
-        RunAuthorizationScope(key: value, label: value, isExact: false)
+        RunAuthorizationScope(
+            identity: RunAuthorizationIdentity(prefix: value), label: value, isExact: false
+        )
+    }
+
+    static func == (lhs: RunAuthorizationScope, rhs: RunAuthorizationScope) -> Bool {
+        lhs.identity == rhs.identity
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(identity)
     }
 
     private static func appendCount(_ count: Int, to data: inout Data) {

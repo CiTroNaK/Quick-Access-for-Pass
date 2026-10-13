@@ -1,28 +1,28 @@
 import Foundation
 
 extension RunAuthWindowController {
-    /// Matches ordered full scope keys (exact before prefixes), preferring session only within the same scope.
+    /// Matches typed identities in exact-first order, preferring session only within the same identity.
     func anyCachedMatch(
         appIdentifier: String,
         profileSlug: String,
-        scopeOptions: [String]
+        scopeOptions: [RunAuthorizationIdentity]
     ) -> AuthorizationMatch? {
         let now = Date()
-        for scope in scopeOptions {
+        for identity in scopeOptions {
             let key = SessionCacheKey(
                 appIdentifier: appIdentifier,
                 profileSlug: profileSlug,
-                scope: scope
+                scope: identity
             )
             if let decision = sessionCache[key], decision.expiresAt > now {
-                return AuthorizationMatch(scope: scope, allowed: decision.allowed)
+                return AuthorizationMatch(identity: identity, allowed: decision.allowed)
             }
             if let decision = try? databaseManager.findValidRunDecision(
                 appIdentifier: appIdentifier,
-                subcommand: scope,
+                identity: identity,
                 profileSlug: profileSlug
             ) {
-                return AuthorizationMatch(scope: scope, allowed: decision.allowed)
+                return AuthorizationMatch(identity: identity, allowed: decision.allowed)
             }
         }
         return nil
@@ -31,7 +31,7 @@ extension RunAuthWindowController {
     func storeSessionCache(
         appIdentifier: String,
         profileSlug: String,
-        scope: String,
+        scope: RunAuthorizationIdentity,
         allowed: Bool
     ) {
         let key = SessionCacheKey(
