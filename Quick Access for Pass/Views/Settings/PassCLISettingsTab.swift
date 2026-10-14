@@ -61,12 +61,14 @@ struct PassCLISettingsTab: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                if case .notLoggedIn = statusStore.health {
+                if statusStore.health.requiresAuthenticationRecovery {
                     SettingsLayout.settingsRow {
-                        Button("Log In to Proton Pass CLI…") {
+                        Button(statusStore.health.loginActionTitle) {
                             NotificationCenter.default.post(name: .passCLILoginRequested, object: nil)
                         }
-                        .accessibilityHint("Starts Proton Pass CLI login and opens the Proton authentication page in your browser")
+                        .accessibilityHint(statusStore.health == .localSessionUnreadable
+                            ? Text("Asks to reset the local CLI session, then opens Proton authentication in your browser")
+                            : Text("Starts Proton Pass CLI login and opens the Proton authentication page in your browser"))
                     }
                 }
                 SettingsLayout.settingsRow(label: "Personal access token") {

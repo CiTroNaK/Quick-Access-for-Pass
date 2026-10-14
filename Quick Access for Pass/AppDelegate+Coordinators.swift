@@ -73,14 +73,15 @@ extension AppDelegate {
             cliService: cliService,
             healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
             syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() },
-            resultHandler: { [weak self] result in self?.passCLILoginNotifier?.handleLoginResult(result) }
+            resultHandler: { [weak self] result in self?.handlePassCLIBrowserLoginResult(result) },
+            revokeTransientSecretAccess: { [weak self] in self?.revokeTransientSecretAccess() }
         )
         passCLILoginCoordinator = loginCoordinator
 
         let loginNotifier = PassCLILoginNotifier(
             notificationRouter: notificationRouter,
             poster: notificationPoster,
-            startLogin: { [weak loginCoordinator] in loginCoordinator?.startLogin() },
+            startLogin: { [weak self] in self?.requestPassCLILogin() },
             showLoginRequired: { [weak self] in
                 self?.showLoginRequiredSyncIssue()
             },
@@ -156,7 +157,7 @@ extension AppDelegate {
                 self?.showPATAutoLoginSyncProgress()
             },
             browserLoginIsRunning: { [weak loginCoordinator] in
-                loginCoordinator?.state != .idle
+                loginCoordinator?.isLoggingIn == true
             }
         )
     }

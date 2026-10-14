@@ -79,7 +79,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
 
     func handleCLIHealthTransition(to health: PassCLIHealth) {
         switch health {
-        case .notLoggedIn:
+        case .notLoggedIn, .localSessionUnreadable:
             isLoggedOutEpisodeActive = true
             showLoginRequired()
             guard hasPostedForCurrentLogout == false else { return }
@@ -105,6 +105,10 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
             title = String(localized: "Proton Pass CLI connected")
             body = String(localized: "Quick Access is syncing your vaults.")
             categoryIdentifier = nil
+        case .localSessionUnreadable:
+            title = String(localized: "Local CLI session could not be decrypted")
+            body = String(localized: "Open Settings → Pass CLI and choose Reset CLI Session and Log In. You will be asked to confirm first.")
+            categoryIdentifier = Self.categoryIdentifier
         case .failed:
             title = String(localized: "Proton Pass CLI login failed")
             body = String(localized: "Pass CLI login did not complete. Open Settings → Pass CLI to retry.")

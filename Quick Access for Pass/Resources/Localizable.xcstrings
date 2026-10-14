@@ -417,6 +417,17 @@
         }
       }
     },
+    "%@: local session could not be decrypted" : {
+      "comment" : "Menu-bar service status. Placeholder is the service name, such as Pass CLI; no raw CLI error is included.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: místní relaci se nepodařilo dešifrovat"
+          }
+        }
+      }
+    },
     "%@: not installed" : {
       "localizations" : {
         "cs" : {
@@ -2436,6 +2447,89 @@
         }
       }
     },
+    "Asks to reset the local CLI session, then opens Proton authentication in your browser" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Požádá o resetování místní relace CLI a poté otevře přihlášení k Protonu v prohlížeči"
+          }
+        }
+      }
+    },
+    "Could not reset the local CLI session. No browser login was started." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Místní relaci CLI se nepodařilo resetovat. Přihlášení v prohlížeči nebylo spuštěno."
+          }
+        }
+      }
+    },
+    "Open Settings → Pass CLI and choose Reset CLI Session and Log In. You will be asked to confirm first." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otevřete Nastavení → Pass CLI a zvolte Resetovat relaci CLI a přihlásit se. Nejprve budete požádáni o potvrzení."
+          }
+        }
+      }
+    },
+    "Reset CLI Session and Log In…" : {
+      "comment" : "User-initiated action for an unreadable local CLI session; confirmation is required before cleanup.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetovat relaci CLI a přihlásit se…"
+          }
+        }
+      }
+    },
+    "Reset CLI Session and Log In?" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetovat relaci CLI a přihlásit se?"
+          }
+        }
+      }
+    },
+    "Reset Session and Log In" : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resetovat relaci a přihlásit se"
+          }
+        }
+      }
+    },
+    "This removes the local Pass CLI session and starts browser sign-in. Other clients using the same session may be affected. The old remote session may remain listed in Proton account settings. Your saved token and Quick Access offline data will not be removed." : {
+      "comment" : "Session-reset confirmation: explains shared-client impact and retained token/offline data; contains no private session details.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tímto odstraníte místní relaci Pass CLI a spustíte přihlášení v prohlížeči. Může to ovlivnit další klienty používající stejnou relaci. Stará vzdálená relace může zůstat uvedená v nastavení účtu Proton. Váš uložený token ani offline data Quick Access nebudou odstraněny."
+          }
+        }
+      }
+    },
+    "Local CLI session could not be decrypted" : {
+      "comment" : "Pass CLI settings health status for an unreadable local encrypted session, not an invalid saved token.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Místní relaci CLI se nepodařilo dešifrovat"
+          }
+        }
+      }
+    },
     "Log In" : {
       "comment" : "Button title for starting Proton Pass CLI login from a sync error.",
       "localizations" : {
@@ -2865,6 +2959,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pass CLI přihlášení neproběhlo v pořádku. Otevři Nastvení - Pass CLI a zkus znova."
+          }
+        }
+      }
+    },
+    "Pass CLI local session could not be decrypted" : {
+      "comment" : "VoiceOver health status for an unreadable local Pass CLI session.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Místní relaci Pass CLI se nepodařilo dešifrovat"
           }
         }
       }

@@ -39,6 +39,9 @@ struct CLIRunnerAuthClassificationTests {
         "sync failed: session expired during fetch",
         "author unavailable",
         "auth provider: github",
+        "Error decrypting item: aead::Error",
+        "Error accessing credential: interaction not allowed",
+        "Error decrypting session: aead::Error",
     ])
     func cliErrorIsAuthErrorRejectsLookAlikes(stderr: String) {
         let error = CLIError.commandFailed(stderr)
@@ -51,6 +54,8 @@ struct CLIRunnerAuthClassificationTests {
         "ERROR: Not Logged In to Pass",
         "please log in first",
         "Error getting personal access token name: failed to authenticate: non-existent session",
+        "Error getting client\nCaused by: Error decrypting local session(Error decrypting session: aead::Error)",
+        "ERROR DECRYPTING LOCAL SESSION",
         "2026-04-14T16:54:24Z ERROR pass-cli/src/main.rs:301: Command is not logout there is no session",
     ])
     func cliErrorIsAuthErrorAcceptsRealPhrases(stderr: String) {

@@ -135,6 +135,10 @@ final class PassCLIPATLoginService {
                 timeout: timeoutSeconds
             )
             return
+        } catch let error as CLIError where error.isLocalSessionDecryptionError {
+            // Login reads the existing session before authenticating the PAT.
+            // This specific failure proves that local session cannot be reused.
+            try await resetLocalSessionAndRetryLogin(token: token, executablePath: executablePath)
         } catch CLIError.commandFailed(let message)
             where message.localizedCaseInsensitiveContains("already authenticated") {
             // A local session can block login even when it no longer works remotely.
@@ -148,30 +152,35 @@ final class PassCLIPATLoginService {
                     timeout: PassCLISanityCheck.timeoutSeconds
                 )
             } catch let error as CLIError where error.isAuthError {
-                try Task.checkCancellation()
-                // Forced logout invalidates the current Pass session; revoke any
-                // transient host secret delivery before starting its runner work.
-                revokeTransientSecretAccess()
-                _ = try await runner.run(
-                    executablePath: executablePath,
-                    arguments: ["logout", "--force"],
-                    environmentOverrides: [:],
-                    timeout: timeoutSeconds
-                )
-                try Task.checkCancellation()
-                // Retry once, not recursively. The caller classifies and sanitizes
-                // any cleanup/retry failure, including an invalid replacement PAT.
-                _ = try await runner.run(
-                    executablePath: executablePath,
-                    arguments: ["login"],
-                    environmentOverrides: environment,
-                    timeout: timeoutSeconds
-                )
+                try await resetLocalSessionAndRetryLogin(token: token, executablePath: executablePath)
                 return
             }
             // Healthy sessions must not be replaced or reported as a successful
             // login with the saved PAT: that token has not been validated yet.
             throw CLIError.commandFailed(message)
         }
+    }
+
+    /// Clears a confirmed unusable CLI session and attempts saved-token login exactly once.
+    private func resetLocalSessionAndRetryLogin(token: String, executablePath: String) async throws {
+        try Task.checkCancellation()
+        // Forced logout invalidates the local Pass session; revoke transient
+        // host secret delivery before starting its runner work.
+        revokeTransientSecretAccess()
+        _ = try await runner.run(
+            executablePath: executablePath,
+            arguments: ["logout", "--force"],
+            environmentOverrides: [:],
+            timeout: timeoutSeconds
+        )
+        try Task.checkCancellation()
+        // Do not recurse through login's recovery handlers. The caller classifies
+        // and sanitizes cleanup/retry errors, including an invalid replacement PAT.
+        _ = try await runner.run(
+            executablePath: executablePath,
+            arguments: ["login"],
+            environmentOverrides: ["PROTON_PASS_PERSONAL_ACCESS_TOKEN": token],
+            timeout: timeoutSeconds
+        )
     }
 }

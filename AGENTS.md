@@ -119,6 +119,10 @@ A shared `ProxyHealthStore` and `PassCLIStatusStore` drive the status rows in Se
 
 Keep the dependency direction one-way: `HealthCheckCoordinator` owns probe scheduling and dispatches to proxy coordinators; proxy coordinators must not own the health coordinator.
 
+Pass CLI's specific `Error decrypting local session` failure retains a typed `localSessionUnreadable` health state. Saved-PAT recovery handles both direct login decryption failure and confirmed unusable Already authenticated sessions with CLI-owned `logout --force` and one retry. Revoke transient secret access before cleanup and check cancellation before cleanup/retry. Do not treat generic decryption, Keychain access, network errors, or timeouts as cleanup authority; never directly remove CLI files/keys or weaken the key provider. Repeated logged-out/unreadable health ticks may recheck unavailable PATs, but completed automatic attempts remain once per unhealthy episode until `.ok`.
+
+Browser-only session repair is user-initiated, never a background reset. Route Settings, menu, panel and notification login actions through `requestPassCLILogin()` and `PassCLILoginCoordinator.requestLogin(health:confirmSessionReset:)`. Confirm shared-session impact before bounded CLI-owned cleanup and one browser login; preserve the saved PAT and offline snapshots. Recognize chunked local-session decryption failures with typed login state/result, not a missing-URL message. Do not let a historical login failure override changed health to authorize cleanup. Keep cancellation ownership until the operation unwinds, block duplicate confirmations/resets, and use `isLoggingIn` (not a historical result state) to gate automatic PAT recovery.
+
 ## Accessibility Rules
 
 Views follow VoiceOver and Voice Control patterns throughout:

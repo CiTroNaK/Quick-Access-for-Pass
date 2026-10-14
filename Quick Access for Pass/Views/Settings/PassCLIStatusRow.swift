@@ -39,7 +39,8 @@ struct PassCLIStatusRow: View {
         switch health {
         case .ok:            return .green
         case .notLoggedIn:   return .yellow
-        case .notInstalled,
+        case .localSessionUnreadable,
+             .notInstalled,
              .failed:        return .red
         }
     }
@@ -48,6 +49,7 @@ struct PassCLIStatusRow: View {
         switch health {
         case .ok:                   return String(localized: "Connected")
         case .notLoggedIn:          return String(localized: "Not logged in")
+        case .localSessionUnreadable: return String(localized: "Local CLI session could not be decrypted")
         case .notInstalled:         return String(localized: "pass-cli not found")
         case .failed(let reason):   return String(localized: "Error — \(reason)")
         }
@@ -69,6 +71,7 @@ struct PassCLIStatusRow: View {
             }
             return String(localized: "Pass CLI connected")
         case .notLoggedIn:          return String(localized: "Pass CLI not logged in")
+        case .localSessionUnreadable: return String(localized: "Pass CLI local session could not be decrypted")
         case .notInstalled:         return String(localized: "Pass CLI not found")
         case .failed(let reason):   return String(localized: "Pass CLI error — \(reason)")
         }

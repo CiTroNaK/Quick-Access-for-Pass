@@ -496,7 +496,7 @@ private extension AppDelegate {
             forName: .passCLILoginRequested, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.passCLILoginCoordinator?.startLogin()
+                self?.requestPassCLILogin()
             }
         }
 

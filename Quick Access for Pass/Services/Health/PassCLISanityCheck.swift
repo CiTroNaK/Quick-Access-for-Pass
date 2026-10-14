@@ -37,8 +37,24 @@ nonisolated struct PassCLIIdentity: Sendable, Equatable, Decodable {
 nonisolated enum PassCLIHealth: Sendable, Equatable {
     case ok
     case notLoggedIn
+    case localSessionUnreadable
     case notInstalled
     case failed(reason: String)
+
+    /// The localized user-initiated login action appropriate to the current session health.
+    var loginActionTitle: String {
+        self == .localSessionUnreadable
+            ? String(localized: "Reset CLI Session and Log In…")
+            : String(localized: "Log In to Proton Pass CLI…")
+    }
+
+    /// Whether the CLI needs a usable authenticated session, including local-session repair.
+    var requiresAuthenticationRecovery: Bool {
+        switch self {
+        case .notLoggedIn, .localSessionUnreadable: true
+        case .ok, .notInstalled, .failed: false
+        }
+    }
 }
 
 /// Authenticated CLI health and identity decoded from the same command response.
@@ -69,7 +85,9 @@ nonisolated enum PassCLISanityCheck {
         } catch CLIError.notInstalled {
             return PassCLIAuthenticatedProbeOutcome(health: .notInstalled, identity: nil)
         } catch let error as CLIError {
-            let health: PassCLIHealth = if error.isAuthError {
+            let health: PassCLIHealth = if error.isLocalSessionDecryptionError {
+                .localSessionUnreadable
+            } else if error.isAuthError {
                 .notLoggedIn
             } else {
                 .failed(reason: Self.failureReason(for: error))

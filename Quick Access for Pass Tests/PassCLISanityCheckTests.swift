@@ -80,6 +80,16 @@ struct PassCLISanityCheckTests {
         #expect(outcome.identity == nil)
     }
 
+    @Test func localSessionDecryptionFailureHasDistinctHealthWithoutIdentity() async {
+        let runner = FakeRunner { _ in
+            throw CLIError.commandFailed("Error getting client: Error decrypting local session: aead::Error private-details")
+        }
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(cliPath: "/fake/pass-cli", runner: runner)
+
+        #expect(outcome.health == .localSessionUnreadable)
+        #expect(outcome.identity == nil)
+    }
+
     @Test func genericErrorUsesOpaqueFailureReason() async {
         let runner = FakeRunner { _ in throw CLIError.commandFailed("disk full") }
         let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(

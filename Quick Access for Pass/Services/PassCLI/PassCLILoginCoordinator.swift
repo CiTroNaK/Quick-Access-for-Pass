@@ -17,14 +17,17 @@ protocol PassCLIHealthRefreshing: Sendable {
 
 nonisolated enum PassCLILoginState: Sendable, Equatable {
     case idle
+    case resettingSession
     case waitingForURL
     case waitingForBrowser
+    case localSessionUnreadable
     case succeeded
     case failed(String)
 }
 
 nonisolated enum PassCLILoginResult: Sendable, Equatable {
     case succeeded
+    case localSessionUnreadable
     case failed(String)
 }
 
@@ -32,6 +35,8 @@ nonisolated enum PassCLILoginResult: Sendable, Equatable {
 final class PassCLILoginCoordinator {
     private let cliService: PassCLIService
     private let runner: any CLIStreaming
+    private let sessionResetRunner: any CLIRunning
+    private let revokeTransientSecretAccess: @MainActor @Sendable () -> Void
     private let urlOpener: any URLOpening
     private let healthRefresher: any PassCLIHealthRefreshing
     private let syncTrigger: @MainActor @Sendable () async -> Void
@@ -42,21 +47,30 @@ final class PassCLILoginCoordinator {
     private var loginTask: Task<Void, Never>?
     private var currentProcess: CLIStreamingProcess?
     private var knownURL: URL?
+    private var isConfirmingSessionReset = false
+    private var confirmationGeneration = 0
+
+    /// Whether confirmation or a login/reset process still owns this coordinator.
+    var isLoggingIn: Bool { isConfirmingSessionReset || loginTask != nil }
 
     private(set) var state: PassCLILoginState = .idle
 
     init(
         cliService: PassCLIService,
         runner: any CLIStreaming = LiveCLIStreamingRunner(),
+        sessionResetRunner: any CLIRunning = LiveCLIRunner(),
         urlOpener: any URLOpening = WorkspaceURLOpener(),
         healthRefresher: any PassCLIHealthRefreshing,
         syncTrigger: @escaping @MainActor @Sendable () async -> Void,
         resultHandler: @escaping @MainActor @Sendable (PassCLILoginResult) -> Void,
+        revokeTransientSecretAccess: @escaping @MainActor @Sendable () -> Void = {},
         urlDiscoveryTimeout: Duration = .seconds(15),
         loginCompletionTimeout: Duration = .seconds(300)
     ) {
         self.cliService = cliService
         self.runner = runner
+        self.sessionResetRunner = sessionResetRunner
+        self.revokeTransientSecretAccess = revokeTransientSecretAccess
         self.urlOpener = urlOpener
         self.healthRefresher = healthRefresher
         self.syncTrigger = syncTrigger
@@ -65,14 +79,38 @@ final class PassCLILoginCoordinator {
         self.loginCompletionTimeout = loginCompletionTimeout
     }
 
+    /// Requests browser login, requiring explicit consent before repairing an unreadable session.
+    func requestLogin(health: PassCLIHealth, confirmSessionReset: @MainActor () -> Bool) {
+        guard !isConfirmingSessionReset else { return }
+        guard loginTask == nil else {
+            startLogin()
+            return
+        }
+        // Historical login outcomes are presentation, not current cleanup authority.
+        guard health == .localSessionUnreadable else {
+            startLogin()
+            return
+        }
+        isConfirmingSessionReset = true
+        defer { isConfirmingSessionReset = false }
+        let generation = confirmationGeneration
+        guard confirmSessionReset(), generation == confirmationGeneration, loginTask == nil else { return }
+        enqueueLogin(resetLocalSession: true)
+    }
+
+    /// Starts ordinary browser login without resetting any existing session.
     func startLogin() {
+        enqueueLogin(resetLocalSession: false)
+    }
+
+    private func enqueueLogin(resetLocalSession: Bool) {
         if let knownURL, loginTask != nil {
             Task { [urlOpener] in _ = await urlOpener.open(knownURL) }
             return
         }
         guard loginTask == nil else { return }
         loginTask = Task { @MainActor [weak self] in
-            await self?.runLoginFlow()
+            await self?.runLoginFlow(resetLocalSession: resetLocalSession)
         }
     }
 
@@ -83,14 +121,15 @@ final class PassCLILoginCoordinator {
     func cancel() {
         currentProcess?.terminate()
         loginTask?.cancel()
-        loginTask = nil
-        currentProcess = nil
+        confirmationGeneration += 1
+        // Keep ownership until the cancelled task unwinds; cleanup may still be
+        // terminating, and a new request must not overlap session mutation.
         knownURL = nil
         state = .idle
     }
 
-    private func runLoginFlow() async {
-        state = .waitingForURL
+    private func runLoginFlow(resetLocalSession: Bool) async {
+        let executablePath = cliService.cliPath
         defer {
             loginTask = nil
             currentProcess = nil
@@ -98,49 +137,78 @@ final class PassCLILoginCoordinator {
         }
 
         do {
-            let process = try runner.start(
-                executablePath: cliService.cliPath,
-                arguments: ["login"],
-                capturePolicy: .redacted(PassCLILoginParser.redactedForCapture)
-            )
-            currentProcess = process
-
-            let url = try await waitForLoginURL(in: process)
-            knownURL = url
-            state = .waitingForBrowser
-
-            guard await urlOpener.open(url) else {
-                process.terminate()
-                fail("Could not open Proton login URL")
-                return
+            try Task.checkCancellation()
+            state = resetLocalSession ? .resettingSession : .waitingForURL
+            if resetLocalSession {
+                try await self.resetLocalSession(at: executablePath)
             }
-
-            let result = try await waitForCompletion(process)
-            guard result.succeeded else {
-                let diagnostic = result.stderr.isEmpty ? result.stdout : result.stderr
-                let message = PassCLILoginParser.sanitizedMessage(from: diagnostic)
-                fail(message.isEmpty ? "pass-cli login failed" : message)
-                return
-            }
-
-            let health = await healthRefresher.refreshPassCLIHealth()
-            guard health == .ok else {
-                fail("Login finished, but Pass CLI is still not connected")
-                return
-            }
-
-            state = .succeeded
-            resultHandler(.succeeded)
-            await syncTrigger()
-        } catch is CancellationError {
-            currentProcess?.terminate()
-        } catch LoginFlowError.urlNotFound {
-            currentProcess?.terminate()
-            fail("The pass-cli login URL could not be found")
-        } catch LoginFlowError.loginTimedOut {
-            currentProcess?.terminate()
-            fail("Login timed out before browser authentication completed")
+            try Task.checkCancellation()
+            state = .waitingForURL
+            try await runBrowserLogin(executablePath: executablePath)
         } catch {
+            handleLoginFailure(error)
+        }
+    }
+
+    private func runBrowserLogin(executablePath: String) async throws {
+        let process = try runner.start(
+            executablePath: executablePath,
+            arguments: ["login"],
+            capturePolicy: .redacted(PassCLILoginParser.redactedForCapture)
+        )
+        currentProcess = process
+
+        let url = try await waitForLoginURL(in: process)
+        try Task.checkCancellation()
+        knownURL = url
+        state = .waitingForBrowser
+
+        let opened = await urlOpener.open(url)
+        try Task.checkCancellation()
+        guard opened else {
+            process.terminate()
+            fail("Could not open Proton login URL")
+            return
+        }
+
+        let result = try await waitForCompletion(process)
+        try Task.checkCancellation()
+        guard result.succeeded else {
+            let diagnostic = result.stderr.isEmpty ? result.stdout : result.stderr
+            if CLIError.commandFailed(diagnostic).isLocalSessionDecryptionError {
+                throw LoginFlowError.localSessionUnreadable
+            }
+            let message = PassCLILoginParser.sanitizedMessage(from: diagnostic)
+            fail(message.isEmpty ? "pass-cli login failed" : message)
+            return
+        }
+
+        let health = await healthRefresher.refreshPassCLIHealth()
+        try Task.checkCancellation()
+        guard health == .ok else {
+            fail("Login finished, but Pass CLI is still not connected")
+            return
+        }
+
+        state = .succeeded
+        resultHandler(.succeeded)
+        await syncTrigger()
+    }
+
+    private func handleLoginFailure(_ error: any Error) {
+        currentProcess?.terminate()
+        guard !Task.isCancelled, !(error is CancellationError) else { return }
+        switch error {
+        case LoginFlowError.localSessionUnreadable:
+            state = .localSessionUnreadable
+            resultHandler(.localSessionUnreadable)
+        case LoginFlowError.sessionResetFailed:
+            fail(String(localized: "Could not reset the local CLI session. No browser login was started."))
+        case LoginFlowError.urlNotFound:
+            fail("The pass-cli login URL could not be found")
+        case LoginFlowError.loginTimedOut:
+            fail("Login timed out before browser authentication completed")
+        default:
             fail(PassCLILoginParser.sanitizedMessage(from: error.localizedDescription))
         }
     }
@@ -152,12 +220,30 @@ final class PassCLILoginCoordinator {
     }
 }
 
-private enum LoginFlowError: Error, Equatable {
+private nonisolated enum LoginFlowError: Error, Equatable {
     case urlNotFound
     case loginTimedOut
+    case localSessionUnreadable
+    case sessionResetFailed
 }
 
 private extension PassCLILoginCoordinator {
+    /// Delegates confirmed cleanup to the CLI, without direct file/key removal or offline-data purge.
+    func resetLocalSession(at executablePath: String) async throws {
+        try Task.checkCancellation()
+        revokeTransientSecretAccess()
+        do {
+            _ = try await sessionResetRunner.run(
+                executablePath: executablePath, arguments: ["logout", "--force"],
+                timeout: 30, maximumOutputBytes: 8_192
+            )
+        } catch {
+            try Task.checkCancellation()
+            throw LoginFlowError.sessionResetFailed
+        }
+        try Task.checkCancellation()
+    }
+
     func waitForLoginURL(in process: CLIStreamingProcess) async throws -> URL {
         let timeout = urlDiscoveryTimeout
         return try await withThrowingTaskGroup(of: URL.self) { group in
@@ -167,6 +253,10 @@ private extension PassCLILoginCoordinator {
                     switch chunk {
                     case .stdout(let text), .stderr(let text):
                         output += text
+                    }
+                    try Task.checkCancellation()
+                    if CLIError.commandFailed(output).isLocalSessionDecryptionError {
+                        throw LoginFlowError.localSessionUnreadable
                     }
                     if let url = PassCLILoginParser.authenticationURL(in: output) { return url }
                     output = String(output.suffix(8_000))

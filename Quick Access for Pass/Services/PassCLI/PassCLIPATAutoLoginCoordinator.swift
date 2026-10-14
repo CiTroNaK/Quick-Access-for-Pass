@@ -33,8 +33,8 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
 
     func handleCLIHealthTransition(to health: PassCLIHealth) {
         switch health {
-        case .notLoggedIn:
-            startAutomaticAttemptIfNeeded()
+        case .notLoggedIn, .localSessionUnreadable:
+            startAutomaticAttemptIfNeeded(health: health)
         case .ok:
             attemptedInCurrentLoggedOutEpisode = false
             fallbackHandler.handleCLIHealthTransition(to: health)
@@ -47,11 +47,11 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
         await currentAttempt?.value
     }
 
-    private func startAutomaticAttemptIfNeeded() {
+    private func startAutomaticAttemptIfNeeded(health: PassCLIHealth) {
         guard attemptedInCurrentLoggedOutEpisode == false else { return }
         guard currentAttempt == nil else { return }
         guard browserLoginIsRunning() == false else {
-            fallbackHandler.handleCLIHealthTransition(to: .notLoggedIn)
+            fallbackHandler.handleCLIHealthTransition(to: health)
             return
         }
 
@@ -60,7 +60,7 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
             defer { self.currentAttempt = nil }
 
             guard await self.credentialStore.hasToken() else {
-                self.fallbackHandler.handleCLIHealthTransition(to: .notLoggedIn)
+                self.fallbackHandler.handleCLIHealthTransition(to: health)
                 return
             }
 
@@ -71,7 +71,7 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
             case .succeeded:
                 return
             case .missingToken:
-                self.fallbackHandler.handleCLIHealthTransition(to: .notLoggedIn)
+                self.fallbackHandler.handleCLIHealthTransition(to: health)
             case .notInstalled:
                 self.fallbackHandler.handleCLIHealthTransition(to: .notInstalled)
             case .invalidToken:
@@ -79,7 +79,7 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
                 self.invalidPATHandler(result.userFacingMessage)
             case .timeout, .failed, .healthStillNotOK:
                 self.patFailureHandler(result.userFacingMessage)
-                self.fallbackHandler.handleCLIHealthTransition(to: .notLoggedIn)
+                self.fallbackHandler.handleCLIHealthTransition(to: health)
             }
         }
     }
