@@ -40,17 +40,17 @@ struct PassCLIPATCredentialStoreTests {
         let serviceName = "codes.petr.quick-access-for-pass.tests.pat.\(UUID().uuidString)"
         let store = KeychainPassCLIPATCredentialStore(serviceName: serviceName)
 
-        #expect(await store.hasToken() == false)
+        #expect(try await store.hasToken() == false)
         #expect(try await store.loadToken() == nil)
 
         try await store.saveToken("pst_test_token::secret")
 
-        #expect(await store.hasToken() == true)
+        #expect(try await store.hasToken() == true)
         #expect(try await store.loadToken() == "pst_test_token::secret")
 
         try await store.deleteToken()
 
-        #expect(await store.hasToken() == false)
+        #expect(try await store.hasToken() == false)
         #expect(try await store.loadToken() == nil)
     }
 

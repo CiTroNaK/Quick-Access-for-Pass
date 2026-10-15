@@ -186,7 +186,7 @@ struct PassCLIPATAutoLoginCoordinatorTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func failedPATLoginWarnsFallsBackAndDoesNotDeleteToken() async throws {
+    func failedPATLoginWarnsWithoutBrowserFallbackOrDeletingToken() async throws {
         let store = FakePATAutoLoginCredentialStore(token: "pst_test_token::secret")
         let fallback = FakeTransitionHandler()
         let runner = FakePATLoginRunner(results: [.failed("invalid token")])
@@ -205,7 +205,7 @@ struct PassCLIPATAutoLoginCoordinatorTests {
 
         #expect(try await store.loadToken() == "pst_test_token::secret")
         #expect(failures.messages == ["invalid token"])
-        #expect(fallback.transitions == [.notLoggedIn])
+        #expect(fallback.transitions.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -257,6 +257,6 @@ struct PassCLIPATAutoLoginCoordinatorTests {
         await coordinator.waitForCurrentAttempt()
 
         #expect(runner.callCount == 2)
-        #expect(fallback.transitions == [.notLoggedIn, .ok])
+        #expect(fallback.transitions == [.ok])
     }
 }

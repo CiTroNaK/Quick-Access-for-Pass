@@ -5,15 +5,21 @@ nonisolated protocol PassCLIPATCredentialStoring: Sendable {
     func loadToken() async throws -> String?
     func saveToken(_ token: String) async throws
     func deleteToken() async throws
-    func hasToken() async -> Bool
+    /// Returns false only for confirmed absence; throws when presence cannot be checked.
+    func hasToken() async throws -> Bool
 }
 
 actor KeychainPassCLIPATCredentialStore: PassCLIPATCredentialStoring {
     private let serviceName: String
     private let account = "pass-cli-personal-access-token"
+    private let presenceQuery: @Sendable (CFDictionary) -> OSStatus
 
-    init(serviceName: String = "codes.petr.quick-access-for-pass") {
+    init(
+        serviceName: String = "codes.petr.quick-access-for-pass",
+        presenceQuery: @escaping @Sendable (CFDictionary) -> OSStatus = { SecItemCopyMatching($0, nil) }
+    ) {
         self.serviceName = serviceName
+        self.presenceQuery = presenceQuery
     }
 
     func loadToken() async throws -> String? {
@@ -96,7 +102,7 @@ actor KeychainPassCLIPATCredentialStore: PassCLIPATCredentialStoring {
         }
     }
 
-    func hasToken() async -> Bool {
+    func hasToken() async throws -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
@@ -104,14 +110,14 @@ actor KeychainPassCLIPATCredentialStore: PassCLIPATCredentialStoring {
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecUseDataProtectionKeychain as String: true,
         ]
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        let status = presenceQuery(query as CFDictionary)
         switch status {
         case errSecSuccess:
             return true
-        case errSecItemNotFound, errSecInteractionNotAllowed:
+        case errSecItemNotFound:
             return false
         default:
-            return false
+            throw KeychainError.retrieveFailed(status)
         }
     }
 }

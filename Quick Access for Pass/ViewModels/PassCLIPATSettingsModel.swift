@@ -34,7 +34,10 @@ final class PassCLIPATSettingsModel {
     }
 
     func refreshSavedTokenState() async {
-        hasSavedToken = await credentialStore.hasToken()
+        // Retain the last display state when Keychain is temporarily unavailable.
+        if let hasToken = try? await credentialStore.hasToken() {
+            hasSavedToken = hasToken
+        }
     }
 
     func saveAndLogin(token: String) async {

@@ -60,9 +60,10 @@ struct SyncCoordinatorSyncIssueTests {
         #expect(updates == [nil])
     }
 
-    @Test("sync auth errors let PAT recovery decide whether Login is needed",
+    @Test("sync auth errors prompt browser sign-in only for a confirmed missing PAT",
           .timeLimit(.minutes(1)),
-          arguments: [PassCLIPATLoginResult.succeeded, .missingToken, .invalidToken, .failed("offline")])
+          arguments: [PassCLIPATLoginResult.succeeded, .missingToken, .invalidToken,
+                      .failed("offline"), .timeout, .healthStillNotOK("unhealthy")])
     func authErrorsRouteThroughPATRecovery(result: PassCLIPATLoginResult) async throws {
         let harness = try makeHarness(error: CLIError.notLoggedIn)
         let viewModel = harness.viewModel
@@ -73,6 +74,10 @@ struct SyncCoordinatorSyncIssueTests {
             showLoginRequired: {
                 viewModel.syncProgress = nil
                 viewModel.syncError = .loginRequired()
+            },
+            showPATLoginFailure: { message in
+                viewModel.syncProgress = nil
+                viewModel.syncError = .patLoginFailed(userFacingMessage: message)
             }
         )
         var loginCount = 0
@@ -85,7 +90,7 @@ struct SyncCoordinatorSyncIssueTests {
                 return result
             },
             fallbackHandler: fallback,
-            patFailureHandler: { _ in },
+            patFailureHandler: { fallback.handlePATLoginFailure($0) },
             invalidPATHandler: { message in
                 viewModel.syncProgress = nil
                 viewModel.syncError = .invalidPAT(userFacingMessage: message)
@@ -119,10 +124,15 @@ struct SyncCoordinatorSyncIssueTests {
             case .succeeded:
                 #expect(viewModel.syncError == nil)
                 #expect(viewModel.syncProgress == .loggingInWithSavedPAT())
-            case .invalidToken:
-                #expect(viewModel.syncError?.action == .updatePAT)
-            default:
+            case .missingToken:
                 #expect(viewModel.syncError?.action == .login)
+                #expect(viewModel.syncProgress == nil)
+            case .invalidToken, .failed, .timeout, .healthStillNotOK:
+                #expect(viewModel.syncError?.action == .updatePAT)
+                #expect(viewModel.syncError?.visibleMessage == result.userFacingMessage)
+                #expect(viewModel.syncProgress == nil)
+            default:
+                Issue.record("Unexpected fixture result")
             }
         }
     }

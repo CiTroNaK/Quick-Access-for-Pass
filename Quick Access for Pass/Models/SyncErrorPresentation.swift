@@ -34,6 +34,11 @@ nonisolated struct SyncErrorPresentation: Equatable, Sendable {
     }
 
     static func invalidPAT(userFacingMessage: String) -> SyncErrorPresentation {
+        patLoginFailed(userFacingMessage: userFacingMessage)
+    }
+
+    /// Offers PAT settings without classifying every failure as an invalid token.
+    static func patLoginFailed(userFacingMessage: String) -> SyncErrorPresentation {
         SyncErrorPresentation(
             visibleMessage: userFacingMessage,
             diagnosticReport: nil,

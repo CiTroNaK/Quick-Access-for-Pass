@@ -89,6 +89,9 @@ extension AppDelegate {
             },
             clearLoginRequired: { [weak self] in
                 self?.clearLoginRequiredSyncIssue()
+            },
+            showPATLoginFailure: { [weak self] message in
+                self?.showPATLoginFailureSyncIssue(userFacingMessage: message)
             }
         )
         if requestsAuthorization {

@@ -60,7 +60,14 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
             guard let self else { return }
             defer { self.currentAttempt = nil }
 
-            let hasToken = await self.credentialStore.hasToken()
+            let hasToken: Bool
+            do {
+                hasToken = try await self.credentialStore.hasToken()
+            } catch {
+                // Unavailable is not absent. Recheck on a later health tick,
+                // without consuming the episode or prompting browser sign-in.
+                return
+            }
             guard !Task.isCancelled, gate.owns(lease) else { return }
             let health = self.currentHealth()
             guard health.requiresAuthenticationRecovery else { return }
@@ -73,11 +80,11 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
             self.autoLoginStartedHandler()
             let result = await self.loginWithSavedToken(lease)
             guard !Task.isCancelled else { return }
-            self.handleResult(result, health: health)
+            self.handleResult(result)
         }
     }
 
-    private func handleResult(_ result: PassCLIPATLoginResult, health: PassCLIHealth) {
+    private func handleResult(_ result: PassCLIPATLoginResult) {
         switch result {
         case .succeeded:
             return
@@ -92,8 +99,8 @@ final class PassCLIPATAutoLoginCoordinator: PassCLIHealthTransitionHandling {
             patFailureHandler(result.userFacingMessage)
             invalidPATHandler(result.userFacingMessage)
         case .timeout, .failed, .healthStillNotOK:
+            // Saved-PAT failures belong to PAT presentation, not browser login.
             patFailureHandler(result.userFacingMessage)
-            fallbackHandler.handleCLIHealthTransition(to: health)
         }
     }
 }

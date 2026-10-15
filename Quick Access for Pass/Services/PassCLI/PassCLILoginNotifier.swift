@@ -53,6 +53,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
     private let startLogin: @MainActor @Sendable () -> Void
     private let showLoginRequired: @MainActor @Sendable () -> Void
     private let clearLoginRequired: @MainActor @Sendable () -> Void
+    private let showPATLoginFailure: @MainActor @Sendable (String) -> Void
     private var hasPostedForCurrentLogout = false
     private var isLoggedOutEpisodeActive = false
 
@@ -61,12 +62,14 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         poster: any PassCLILoginNotificationPosting = LivePassCLILoginNotificationPoster(),
         startLogin: @escaping @MainActor @Sendable () -> Void,
         showLoginRequired: @escaping @MainActor @Sendable () -> Void = {},
-        clearLoginRequired: @escaping @MainActor @Sendable () -> Void = {}
+        clearLoginRequired: @escaping @MainActor @Sendable () -> Void = {},
+        showPATLoginFailure: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.poster = poster
         self.startLogin = startLogin
         self.showLoginRequired = showLoginRequired
         self.clearLoginRequired = clearLoginRequired
+        self.showPATLoginFailure = showPATLoginFailure
         let login = UNNotificationAction(identifier: Self.loginActionIdentifier, title: String(localized: "Log In"), options: [])
         let category = UNNotificationCategory(identifier: Self.categoryIdentifier, actions: [login], intentIdentifiers: [])
         notificationRouter?.registerCategory(category)
@@ -123,6 +126,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
     }
 
     func handlePATLoginFailure(_ message: String) {
+        showPATLoginFailure(message)
         let title = String(localized: "Personal access token login failed")
         let body = String(localized: "Replace the saved token or log in normally from Settings → Pass CLI.")
         AccessibilityNotification.Announcement("\(title). \(body)").post()
