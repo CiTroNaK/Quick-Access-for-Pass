@@ -169,6 +169,15 @@ accepted host-compromise, backup, memory-clearing, and already-released-value
 risks. No legacy cache import, compatibility reader, transfer, or automatic
 file/Keychain cleanup is permitted.
 
+Offline catalog presentation uses a set-based item-metadata projection and an
+explicit constant observation region so production `DatabasePool` refreshes can
+run off the writer queue. Keep all six catalog dependencies covered (items,
+vaults, offline selections, whole-vault policies, exclusions, and snapshot
+usability metadata), including when observation starts empty. Never reintroduce
+per-item reads, fetch snapshot payload bytes into presentation, or use displayed
+state as release authority. Test pool scheduling with a temporary encrypted pool;
+in-memory queue tests cannot verify that optimization.
+
 ## Database Schema
 
 `DatabaseManager` currently defines **14 migrations**:
