@@ -53,10 +53,14 @@ nonisolated struct CLIItemListParseResult: Sendable {
     let skippedItems: [SkippedSyncItem]
     let totalItemCount: Int
     let presenceUncertainty: SyncItemPresenceUncertainty
+    let contentProvenance: CLISnapshotContentProvenance
 }
 
 nonisolated enum CLIItemListLossyParser {
-    static func parse(_ data: Data, vaultId: String, vaultName: String, shareId: String) throws -> CLIItemListParseResult {
+    static func parse(
+        _ data: Data, vaultId: String, vaultName: String, shareId: String,
+        contentProvenance: CLISnapshotContentProvenance = .unavailable
+    ) throws -> CLIItemListParseResult {
         let root = try rootObject(from: data)
         guard let rawItems = root["items"] as? [Any] else {
             throw CLIError.parseError("item list: missing 'items' at <root>")
@@ -67,12 +71,19 @@ nonisolated enum CLIItemListLossyParser {
         var skippedItemIDs: Set<String> = []
         var hasUnidentifiedSkippedItems = false
         let decoder = JSONDecoder()
+        var complete = contentProvenance == .completeJSONV1
 
         for (index, rawItem) in rawItems.enumerated() {
             do {
                 let itemData = try JSONSerialization.data(withJSONObject: rawItem, options: [.fragmentsAllowed])
-                decodedItems.append(try decoder.decode(CLIItem.self, from: itemData))
+                let item = try decoder.decode(CLIItem.self, from: itemData)
+                decodedItems.append(item)
+                if complete {
+                    complete = item.vaultId == vaultId && item.shareId == shareId
+                        && CLISnapshotContentProvenance.validatesShape(rawItem, of: item)
+                }
             } catch {
+                complete = false
                 if let id = itemId(from: rawItem), !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     skippedItemIDs.insert(id)
                 } else {
@@ -97,7 +108,8 @@ nonisolated enum CLIItemListLossyParser {
             presenceUncertainty: SyncItemPresenceUncertainty(
                 vaultID: vaultId, skippedItemIDs: skippedItemIDs,
                 hasUnidentifiedSkippedItems: hasUnidentifiedSkippedItems
-            )
+            ),
+            contentProvenance: complete ? .completeJSONV1 : .unavailable
         )
     }
 

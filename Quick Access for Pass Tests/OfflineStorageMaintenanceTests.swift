@@ -234,7 +234,9 @@ struct OfflineStorageMaintenanceTests {
             itemID: "item", vaultID: "vault", shareID: "share", kind: .selection
         ))
         let corrupt = fixture.snapshot(for: corruptRequest)
-        #expect(try await fixture.repository.publish(corrupt, for: corruptRequest, refreshedAt: .now))
+        #expect(try await fixture.repository.publish(
+            PreparedOfflineSnapshot(snapshot: corrupt, sourceModifyTime: nil), for: corruptRequest, refreshedAt: .now
+        ))
         try await fixture.repository.discardCorruptSnapshot(corrupt)
         await fixture.checkpointer.waitForAttempt(4)
         #expect(try await fixture.repository.hasPersistedSnapshots() == false)

@@ -2,8 +2,17 @@ import Foundation
 
 /// Operation-scoped encryption and decoding for offline snapshots.
 nonisolated protocol OfflineSnapshotCoding: Sendable {
-    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot
+    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> PreparedOfflineSnapshot
+    func prepareSnapshot(from item: CLIItem, for identity: OfflineSnapshotPreparationIdentity) async throws -> PreparedOfflineSnapshot
     func decodeSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws -> CLIItem
+}
+
+nonisolated extension OfflineSnapshotCoding {
+    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> PreparedOfflineSnapshot {
+        try await prepareSnapshot(from: item, for: OfflineSnapshotPreparationIdentity(
+            key: request.key, shareID: request.shareID, itemType: request.itemType
+        ))
+    }
 }
 
 /// Encrypts and decrypts one snapshot at a time without retaining key or plaintext resources.
@@ -27,10 +36,12 @@ actor OfflineSnapshotCodec: OfflineSnapshotCoding {
         self.hasPersistedSnapshots = hasPersistedSnapshots
     }
 
-    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+    func prepareSnapshot(from item: CLIItem, for request: OfflineSnapshotPreparationIdentity) async throws -> PreparedOfflineSnapshot {
+        try Task.checkCancellation()
         try validate(request: request, item: item)
         var material = try await encryptionKeyMaterial()
         defer { material.resetBytes(in: 0..<material.count) }
+        try Task.checkCancellation()
 
         let cipher: OfflineSnapshotCipher
         do {
@@ -45,6 +56,7 @@ actor OfflineSnapshotCodec: OfflineSnapshotCoding {
             throw Error.corruptSnapshot
         }
         defer { plaintext.resetBytes(in: 0..<plaintext.count) }
+        try Task.checkCancellation()
         guard plaintext.count <= OfflineSnapshotLimits.plaintextBytes else {
             throw Error.payloadTooLarge
         }
@@ -54,13 +66,19 @@ actor OfflineSnapshotCodec: OfflineSnapshotCoding {
             revision: UUID(),
             keyFingerprint: cipher.fingerprint
         )
+        let payload: Data
         do {
-            return EncryptedOfflineSnapshot(identity: identity, payload: try cipher.seal(plaintext, for: identity))
+            payload = try cipher.seal(plaintext, for: identity)
         } catch let error as OfflineSnapshotCipher.Error {
             throw map(error)
         } catch {
             throw Error.corruptSnapshot
         }
+        try Task.checkCancellation()
+        return PreparedOfflineSnapshot(
+            snapshot: EncryptedOfflineSnapshot(identity: identity, payload: payload),
+            sourceModifyTime: OfflineSourceModificationTime.parse(item.modifyTime)
+        )
     }
 
     func decodeSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws -> CLIItem {
@@ -118,7 +136,7 @@ actor OfflineSnapshotCodec: OfflineSnapshotCoding {
         return try await keyMaterialProvider.createSnapshotKey()
     }
 
-    private nonisolated func validate(request: OfflineRequestToken, item: CLIItem) throws {
+    private nonisolated func validate(request: OfflineSnapshotPreparationIdentity, item: CLIItem) throws {
         guard request.key.schemaVersion == OfflineSnapshotLimits.schemaVersion else {
             throw Error.unsupportedSchemaVersion
         }

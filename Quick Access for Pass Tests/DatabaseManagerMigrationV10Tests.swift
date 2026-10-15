@@ -21,7 +21,10 @@ struct DatabaseManagerMigrationV10Tests {
             )
         }
         #expect(Set(schema.0) == ["vaultId", "enabledAt", "policyGeneration"])
-        #expect(Set(schema.1) == ["itemId", "vaultId", "selectedAt", "lastRefreshedAt", "cacheStatus", "pendingRequestId", "isManuallySelected", "selectionGeneration"])
+        #expect(Set(schema.1) == [
+            "itemId", "vaultId", "selectedAt", "lastRefreshedAt", "cacheStatus", "pendingRequestId",
+            "isManuallySelected", "selectionGeneration", "metadataGeneration", "requestGeneration"
+        ])
 
         let preservedData = try database.reader.read { db in
             (

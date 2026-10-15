@@ -65,6 +65,8 @@ extension OfflineModeService {
     func prepareForMetadataReset() async throws {
         resetSuspended = true
         try await removeAllOfflineData()
+        // Purge/revocation commits immediately; clearing metadata waits for actual old frames.
+        await waitForSyncOperations()
     }
 
     func finishMetadataReset() async {
@@ -78,12 +80,15 @@ extension OfflineModeService {
         observationIsFresh = false
         workGeneration = UUID()
         lifecycleGeneration = UUID()
+        stopAdmissionMarker()
         let task = initializationTask
         let scheduler = self.scheduler
         task?.cancel()
         if let task { _ = await task.result }
         while !permits.isEmpty { await withCheckedContinuation { permitDrainWaiters.append($0) } }
+        await revokeSyncCaptureAuthority()
         await scheduler?.stop()
+        await waitForSyncOperations()
         initializationTask = nil
         initializationAttemptID = nil
     }

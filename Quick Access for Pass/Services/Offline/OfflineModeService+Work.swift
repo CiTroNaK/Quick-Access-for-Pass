@@ -67,6 +67,9 @@ extension OfflineModeService {
         let selectionGeneration: UUID
     }
 
+    /// Held only around metadata capture creation, never fetch, crypto or publication.
+    func grantSyncCapturePermit() throws -> OfflineSelectionPermit { try grantPermit(scope: .all, vaultID: "") }
+
     /// Checking admission and recording ownership is one synchronous actor turn.
     private func grantPermit(scope: WorkScope, vaultID: String,
                              manualWork: ManualWorkProof? = nil) throws -> OfflineSelectionPermit {

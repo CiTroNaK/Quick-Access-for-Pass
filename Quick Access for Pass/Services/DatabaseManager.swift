@@ -5,6 +5,7 @@ nonisolated final class DatabaseManager: Sendable {
     let writer: any DatabaseWriter
     let reader: any DatabaseReader
     let offlineReleaseAuthority = OfflineReleaseAuthority()
+    private let syncOperationAuthority = SyncOperationAuthority()
     let offlineMutationTesting: OfflineMutationTesting?
 
     /// Production initializer: opens encrypted database at the given path.
@@ -41,8 +42,14 @@ nonisolated final class DatabaseManager: Sendable {
 
     // MARK: - Utility
 
+    func beginSyncOperation() -> SyncOperationToken { syncOperationAuthority.beginOperation() }
+
+    func invalidateSyncOperations() { syncOperationAuthority.invalidate() }
+
     func clearAll() throws {
+        invalidateSyncOperations()
         try writeOfflineMutation(submissionScope: .all) { db in
+            try db.execute(sql: "DELETE FROM offlineSyncCaptures")
             try PassItem.deleteAll(db)
             try PassVault.deleteAll(db)
             return OfflineMutationUpdate(value: (), manualPromotions: [])
@@ -51,7 +58,9 @@ nonisolated final class DatabaseManager: Sendable {
 
     /// Clears ordinary metadata and cascaded offline selections in one database transaction.
     func clearMetadata() async throws {
+        invalidateSyncOperations()
         try await writeOfflineMutation(submissionScope: .all) { db in
+            try db.execute(sql: "DELETE FROM offlineSyncCaptures")
             try PassItem.deleteAll(db)
             try PassVault.deleteAll(db)
             return OfflineMutationUpdate(value: (), manualPromotions: [])

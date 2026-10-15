@@ -158,6 +158,21 @@ private actor SelectionCandidateGatedRepository: OfflineSnapshotPersisting {
     private let base: OfflineSnapshotRepository
     private var gate: OfflineTestGate?
     nonisolated var releaseAuthority: OfflineReleaseAuthority { base.releaseAuthority }
+    func beginSyncCapture(operation: SyncOperationToken, lifecycleGeneration: UUID) async throws -> OfflineSyncCapture {
+        try await base.beginSyncCapture(operation: operation, lifecycleGeneration: lifecycleGeneration)
+    }
+    func syncWork(capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
+                  sourceTimes: [String: Date], allowMembershipExpansion: Bool) async throws -> [OfflineSyncWork] {
+        try await base.syncWork(capture: capture, metadataProofs: metadataProofs, sourceTimes: sourceTimes,
+                                allowMembershipExpansion: allowMembershipExpansion)
+    }
+    func endSyncCapture(_ capture: OfflineSyncCapture) async throws { try await base.endSyncCapture(capture) }
+    func publishSyncBatch(_ publications: [OfflineSyncPublication], capture: OfflineSyncCapture) async throws -> Set<OfflineSnapshotKey> {
+        try await base.publishSyncBatch(publications, capture: capture)
+    }
+    func finishSyncFailures(_ work: [OfflineSyncWork], capture: OfflineSyncCapture) async throws {
+        try await base.finishSyncFailures(work, capture: capture)
+    }
 
     init(base: OfflineSnapshotRepository, gate: OfflineTestGate) {
         self.base = base
@@ -172,7 +187,7 @@ private actor SelectionCandidateGatedRepository: OfflineSnapshotPersisting {
         try await base.beginRequest(itemID: itemID, vaultID: vaultID, shareID: shareID, kind: kind,
                                     expectations: expectations)
     }
-    func publish(_ snapshot: EncryptedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool {
+    func publish(_ snapshot: PreparedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool {
         try await base.publish(snapshot, for: request, refreshedAt: refreshedAt)
     }
     func finishRequest(_ request: OfflineRequestToken, failed: Bool) async throws { try await base.finishRequest(request, failed: failed) }

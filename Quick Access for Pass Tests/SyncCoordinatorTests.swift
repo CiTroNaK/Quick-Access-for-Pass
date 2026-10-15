@@ -114,7 +114,8 @@ private actor RecordingIdentitySynchronizer: AutoFillIdentitySynchronizing {
         self.database = database
     }
 
-    func reconcile(descriptors: [AutoFillCredentialDescriptor]) async throws {
+    func reconcile(descriptors: [AutoFillCredentialDescriptor], isCurrent: @escaping @Sendable () -> Bool) async throws {
+        guard isCurrent() else { throw CancellationError() }
         calls += 1
         sawCommittedDescriptors = (try database.allAutoFillDescriptors()) == descriptors
     }
@@ -147,13 +148,15 @@ private actor BlockingIdentitySynchronizer: AutoFillIdentitySynchronizing {
     private var startedContinuation: CheckedContinuation<Void, Never>?
     private var resumeContinuation: CheckedContinuation<Void, Never>?
 
-    func reconcile(descriptors: [AutoFillCredentialDescriptor]) async throws {
+    func reconcile(descriptors: [AutoFillCredentialDescriptor], isCurrent: @escaping @Sendable () -> Bool) async throws {
+        guard isCurrent() else { throw CancellationError() }
         hasStarted = true
         startedContinuation?.resume()
         startedContinuation = nil
         await withCheckedContinuation { continuation in
             resumeContinuation = continuation
         }
+        guard isCurrent() else { throw CancellationError() }
     }
 
     func waitUntilReconcileStarted() async {

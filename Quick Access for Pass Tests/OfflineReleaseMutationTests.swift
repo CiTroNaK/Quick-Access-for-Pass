@@ -124,7 +124,11 @@ struct OfflineReleaseMutationTests {
         let request = try #require(try await fixture.repository.beginRequest(itemID: "item", vaultID: "vault", shareID: "share", kind: .refresh))
         let release = try await capability(fixture.repository)
         let before = try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item")
-        let invalidRequest = OfflineRequestToken(id: UUID(), key: request.key, shareID: request.shareID, metadataModifyTime: request.metadataModifyTime, itemType: request.itemType, selectionGeneration: request.selectionGeneration)
+        let invalidRequest = OfflineRequestToken(
+            id: UUID(), key: request.key, shareID: request.shareID, metadataModifyTime: request.metadataModifyTime,
+            itemType: request.itemType, selectionGeneration: request.selectionGeneration,
+            metadataGeneration: request.metadataGeneration, requestGeneration: request.requestGeneration
+        )
         let item = try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "new")
         let snapshot = try await fixture.codec().prepareSnapshot(from: item, for: request)
         #expect(try await fixture.repository.publish(snapshot, for: invalidRequest, refreshedAt: .now) == false)
@@ -148,7 +152,7 @@ struct OfflineReleaseMutationTests {
         #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == before)
         #expect(try release.withRelease(validating: {}, effect: { true }))
         let current = try await capability(fixture.repository)
-        try await fixture.repository.discardCorruptSnapshot(replacement)
+        try await fixture.repository.discardCorruptSnapshot(replacement.snapshot)
         #expect(throws: OfflineReleaseError.revoked) { try current.withRelease(validating: {}, effect: { true }) }
     }
 
@@ -333,7 +337,7 @@ struct OfflineReleaseMutationTests {
         await afterHook.open()
         #expect(try await mutation.value)
         let persisted = try #require(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item"))
-        #expect(persisted.payload == snapshot.payload)
+        #expect(persisted.payload == snapshot.snapshot.payload)
         #expect(persisted.selection.lastRefreshedAt == .distantFuture)
         #expect(persisted.pendingRequestID == nil)
     }

@@ -10,7 +10,9 @@ struct OfflineSnapshotCodecTests {
         shareID: "share",
         metadataModifyTime: Date(timeIntervalSince1970: 2),
         itemType: .login,
-        selectionGeneration: UUID()
+        selectionGeneration: UUID(),
+        metadataGeneration: UUID(),
+        requestGeneration: UUID()
     )
 
     @Test func codecEncryptsAndDecodesAnAuthorizedCLIItem() async throws {
@@ -24,9 +26,9 @@ struct OfflineSnapshotCodecTests {
 
         let snapshot = try await codec.prepareSnapshot(from: item, for: request)
 
-        #expect(snapshot.payload != Data("fake-password".utf8))
-        #expect(snapshot.identity.key == request.key)
-        #expect(try await codec.decodeSnapshot(snapshot).id == item.id)
+        #expect(snapshot.snapshot.payload != Data("fake-password".utf8))
+        #expect(snapshot.snapshot.identity.key == request.key)
+        #expect(try await codec.decodeSnapshot(snapshot.snapshot).id == item.id)
     }
 
     @Test(arguments: [
@@ -76,7 +78,7 @@ struct OfflineSnapshotCodecTests {
         let item = try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "fake-password")
 
         let snapshot = try await codec.prepareSnapshot(from: item, for: request)
-        _ = try await codec.decodeSnapshot(snapshot)
+        _ = try await codec.decodeSnapshot(snapshot.snapshot)
 
         #expect(await keys.existingLookupCount() == 2)
     }
@@ -103,9 +105,9 @@ struct OfflineSnapshotCodecTests {
         let encoder = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { false })
         let item = try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "fake-password")
         let snapshot = try await encoder.prepareSnapshot(from: item, for: request)
-        var payload = snapshot.payload
+        var payload = snapshot.snapshot.payload
         payload[0] ^= 1
-        let corrupt = EncryptedOfflineSnapshot(identity: snapshot.identity, payload: payload)
+        let corrupt = EncryptedOfflineSnapshot(identity: snapshot.snapshot.identity, payload: payload)
 
         await #expect(throws: OfflineSnapshotCodec.Error.corruptSnapshot) {
             _ = try await encoder.decodeSnapshot(corrupt)
@@ -116,7 +118,7 @@ struct OfflineSnapshotCodecTests {
             hasPersistedSnapshots: { true }
         )
         await #expect(throws: OfflineSnapshotCodec.Error.keyUnavailable) {
-            _ = try await wrongKeyCodec.decodeSnapshot(snapshot)
+            _ = try await wrongKeyCodec.decodeSnapshot(snapshot.snapshot)
         }
     }
 
@@ -127,21 +129,38 @@ struct OfflineSnapshotCodecTests {
         let unsupported = EncryptedOfflineSnapshot(
             identity: OfflineSnapshotIdentity(
                 key: OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: 2),
-                revision: snapshot.identity.revision,
-                keyFingerprint: snapshot.identity.keyFingerprint
+                revision: snapshot.snapshot.identity.revision,
+                keyFingerprint: snapshot.snapshot.identity.keyFingerprint
             ),
-            payload: snapshot.payload
+            payload: snapshot.snapshot.payload
         )
         await #expect(throws: OfflineSnapshotCodec.Error.unsupportedSchemaVersion) {
             _ = try await codec.decodeSnapshot(unsupported)
         }
 
         let oversized = EncryptedOfflineSnapshot(
-            identity: snapshot.identity,
+            identity: snapshot.snapshot.identity,
             payload: Data(repeating: 0, count: OfflineSnapshotLimits.ciphertextBytes + 1)
         )
         await #expect(throws: OfflineSnapshotCodec.Error.payloadTooLarge) {
             _ = try await codec.decodeSnapshot(oversized)
         }
+    }
+
+    @Test(arguments: ["2026-10-01T12:00:00Z", "2026-10-01T12:00:00", "", "invalid"])
+    func bothPreparationPathsRetainOnlyActualPayloadSourceTime(_ rawTime: String) async throws {
+        let codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { false })
+        let item = try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "synthetic", modifyTime: rawTime)
+        let expected = OfflineSourceModificationTime.parse(rawTime)
+        let byRequest = try await codec.prepareSnapshot(from: item, for: request)
+        let byIdentity = try await codec.prepareSnapshot(from: item, for: OfflineSnapshotPreparationIdentity(
+            key: request.key, shareID: request.shareID, itemType: request.itemType
+        ))
+        #expect(byRequest.sourceModifyTime == expected)
+        #expect(byIdentity.sourceModifyTime == expected)
+        #expect(byRequest.snapshot.identity.key == request.key)
+        #expect(byIdentity.snapshot.identity.key == request.key)
+        #expect(try await codec.decodeSnapshot(byIdentity.snapshot).id == item.id)
+        if expected != nil { #expect(byRequest.sourceModifyTime != request.metadataModifyTime) }
     }
 }

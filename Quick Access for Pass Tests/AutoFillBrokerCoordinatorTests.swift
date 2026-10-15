@@ -964,7 +964,7 @@ private actor DeadlineAdvancingBrokerCodec: OfflineSnapshotCoding {
         self.deadline = deadline
     }
 
-    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+    func prepareSnapshot(from item: CLIItem, for request: OfflineSnapshotPreparationIdentity) async throws -> PreparedOfflineSnapshot {
         try await codec.prepareSnapshot(from: item, for: request)
     }
 
@@ -984,7 +984,7 @@ private actor BrokerDecodeCountingCodec: OfflineSnapshotCoding {
 
     init(codec: OfflineSnapshotCodec) { self.codec = codec }
 
-    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+    func prepareSnapshot(from item: CLIItem, for request: OfflineSnapshotPreparationIdentity) async throws -> PreparedOfflineSnapshot {
         try await codec.prepareSnapshot(from: item, for: request)
     }
 

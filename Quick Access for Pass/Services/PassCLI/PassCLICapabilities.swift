@@ -24,6 +24,12 @@ nonisolated struct PassCLICapabilities: Sendable, Equatable {
         return version >= Self.minimumShowSecretsVersion
     }
 
+    /// The published full-JSON contract substantiated for this release, not future versions.
+    /// Exact build-source correspondence is not established; see the incremental sync evidence.
+    var snapshotContentProvenance: CLISnapshotContentProvenance {
+        version == PassCLIVersion(major: 2, minor: 4, patch: 2) ? .completeJSONV1 : .unavailable
+    }
+
     /// Whether the active CLI supports managed session locking.
     var supportsSessionLocking: Bool {
         guard let version else { return false }

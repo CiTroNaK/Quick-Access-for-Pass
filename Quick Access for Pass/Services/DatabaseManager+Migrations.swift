@@ -7,6 +7,7 @@ nonisolated extension DatabaseManager {
     static func migrate(_ writer: any DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
         registerMigrations(&migrator)
+        registerIncrementalOfflineMigration(&migrator)
         try migrator.migrate(writer)
     }
 

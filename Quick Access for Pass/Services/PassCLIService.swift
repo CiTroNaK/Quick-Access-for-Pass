@@ -9,8 +9,8 @@ actor PassCLIService {
     private let timeoutSeconds: Double = 300
     private static let secretOutputLimit = (4 * 1024 * 1024) + (4 * 1024)
     private let runner: any CLIRunning
-    private var supportsShowSecretsCache: (path: String, supported: Bool)?
-    private var supportsShowSecretsTask: (path: String, task: Task<Bool, Never>)?
+    private var capabilitiesCache: (path: String, value: PassCLICapabilities)?
+    private var capabilitiesTask: (path: String, task: Task<PassCLICapabilities, Never>)?
 
     nonisolated var cliSelection: PassCLISelection {
         selectionStore.withLock { $0 }
@@ -73,26 +73,37 @@ actor PassCLIService {
     }
 
     func listItems(shareId: String) async throws -> [CLIItem] {
+        let selection = cliSelection
         var arguments = ["item", "list", "--share-id=\(shareId)", "--output", "json"]
-        if await supportsShowSecrets() {
+        if await capabilities(for: selection).supportsShowSecrets {
             arguments.append("--show-secrets")
         }
-        let data = try await run(arguments: arguments)
+        try Task.checkCancellation()
+        let data = try await runner.run(executablePath: selection.path, arguments: arguments, timeout: timeoutSeconds)
         return try Self.parseItemList(from: data)
     }
 
     func listItemsForSync(vault: CLIVault, progress: SyncProgressHandler? = nil) async throws -> CLIItemListParseResult {
+        try await listItemsForSync(vault: vault, selection: cliSelection, progress: progress)
+    }
+
+    private func listItemsForSync(
+        vault: CLIVault, selection: PassCLISelection, progress: SyncProgressHandler?
+    ) async throws -> CLIItemListParseResult {
         await progress?(.vaultStarted(vaultName: vault.name))
+        let capabilities = await capabilities(for: selection)
         var arguments = ["item", "list", "--share-id=\(vault.shareId)", "--filter-state=active", "--output", "json"]
-        if await supportsShowSecrets() {
+        if capabilities.supportsShowSecrets {
             arguments.append("--show-secrets")
         }
-        let data = try await run(arguments: arguments)
+        try Task.checkCancellation()
+        let data = try await runner.run(executablePath: selection.path, arguments: arguments, timeout: timeoutSeconds)
         let result = try CLIItemListLossyParser.parse(
             data,
             vaultId: vault.vaultId,
             vaultName: vault.name,
-            shareId: vault.shareId
+            shareId: vault.shareId,
+            contentProvenance: capabilities.supportsShowSecrets ? capabilities.snapshotContentProvenance : .unavailable
         )
         await progress?(.itemsDecoded(
             vaultName: vault.name,
@@ -151,40 +162,32 @@ actor PassCLIService {
 
     // MARK: - CLI Capabilities
 
-    private func supportsShowSecrets() async -> Bool {
-        let executablePath = cliPath
-        if let cache = supportsShowSecretsCache, cache.path == executablePath {
-            return cache.supported
+    private func capabilities(for selection: PassCLISelection) async -> PassCLICapabilities {
+        let executablePath = selection.path
+        if let cache = capabilitiesCache, cache.path == executablePath {
+            return cache.value
         }
-        if let inFlight = supportsShowSecretsTask, inFlight.path == executablePath {
+        if let inFlight = capabilitiesTask, inFlight.path == executablePath {
             return await inFlight.task.value
         }
 
         let runner = self.runner
         let timeoutSeconds = self.timeoutSeconds
-        let task = Task<Bool, Never> {
+        let task = Task<PassCLICapabilities, Never> {
             do {
                 let data = try await runner.run(
-                    executablePath: executablePath,
-                    arguments: ["--version"],
-                    timeout: timeoutSeconds
+                    executablePath: executablePath, arguments: ["--version"], timeout: timeoutSeconds
                 )
-                let output = String(bytes: data, encoding: .utf8)
-                return PassCLICapabilities(rawVersionString: output).supportsShowSecrets
+                return PassCLICapabilities(rawVersionString: String(bytes: data, encoding: .utf8))
             } catch {
-                return false
+                return PassCLICapabilities(version: nil)
             }
         }
-        supportsShowSecretsTask = (path: executablePath, task: task)
-
-        let supported = await task.value
-        if cliPath == executablePath {
-            supportsShowSecretsCache = (path: executablePath, supported: supported)
-        }
-        if supportsShowSecretsTask?.path == executablePath {
-            supportsShowSecretsTask = nil
-        }
-        return supported
+        capabilitiesTask = (path: executablePath, task: task)
+        let value = await task.value
+        if cliPath == executablePath { capabilitiesCache = (path: executablePath, value: value) }
+        if capabilitiesTask?.path == executablePath { capabilitiesTask = nil }
+        return value
     }
 
     // MARK: - Process Execution
@@ -278,33 +281,36 @@ extension PassCLIService {
     func fetchAllItems(
         progress: SyncProgressHandler? = nil
     ) async throws -> CLISyncFetchResult {
-        let vaults = try await listVaults()
+        let selection = cliSelection
+        let vaultData = try await runner.run(
+            executablePath: selection.path, arguments: ["vault", "list", "--output", "json"], timeout: timeoutSeconds
+        )
+        let vaults = try Self.parseVaultList(from: vaultData)
         let syncResult = try await withThrowingTaskGroup(
-            of: (items: [(item: CLIItem, vaultId: String)], skippedItems: [SkippedSyncItem], presenceUncertainty: SyncItemPresenceUncertainty).self
+            of: (vaultID: String, result: CLIItemListParseResult).self
         ) { group in
             for vault in vaults {
                 group.addTask {
-                    let result = try await self.listItemsForSync(vault: vault, progress: progress)
-                    return (
-                        items: result.items.map { (item: $0, vaultId: vault.vaultId) },
-                        skippedItems: result.skippedItems,
-                        presenceUncertainty: result.presenceUncertainty
-                    )
+                    let result = try await self.listItemsForSync(vault: vault, selection: selection, progress: progress)
+                    return (vaultID: vault.vaultId, result: result)
                 }
             }
             var items: [(item: CLIItem, vaultId: String)] = []
             var skippedItems: [SkippedSyncItem] = []
             var presenceUncertainties: [SyncItemPresenceUncertainty] = []
+            var provenance: [String: CLISnapshotContentProvenance] = [:]
             for try await batch in group {
-                items.append(contentsOf: batch.items)
-                skippedItems.append(contentsOf: batch.skippedItems)
-                presenceUncertainties.append(batch.presenceUncertainty)
+                items.append(contentsOf: batch.result.items.map { (item: $0, vaultId: batch.vaultID) })
+                skippedItems.append(contentsOf: batch.result.skippedItems)
+                presenceUncertainties.append(batch.result.presenceUncertainty)
+                provenance[batch.vaultID] = batch.result.contentProvenance
             }
-            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties)
+            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties, provenance: provenance)
         }
         return CLISyncFetchResult(
             vaults: vaults, items: syncResult.items, skippedItems: syncResult.skippedItems,
-            presenceUncertainties: syncResult.presenceUncertainties
+            presenceUncertainties: syncResult.presenceUncertainties,
+            contentProvenanceByVaultID: syncResult.provenance
         )
     }
 }

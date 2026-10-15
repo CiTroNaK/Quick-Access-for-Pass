@@ -20,3 +20,9 @@ nonisolated struct EncryptedOfflineSnapshot: Sendable, Equatable {
     let identity: OfflineSnapshotIdentity
     let payload: Data
 }
+
+/// Ciphertext plus the source marker parsed from that actual payload, never from catalog fallback time.
+nonisolated struct PreparedOfflineSnapshot: Sendable, Equatable {
+    let snapshot: EncryptedOfflineSnapshot
+    let sourceModifyTime: Date?
+}

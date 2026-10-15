@@ -217,6 +217,9 @@ struct DatabaseManagerMigrationV14Tests {
                     appIdentifier TEXT NOT NULL, subcommand TEXT NOT NULL, profileSlug TEXT NOT NULL,
                     expiresAt DATETIME, appTeamID TEXT, allowed INTEGER NOT NULL
                 );
+                -- Empty offline tables already exist at v13; no offline content migration fixture is needed.
+                CREATE TABLE offlineItems (itemId TEXT PRIMARY KEY, vaultId TEXT NOT NULL);
+                CREATE TABLE offlineSnapshots (vaultId TEXT NOT NULL, itemId TEXT NOT NULL);
                 CREATE TABLE grdb_migrations (identifier TEXT PRIMARY KEY);
                 """)
             for version in 1...13 {

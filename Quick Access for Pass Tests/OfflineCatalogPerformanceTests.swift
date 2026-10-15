@@ -6,7 +6,7 @@ import Testing
 @Suite("Offline catalog query performance")
 struct OfflineCatalogPerformanceTests {
     /// A whole-catalog projection must not issue another SELECT per selected item.
-    @Test(arguments: [1, 40])
+    @Test(arguments: [1, 40, 1300])
     func queryCountDoesNotGrowWithSelectedItems(count: Int) async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: (0..<count).map { "item-\($0)" })
         for item in fixture.items {
