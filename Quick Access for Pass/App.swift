@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var autoFillSocketPath: String?
     @ObservationIgnored var healthCoordinator: HealthCheckCoordinator?
     @ObservationIgnored var notificationRouter: UserNotificationRouter?
+    @ObservationIgnored let passCLISessionMutationGate = PassCLISessionMutationGate()
     @ObservationIgnored var passCLILoginCoordinator: PassCLILoginCoordinator?
     @ObservationIgnored var passCLILoginNotifier: PassCLILoginNotifier?
     @ObservationIgnored var passCLIRecommendedVersionNotifier: PassCLIRecommendedVersionNotifier?

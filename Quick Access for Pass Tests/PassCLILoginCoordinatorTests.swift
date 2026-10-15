@@ -178,6 +178,7 @@ private func fakeProcess(
 struct PassCLILoginCoordinatorTests {
     @Test(.timeLimit(.minutes(1)))
     func unreadableSessionIsNotMisreportedAsMissingBrowserURL() async {
+        var results: [PassCLILoginResult] = []
         let opened = OpenedURLs()
         let sync = SyncRecorder()
         let runner = FakeStreamingRunner()
@@ -191,14 +192,15 @@ struct PassCLILoginCoordinatorTests {
             urlOpener: FakeURLOpener(opened: opened),
             healthRefresher: FakeHealthRefresher(health: .localSessionUnreadable),
             syncTrigger: { await sync.sync() },
-            resultHandler: { _ in },
+            resultHandler: { results.append($0) },
             urlDiscoveryTimeout: .milliseconds(500)
         )
 
         coordinator.startLogin()
         await coordinator.waitForCurrentLogin()
 
-        #expect(coordinator.state != .failed("The pass-cli login URL could not be found"))
+        #expect(coordinator.state == .localSessionUnreadable)
+        #expect(results == [.localSessionUnreadable])
         #expect(await opened.count() == 0)
         #expect(await sync.count() == 0)
         #expect(runner.startCount == 1)
@@ -295,6 +297,7 @@ struct PassCLIBrowserSessionRepairTests {
     private func makeCoordinator(
         runner: FakeStreamingRunner,
         resetRunner: SessionResetRunner,
+        currentHealth: @escaping @MainActor @Sendable () -> PassCLIHealth = { .localSessionUnreadable },
         cliService: PassCLIService = PassCLIService(cliPath: "/fake/pass-cli"),
         opened: OpenedURLs = OpenedURLs(),
         sync: SyncRecorder = SyncRecorder(),
@@ -302,6 +305,7 @@ struct PassCLIBrowserSessionRepairTests {
     ) -> PassCLILoginCoordinator {
         PassCLILoginCoordinator(
             cliService: cliService,
+            currentHealth: currentHealth,
             runner: runner,
             sessionResetRunner: resetRunner,
             urlOpener: FakeURLOpener(opened: opened),
@@ -331,7 +335,7 @@ struct PassCLIBrowserSessionRepairTests {
         let token = release.capture()
         let coordinator = makeCoordinator(runner: runner, resetRunner: reset, revoke: { release.revoke() })
 
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: { false })
+        coordinator.requestLogin(confirmSessionReset: { false })
         await coordinator.waitForCurrentLogin()
 
         #expect(await reset.invocations.isEmpty)
@@ -355,12 +359,12 @@ struct PassCLIBrowserSessionRepairTests {
             opened: opened, sync: sync, revoke: { release.revoke() }
         )
 
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: { true })
+        coordinator.requestLogin(confirmSessionReset: { true })
         await reset.waitUntilEntered()
         #expect(release.isCurrent(token) == false)
         #expect(runner.startCount == 0)
         cliService.updateCLIPath("/different/pass-cli")
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: {
+        coordinator.requestLogin(confirmSessionReset: {
             Issue.record("Duplicate request must not ask for another reset")
             return true
         })
@@ -383,7 +387,7 @@ struct PassCLIBrowserSessionRepairTests {
         let sync = SyncRecorder()
         let coordinator = makeCoordinator(runner: runner, resetRunner: reset, sync: sync)
 
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: { true })
+        coordinator.requestLogin(confirmSessionReset: { true })
         await coordinator.waitForCurrentLogin()
 
         #expect(runner.startCount == 0)
@@ -402,11 +406,11 @@ struct PassCLIBrowserSessionRepairTests {
         let reset = SessionResetRunner()
         await reset.configure(pause: true)
         let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: { true })
+        coordinator.requestLogin(confirmSessionReset: { true })
         await reset.waitUntilEntered()
 
         coordinator.cancel()
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: {
+        coordinator.requestLogin(confirmSessionReset: {
             Issue.record("Cancelled operation must unwind before a new reset")
             return true
         })
@@ -425,7 +429,7 @@ struct PassCLIBrowserSessionRepairTests {
         let release = SecretReleaseGuard()
         let token = release.capture()
         let coordinator = makeCoordinator(runner: runner, resetRunner: reset, revoke: { release.revoke() })
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: { true })
+        coordinator.requestLogin(confirmSessionReset: { true })
         coordinator.cancel()
         await coordinator.waitForCurrentLogin()
 
@@ -439,7 +443,7 @@ struct PassCLIBrowserSessionRepairTests {
         let runner = successfulRunner()
         let reset = SessionResetRunner()
         let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: {
+        coordinator.requestLogin(confirmSessionReset: {
             coordinator.cancel()
             return true
         })
@@ -454,9 +458,9 @@ struct PassCLIBrowserSessionRepairTests {
     func ordinaryLoginDoesNotAskToResetOrRunLogout(health: PassCLIHealth) async {
         let runner = successfulRunner()
         let reset = SessionResetRunner()
-        let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, currentHealth: { health })
 
-        coordinator.requestLogin(health: health, confirmSessionReset: {
+        coordinator.requestLogin(confirmSessionReset: {
             Issue.record("Ordinary login must not offer session reset")
             return true
         })
@@ -475,7 +479,7 @@ struct PassCLIBrowserSessionRepairTests {
             result: CLIStreamingResult(terminationStatus: 1, stdout: "", stderr: "Error decrypting local session")
         ))
         let reset = SessionResetRunner()
-        let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, currentHealth: { health })
         coordinator.startLogin()
         await coordinator.waitForCurrentLogin()
         #expect(coordinator.state == .localSessionUnreadable)
@@ -484,7 +488,7 @@ struct PassCLIBrowserSessionRepairTests {
             chunks: [.stdout("https://account.proton.me/desktop/login?app=pass#payload=synthetic-test-payload\n")],
             result: CLIStreamingResult(terminationStatus: 0, stdout: "", stderr: "")
         ))
-        coordinator.requestLogin(health: health, confirmSessionReset: {
+        coordinator.requestLogin(confirmSessionReset: {
             Issue.record("Old login failure must not authorize cleanup after health changes")
             return true
         })
@@ -505,7 +509,7 @@ struct PassCLIBrowserSessionRepairTests {
         let reset = SessionResetRunner()
         let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
 
-        coordinator.requestLogin(health: .localSessionUnreadable, confirmSessionReset: { true })
+        coordinator.requestLogin(confirmSessionReset: { true })
         await coordinator.waitForCurrentLogin()
 
         #expect(await reset.invocations.count == 1)

@@ -27,8 +27,8 @@ extension AppDelegate {
             onSyncIssueChanged: { [weak self] presentation in
                 self?.syncIssueDidChange(presentation)
             },
-            onAuthenticationRequired: { [weak self] in
-                await self?.healthCoordinator?.reportAuthenticationFailure()
+            onAuthenticationRequired: { [weak self] health in
+                await self?.healthCoordinator?.reportAuthenticationFailure(health: health)
             }
         )
         syncCoordinator?.start()
@@ -70,7 +70,9 @@ extension AppDelegate {
         requestsAuthorization: Bool = true
     ) {
         let loginCoordinator = PassCLILoginCoordinator(
+            sessionMutationGate: passCLISessionMutationGate,
             cliService: cliService,
+            currentHealth: { [weak self] in self?.passCLIStatusStore.health ?? .notInstalled },
             healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
             syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() },
             resultHandler: { [weak self] result in self?.handlePassCLIBrowserLoginResult(result) },
@@ -97,20 +99,19 @@ extension AppDelegate {
 
         setupPassCLIPATCoordinators(
             cliService: cliService,
-            loginCoordinator: loginCoordinator,
             loginNotifier: loginNotifier
         )
     }
 
     private func setupPassCLIPATCoordinators(
         cliService: PassCLIService,
-        loginCoordinator: PassCLILoginCoordinator,
         loginNotifier: PassCLILoginNotifier
     ) {
         let patCredentialStore = KeychainPassCLIPATCredentialStore()
         passCLIPATCredentialStore = patCredentialStore
 
         let patLoginService = PassCLIPATLoginService(
+            sessionMutationGate: passCLISessionMutationGate,
             credentialStore: patCredentialStore,
             cliService: cliService,
             healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
@@ -120,9 +121,10 @@ extension AppDelegate {
         passCLIPATLoginService = patLoginService
 
         passCLIPATSettingsModel = PassCLIPATSettingsModel(
+            sessionMutationGate: passCLISessionMutationGate,
             credentialStore: patCredentialStore,
-            loginWithSavedToken: { [weak patLoginService] in
-                await patLoginService?.loginWithSavedToken()
+            loginWithSavedToken: { [weak patLoginService] lease in
+                await patLoginService?.loginWithSavedToken(lease: lease)
                     ?? .failed(String(localized: "Personal access token login is unavailable."))
             },
             invalidPATHandler: { [weak self] message in
@@ -131,19 +133,22 @@ extension AppDelegate {
             isCurrentSessionPersonalAccessToken: { [weak self] in
                 self?.passCLIStatusStore.identity?.isPersonalAccessTokenSession == true
             },
-            logoutFromPassCLI: { [weak self] in
+            logoutFromPassCLI: { [weak self] lease in
                 guard let self else { return }
                 try await self.logoutFromPassCLI(
                     cliService: cliService,
-                    offlineModeService: self.offlineModeService
+                    offlineModeService: self.offlineModeService,
+                    lease: lease
                 )
             }
         )
 
         passCLIPATAutoLoginCoordinator = PassCLIPATAutoLoginCoordinator(
             credentialStore: patCredentialStore,
-            loginWithSavedToken: { [weak patLoginService] in
-                await patLoginService?.loginWithSavedToken()
+            sessionMutationGate: passCLISessionMutationGate,
+            currentHealth: { [weak self] in self?.passCLIStatusStore.health ?? .notInstalled },
+            loginWithSavedToken: { [weak patLoginService] lease in
+                await patLoginService?.loginWithSavedToken(lease: lease)
                     ?? .failed(String(localized: "Personal access token login is unavailable."))
             },
             fallbackHandler: loginNotifier,
@@ -155,9 +160,6 @@ extension AppDelegate {
             },
             autoLoginStartedHandler: { [weak self] in
                 self?.showPATAutoLoginSyncProgress()
-            },
-            browserLoginIsRunning: { [weak loginCoordinator] in
-                loginCoordinator?.isLoggingIn == true
             }
         )
     }
@@ -165,8 +167,15 @@ extension AppDelegate {
     /// Revokes transient presentation before the logout process can suspend.
     func logoutFromPassCLI(
         cliService: PassCLIService,
-        offlineModeService: OfflineModeService?
+        offlineModeService: OfflineModeService?,
+        lease callerLease: PassCLISessionMutationGate.Lease? = nil
     ) async throws {
+        guard let lease = callerLease ?? passCLISessionMutationGate.tryAcquire(.logout),
+              lease.operation == .logout, passCLISessionMutationGate.owns(lease) else {
+            throw PassCLISessionMutationGate.AdmissionError.busy
+        }
+        defer { if callerLease == nil { passCLISessionMutationGate.release(lease) } }
+        try Task.checkCancellation()
         revokeTransientSecretAccess()
         try await Self.logoutFromPassCLI(cliService: cliService, offlineModeService: offlineModeService)
     }

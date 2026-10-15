@@ -27,13 +27,21 @@ nonisolated enum PassCLILoginState: Sendable, Equatable {
 
 nonisolated enum PassCLILoginResult: Sendable, Equatable {
     case succeeded
+    case busy
     case localSessionUnreadable
     case failed(String)
 }
 
 @MainActor
 final class PassCLILoginCoordinator {
+    private nonisolated struct ResetAdmission: Sendable {
+        let selection: PassCLISelection
+        let generation: Int
+    }
+
     private let cliService: PassCLIService
+    private let currentHealth: @MainActor @Sendable () -> PassCLIHealth
+    private let sessionMutationGate: PassCLISessionMutationGate
     private let runner: any CLIStreaming
     private let sessionResetRunner: any CLIRunning
     private let revokeTransientSecretAccess: @MainActor @Sendable () -> Void
@@ -56,7 +64,9 @@ final class PassCLILoginCoordinator {
     private(set) var state: PassCLILoginState = .idle
 
     init(
+        sessionMutationGate: PassCLISessionMutationGate,
         cliService: PassCLIService,
+        currentHealth: @escaping @MainActor @Sendable () -> PassCLIHealth,
         runner: any CLIStreaming = LiveCLIStreamingRunner(),
         sessionResetRunner: any CLIRunning = LiveCLIRunner(),
         urlOpener: any URLOpening = WorkspaceURLOpener(),
@@ -68,6 +78,8 @@ final class PassCLILoginCoordinator {
         loginCompletionTimeout: Duration = .seconds(300)
     ) {
         self.cliService = cliService
+        self.currentHealth = currentHealth
+        self.sessionMutationGate = sessionMutationGate
         self.runner = runner
         self.sessionResetRunner = sessionResetRunner
         self.revokeTransientSecretAccess = revokeTransientSecretAccess
@@ -80,37 +92,62 @@ final class PassCLILoginCoordinator {
     }
 
     /// Requests browser login, requiring explicit consent before repairing an unreadable session.
-    func requestLogin(health: PassCLIHealth, confirmSessionReset: @MainActor () -> Bool) {
+    func requestLogin(confirmSessionReset: @MainActor () -> Bool) {
         guard !isConfirmingSessionReset else { return }
         guard loginTask == nil else {
             startLogin()
             return
         }
         // Historical login outcomes are presentation, not current cleanup authority.
-        guard health == .localSessionUnreadable else {
+        guard currentHealth() == .localSessionUnreadable else {
             startLogin()
             return
         }
+        guard let lease = sessionMutationGate.tryAcquire(.browserLogin) else {
+            resultHandler(.busy)
+            return
+        }
+        var transferred = false
         isConfirmingSessionReset = true
-        defer { isConfirmingSessionReset = false }
-        let generation = confirmationGeneration
-        guard confirmSessionReset(), generation == confirmationGeneration, loginTask == nil else { return }
-        enqueueLogin(resetLocalSession: true)
+        defer {
+            isConfirmingSessionReset = false
+            if !transferred { sessionMutationGate.release(lease) }
+        }
+        let admission = ResetAdmission(selection: cliService.cliSelection, generation: confirmationGeneration)
+        guard confirmSessionReset(), loginTask == nil, canReset(admission, lease: lease) else { return }
+        enqueueLogin(resetAdmission: admission, lease: lease)
+        transferred = true
     }
 
     /// Starts ordinary browser login without resetting any existing session.
     func startLogin() {
-        enqueueLogin(resetLocalSession: false)
+        enqueueLogin()
     }
 
-    private func enqueueLogin(resetLocalSession: Bool) {
+    private func canReset(_ admission: ResetAdmission, lease: PassCLISessionMutationGate.Lease) -> Bool {
+        currentHealth() == .localSessionUnreadable
+            && cliService.cliSelection == admission.selection
+            && confirmationGeneration == admission.generation
+            && lease.operation == .browserLogin
+            && sessionMutationGate.owns(lease)
+    }
+
+    private func enqueueLogin(
+        resetAdmission: ResetAdmission? = nil, lease callerLease: PassCLISessionMutationGate.Lease? = nil
+    ) {
         if let knownURL, loginTask != nil {
             Task { [urlOpener] in _ = await urlOpener.open(knownURL) }
             return
         }
         guard loginTask == nil else { return }
+        guard let lease = callerLease ?? sessionMutationGate.tryAcquire(.browserLogin) else {
+            resultHandler(.busy)
+            return
+        }
+        let gate = sessionMutationGate
         loginTask = Task { @MainActor [weak self] in
-            await self?.runLoginFlow(resetLocalSession: resetLocalSession)
+            defer { gate.release(lease) }
+            await self?.runLoginFlow(resetAdmission: resetAdmission, lease: lease)
         }
     }
 
@@ -128,8 +165,8 @@ final class PassCLILoginCoordinator {
         state = .idle
     }
 
-    private func runLoginFlow(resetLocalSession: Bool) async {
-        let executablePath = cliService.cliPath
+    private func runLoginFlow(resetAdmission: ResetAdmission?, lease: PassCLISessionMutationGate.Lease) async {
+        let executablePath = resetAdmission?.selection.path ?? cliService.cliPath
         defer {
             loginTask = nil
             currentProcess = nil
@@ -138,8 +175,11 @@ final class PassCLILoginCoordinator {
 
         do {
             try Task.checkCancellation()
-            state = resetLocalSession ? .resettingSession : .waitingForURL
-            if resetLocalSession {
+            if let resetAdmission {
+                // A modal run loop and queued task can both outlive their authority.
+                // Abandon stale consent; never turn it into an alternate login.
+                guard canReset(resetAdmission, lease: lease) else { return }
+                state = .resettingSession
                 try await self.resetLocalSession(at: executablePath)
             }
             try Task.checkCancellation()
@@ -147,6 +187,11 @@ final class PassCLILoginCoordinator {
             try await runBrowserLogin(executablePath: executablePath)
         } catch {
             handleLoginFailure(error)
+        }
+        if let currentProcess {
+            // A termination signal is not native unwind. Join process/readers
+            // before clearing presentation ownership or releasing the shared lease.
+            _ = try? await currentProcess.completion.value
         }
     }
 

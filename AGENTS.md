@@ -43,6 +43,8 @@ Quick Access for Pass is a macOS menu-bar app that provides quick access to Prot
 
 A separate `HealthCheckCoordinator` owns the probe schedule for Pass CLI, SSH, and Run.
 
+AppDelegate composes one `PassCLISessionMutationGate` for browser login/repair, saved-token login/recovery, and explicit logout. Production initializers must share that gate; do not add independent default gates. First owner wins without queuing; leases are metadata-only, role-validated and held through actual unwind, including cancellation. Compound settings save/remove claims ownership before credential changes and passes its lease to the service/logout entrypoint. Automatic contention must not consume recovery attempts or emit competing presentation. Browser reset requires live health plus full-selection/generation/lease revalidation after consent and before queued cleanup; stale consent starts no alternate operation. Sync forwards typed authentication health. Repair retains PAT/offline data; explicit successful logout alone keeps its existing purge policy.
+
 ## Concurrency Model
 
 Swift 6 strict concurrency is enforced throughout. Preserve actor and `@MainActor` boundaries.

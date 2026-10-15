@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated enum PassCLIPATLoginResult: Sendable, Equatable {
     case succeeded
+    case busy
     case missingToken
     case notInstalled
     case timeout
@@ -13,6 +14,8 @@ nonisolated enum PassCLIPATLoginResult: Sendable, Equatable {
         switch self {
         case .succeeded:
             return String(localized: "Proton Pass CLI connected")
+        case .busy:
+            return String(localized: "Sign-in already in progress.")
         case .missingToken:
             return String(localized: "No personal access token is saved.")
         case .notInstalled:
@@ -56,6 +59,7 @@ nonisolated struct PassCLIPATOutputSanitizer: Sendable {
 
 @MainActor
 final class PassCLIPATLoginService {
+    private let sessionMutationGate: PassCLISessionMutationGate
     private let credentialStore: any PassCLIPATCredentialStoring
     private let runner: any CLIEnvironmentRunning
     private let cliService: PassCLIService
@@ -66,6 +70,7 @@ final class PassCLIPATLoginService {
     private var isLoggingIn = false
 
     init(
+        sessionMutationGate: PassCLISessionMutationGate,
         credentialStore: any PassCLIPATCredentialStoring,
         runner: any CLIEnvironmentRunning = LiveCLIRunner(),
         cliService: PassCLIService,
@@ -74,6 +79,7 @@ final class PassCLIPATLoginService {
         revokeTransientSecretAccess: @escaping @MainActor @Sendable () -> Void = {},
         timeoutSeconds: TimeInterval = 30
     ) {
+        self.sessionMutationGate = sessionMutationGate
         self.credentialStore = credentialStore
         self.runner = runner
         self.cliService = cliService
@@ -83,21 +89,31 @@ final class PassCLIPATLoginService {
         self.timeoutSeconds = timeoutSeconds
     }
 
-    func loginWithSavedToken(triggerSync: Bool = true) async -> PassCLIPATLoginResult {
-        // Settings and automatic recovery share this service. MainActor alone
-        // does not prevent their login/logout commands overlapping across awaits.
-        guard !isLoggingIn else {
-            return .failed(String(localized: "Personal access token login is already in progress."))
-        }
+    /// Uses a caller-owned saved-token lease, or acquires ownership for a standalone request.
+    func loginWithSavedToken(
+        triggerSync: Bool = true, lease callerLease: PassCLISessionMutationGate.Lease? = nil
+    ) async -> PassCLIPATLoginResult {
+        guard !isLoggingIn else { return .busy }
+        guard let lease = callerLease ?? sessionMutationGate.tryAcquire(.savedTokenLogin) else { return .busy }
+        guard lease.operation == .savedTokenLogin, sessionMutationGate.owns(lease) else { return .busy }
         isLoggingIn = true
-        defer { isLoggingIn = false }
+        defer {
+            isLoggingIn = false
+            if callerLease == nil { sessionMutationGate.release(lease) }
+        }
+        return await performAdmittedLogin(triggerSync: triggerSync)
+    }
 
+    /// Executes while the caller retains the validated lease through the entire await.
+    private func performAdmittedLogin(triggerSync: Bool) async -> PassCLIPATLoginResult {
         do {
+            try Task.checkCancellation()
             guard let token = try await credentialStore.loadToken(), token.isEmpty == false else {
                 return .missingToken
             }
             let sanitizer = PassCLIPATOutputSanitizer(token: token)
             do {
+                try Task.checkCancellation()
                 try await login(token: token, executablePath: cliService.cliPath)
             } catch CLIError.notInstalled {
                 return .notInstalled

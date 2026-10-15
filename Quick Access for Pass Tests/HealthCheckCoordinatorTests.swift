@@ -178,14 +178,15 @@ struct HealthCheckCoordinatorTests {
         await confirmation("Exactly one PAT login after unlocking") { loginAttempted in
             let recovery = PassCLIPATAutoLoginCoordinator(
                 credentialStore: credentials,
-                loginWithSavedToken: {
+                sessionMutationGate: PassCLISessionMutationGate(),
+                currentHealth: { h.cliStore.health },
+                loginWithSavedToken: { _ in
                     #expect(await credentials.hasToken())
                     loginAttempted()
                     return loginResult
                 },
                 fallbackHandler: fallback,
-                patFailureHandler: { _ in },
-                browserLoginIsRunning: { false }
+                patFailureHandler: { _ in }
             )
             h.coordinator.passCLITransitionHandler = recovery
 

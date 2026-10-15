@@ -15,6 +15,25 @@ struct AppDelegateOfflineLifecycleTests {
         #expect(try await exclusionCount(fixture.database) == 0)
     }
 
+    @Test func busyLogoutDoesNotRevokeInvokeCLIOrPurgeOfflineData() async throws {
+        let fixture = try await makeFixture(logoutError: nil)
+        let delegate = AppDelegate()
+        let lease = try #require(delegate.passCLISessionMutationGate.tryAcquire(.browserLogin))
+        defer { delegate.passCLISessionMutationGate.release(lease) }
+        let token = delegate.secretReleaseGuard.capture()
+        let runner = OwnershipNativeRunner()
+        let cliService = PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner)
+
+        await #expect(throws: PassCLISessionMutationGate.AdmissionError.busy) {
+            try await delegate.logoutFromPassCLI(cliService: cliService, offlineModeService: fixture.service)
+        }
+        #expect(delegate.secretReleaseGuard.isCurrent(token))
+        #expect(await runner.invocations.isEmpty)
+        #expect(try await fixture.repository.hasPersistedSnapshots())
+        #expect(try await fixture.repository.offlineItemSelections().count == 1)
+        #expect(delegate.passCLISessionMutationGate.owns(lease))
+    }
+
     @Test func failedPassCLILogoutRetainsUnifiedOfflineData() async throws {
         let fixture = try await makeFixture(logoutError: .commandFailed("logout failed"))
         await #expect(throws: CLIError.self) {

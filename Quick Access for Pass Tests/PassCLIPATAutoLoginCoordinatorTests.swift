@@ -97,11 +97,12 @@ struct PassCLIPATAutoLoginCoordinatorTests {
         let failures = PATFailureRecorder()
         let coordinator = PassCLIPATAutoLoginCoordinator(
             credentialStore: store,
-            loginWithSavedToken: { await runner.login() },
+            sessionMutationGate: PassCLISessionMutationGate(),
+            currentHealth: { health },
+            loginWithSavedToken: { _ in await runner.login() },
             fallbackHandler: fallback,
             patFailureHandler: { failures.record($0) },
-            invalidPATHandler: { _ in },
-            browserLoginIsRunning: { false }
+            invalidPATHandler: { _ in }
         )
 
         coordinator.handleCLIHealthTransition(to: health)
@@ -116,19 +117,23 @@ struct PassCLIPATAutoLoginCoordinatorTests {
     func unreadableSessionDoesNotMutateSessionDuringBrowserLogin() async {
         let fallback = FakeTransitionHandler()
         let runner = FakePATLoginRunner(results: [.succeeded])
+        let gate = PassCLISessionMutationGate()
+        let lease = gate.tryAcquire(.browserLogin)
+        defer { if let lease { gate.release(lease) } }
         let coordinator = PassCLIPATAutoLoginCoordinator(
             credentialStore: FakePATAutoLoginCredentialStore(token: "pst_test_token::secret"),
-            loginWithSavedToken: { await runner.login() },
+            sessionMutationGate: gate,
+            currentHealth: { .localSessionUnreadable },
+            loginWithSavedToken: { _ in await runner.login() },
             fallbackHandler: fallback,
-            patFailureHandler: { _ in },
-            browserLoginIsRunning: { true }
+            patFailureHandler: { _ in }
         )
 
         coordinator.handleCLIHealthTransition(to: .localSessionUnreadable)
         await coordinator.waitForCurrentAttempt()
 
         #expect(runner.callCount == 0)
-        #expect(fallback.transitions == [.localSessionUnreadable])
+        #expect(fallback.transitions.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))

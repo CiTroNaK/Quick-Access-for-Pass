@@ -5260,6 +5260,26 @@
           }
         }
       }
+    },
+    "Sign-in already in progress." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přihlášení již probíhá."
+          }
+        }
+      }
+    },
+    "Wait for the current sign-in to finish before trying again." : {
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Počkejte na dokončení probíhajícího přihlášení a poté to zkuste znovu."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -5,7 +5,6 @@ extension AppDelegate {
     /// Routes every user-initiated browser login through explicit session-repair consent.
     func requestPassCLILogin() {
         passCLILoginCoordinator?.requestLogin(
-            health: passCLIStatusStore.health,
             confirmSessionReset: PassCLISessionRepairConfirmation.confirm
         )
     }

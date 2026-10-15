@@ -100,6 +100,10 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         let body: String
         let categoryIdentifier: String?
         switch result {
+        case .busy:
+            title = String(localized: "Sign-in already in progress.")
+            body = String(localized: "Wait for the current sign-in to finish before trying again.")
+            categoryIdentifier = nil
         case .succeeded:
             clearLoginRequired()
             title = String(localized: "Proton Pass CLI connected")

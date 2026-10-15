@@ -57,7 +57,7 @@ If the latest bundled CLI causes problems, select an older bundled version in **
 
 Quick Access can optionally store a Proton Pass CLI personal access token (PAT) in Keychain from **Settings → Pass CLI**.
 
-When a PAT is saved, Quick Access validates it immediately with `pass-cli login`. Later, if the CLI session is lost, Quick Access uses the saved PAT to recreate the session before asking you to use the normal browser login flow from the notification or **Settings → Pass CLI**. Authentication failures during sync (including **⌘R**) request recovery immediately rather than waiting for the next health check. Sync does not show **Login** before PAT recovery decides whether manual login is needed; an invalid PAT still shows **Update PAT**.
+When a PAT is saved, Quick Access validates it immediately with `pass-cli login`. Later, if the CLI session is lost, Quick Access uses the saved PAT to recreate the session before asking you to use the normal browser login flow from the notification or **Settings → Pass CLI**. Authentication failures during sync (including **⌘R**) request recovery immediately rather than waiting for the next health check. The specific unreadable-session diagnosis stays visible through this path, including when no saved token is available; it is not reduced to a generic logged-out status. Sync does not show **Login** before PAT recovery decides whether manual login is needed; an invalid PAT still shows **Update PAT**.
 
 If the saved PAT is unavailable because your Mac is locked, subsequent logged-out health checks recheck its availability. After unlocking, automatic recovery can resume on the next check (normally every 30 seconds), without opening Settings. Keychain protection remains unchanged, and a completed automatic login attempt is not repeated until a healthy CLI session has been observed.
 
@@ -74,6 +74,14 @@ PAT expiration is managed by Proton Pass. Quick Access cannot discover the expir
 Without a saved PAT, background health checks never silently reset the CLI session. For the specific **Error decrypting local session** failure, Settings and the menu offer **Reset CLI Session and Log In…**. Login actions from the panel or notifications use the same confirmation flow. If browser login encounters this error before producing a URL, Quick Access reports the unreadable session rather than a misleading missing-login-URL error.
 
 The confirmation explains that CLI session cleanup may affect other clients sharing the session configuration and leaves the old remote session listed in Proton account settings. **Cancel** performs no cleanup. After confirmation, Quick Access revokes transient host secret access, runs bounded `pass-cli logout --force`, and starts browser sign-in once using the same selected executable. Cleanup failure or cancellation stops before browser login; a failed restarted login does not cause another reset. The saved PAT and Quick Access's selected offline snapshots are retained. No CLI files or keys are directly deleted by Quick Access.
+
+### Authentication ownership and fresh consent
+
+Browser sign-in/repair, saved-token sign-in/recovery, and explicit logout share one non-queuing authentication owner. The first operation finishes; a competing manual request reports **Sign-in already in progress.** without another confirmation, login, or logout. Settings does not save a replacement token or remove the saved token while another owner is active. Automatic recovery defers contention without consuming its completed-attempt allowance or showing another login prompt, and rechecks current health after token availability lookup. Cancellation keeps ownership until the operation actually unwinds.
+
+Reset consent is bound to the full diagnosed CLI selection. Quick Access rechecks the current unreadable health, selection, and cancellation ownership after confirmation and before queued cleanup begins. If that authority changed, it abandons the request without revocation, cleanup, or an alternate browser login; request login again using the current state. Once admitted cleanup begins, cleanup and the subsequent browser login remain bound to the same executable. These are checks of Quick Access's observed health/configuration, not an atomic lock against other CLI clients.
+
+Session repair retains saved credentials and selected offline snapshots. Explicit user logout remains a separate action: only successful CLI logout triggers its existing offline-data purge; a busy logout performs neither revocation nor purge.
 
 ## Provenance
 
