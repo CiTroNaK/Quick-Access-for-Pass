@@ -1,9 +1,10 @@
+import AuthenticationServices
 import Foundation
 import Synchronization
 import Testing
 @testable import Quick_Access_for_Pass
 
-@Suite("AutoFill identity synchronization")
+@Suite("AutoFill identity synchronization", .timeLimit(.minutes(1)))
 struct AutoFillIdentitySynchronizerTests {
     @Test("registers separate password and one-time-code identities")
     func registersSeparateIdentityTypes() async throws {
@@ -179,6 +180,83 @@ struct AutoFillIdentitySynchronizerTests {
         #expect(await adapter.passwordSaveCount() == 0)
     }
 
+    @Test("disabled AutoFill skips all identity access and reconciles after re-enabling")
+    func skipsDisabledStoreAndReconcilesWhenEnabled() async throws {
+        let adapter = ConfigurableAutoFillIdentityStore(enabled: false)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+        let descriptor = makeDescriptor(id: UUID(), service: "example.com", hasTOTP: true)
+
+        try await synchronizer.reconcile(descriptors: [descriptor])
+        #expect(await adapter.operations() == [.state])
+
+        await adapter.setEnabled(true)
+        try await synchronizer.reconcile(descriptors: [descriptor])
+        #expect(try await adapter.passwordIdentities() == [AutoFillPasswordIdentity(descriptor: descriptor)])
+        #expect(try await adapter.oneTimeCodeIdentities() == [AutoFillOneTimeCodeIdentity(descriptor: descriptor)])
+    }
+
+    @Test("disabling AutoFill during any mutation stops reconciliation without error", arguments: [
+        ConfigurableAutoFillIdentityStore.Operation.savePasswords, .removePasswords, .saveCodes, .removeCodes
+    ])
+    func toleratesStoreDisabledDuringMutation(failureAt: ConfigurableAutoFillIdentityStore.Operation) async throws {
+        let stale = makeDescriptor(id: UUID(), service: "stale.example", hasTOTP: true)
+        let desired = makeDescriptor(id: UUID(), service: "desired.example", hasTOTP: true)
+        let adapter = ConfigurableAutoFillIdentityStore(
+            passwords: [AutoFillPasswordIdentity(descriptor: stale)],
+            codes: [AutoFillOneTimeCodeIdentity(descriptor: stale)], failureAt: failureAt
+        )
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+
+        try await synchronizer.reconcile(descriptors: [desired])
+        #expect(await adapter.operations().last == failureAt)
+    }
+
+    @Test("unexpected identity-store errors still propagate", arguments: [
+        NSError(domain: ASCredentialIdentityStoreErrorDomain, code: ASCredentialIdentityStoreError.Code.internalError.rawValue),
+        NSError(domain: ASCredentialIdentityStoreErrorDomain, code: ASCredentialIdentityStoreError.Code.storeBusy.rawValue),
+        NSError(domain: "unrelated.test.error", code: 1)
+    ])
+    func propagatesUnexpectedErrors(error: NSError) async {
+        let adapter = ConfigurableAutoFillIdentityStore(failureAt: .savePasswords, failure: error)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+        let descriptor = makeDescriptor(id: UUID(), service: "example.com", hasTOTP: false)
+
+        await #expect(throws: error) { try await synchronizer.reconcile(descriptors: [descriptor]) }
+    }
+
+    @Test("disabled state does not hide cancellation or supersession during the state read", arguments: [false, true])
+    func rechecksFreshnessAfterDisabledStateRead(cancel: Bool) async throws {
+        let pause = OwnershipPause()
+        let adapter = ConfigurableAutoFillIdentityStore(enabled: false, pauseAt: .state, pause: pause)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+        let authority = SyncOperationAuthority()
+        let operation = authority.beginOperation()
+        let task = Task { try await synchronizer.reconcile(descriptors: [], isCurrent: { operation.isCurrent }) }
+        await pause.waitUntilEntered()
+        if cancel { task.cancel() } else { authority.invalidate() }
+        await pause.finish()
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await adapter.operations() == [.state])
+    }
+
+    @Test("store-disabled mutation error does not hide cancellation or supersession", arguments: [false, true])
+    func rechecksFreshnessBeforeIgnoringDisabledError(cancel: Bool) async throws {
+        let pause = OwnershipPause()
+        let adapter = ConfigurableAutoFillIdentityStore(failureAt: .savePasswords, pauseAt: .savePasswords, pause: pause)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+        let authority = SyncOperationAuthority()
+        let operation = authority.beginOperation()
+        let descriptor = makeDescriptor(id: UUID(), service: "example.com", hasTOTP: true)
+        let task = Task { try await synchronizer.reconcile(descriptors: [descriptor], isCurrent: { operation.isCurrent }) }
+        await pause.waitUntilEntered()
+        if cancel { task.cancel() } else { authority.invalidate() }
+        await pause.finish()
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await adapter.operations().last == .savePasswords)
+    }
+
     private func makeDescriptor(
         id: UUID,
         title: String = "Example",
@@ -214,6 +292,7 @@ private actor OrderedCredentialIdentityStore: AutoFillCredentialIdentityStoreAda
         self.passwordReadPause = passwordReadPause
     }
 
+    func isEnabled() async -> Bool { true }
     func passwordReadCount() -> Int { reads }
     func passwordSaveCount() -> Int { saves }
     func passwordIdentities() async throws -> [AutoFillPasswordIdentity] {
@@ -257,6 +336,7 @@ private actor FakeCredentialIdentityStoreAdapter: AutoFillCredentialIdentityStor
         self.oneTimeCodes = oneTimeCodes
     }
 
+    func isEnabled() async -> Bool { true }
     func passwordIdentities() async throws -> [AutoFillPasswordIdentity] { passwords }
     func oneTimeCodeIdentities() async throws -> [AutoFillOneTimeCodeIdentity] { oneTimeCodes }
 

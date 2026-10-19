@@ -17,6 +17,41 @@ struct SyncCoordinatorOfflineTests {
         #expect(await harness.runner.viewRequests().isEmpty)
     }
 
+    @Test("disabled AutoFill does not fail sync or block offline refresh", arguments: [false, true])
+    func disabledAutoFillPreservesSuccessfulSync(disableDuringSave: Bool) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"])
+        let previousRefresh = try #require(harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt)
+        let login = try incrementalSyncCLIItem(id: "item", url: "https://login.example.com")
+        let json = String(decoding: try JSONEncoder().encode(login), as: UTF8.self)
+        await harness.runner.setSyncResponse(
+            vaults: "{\"vaults\":[{\"name\":\"Vault\",\"vault_id\":\"vault\",\"share_id\":\"share\"}]}",
+            lists: ["share": "{\"items\":[\(json)]}"]
+        )
+        let suite = "SyncCoordinatorDisabledAutoFill.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ConfigurableAutoFillIdentityStore(
+            enabled: disableDuringSave, failureAt: disableDuringSave ? .savePasswords : nil
+        )
+        let coordinator = SyncCoordinator(
+            cliService: harness.cliService, databaseManager: harness.database, viewModel: harness.viewModel,
+            identitySynchronizer: AutoFillIdentitySynchronizer(adapter: store),
+            offlineModeService: harness.service, defaults: defaults
+        )
+
+        coordinator.refreshNow()
+        await coordinator.currentSyncCompletion?.value
+
+        #expect(harness.viewModel.syncError == nil)
+        #expect(harness.viewModel.isLoading == false)
+        #expect(defaults.double(forKey: DefaultsKey.lastSyncTime) > 0)
+        #expect(try harness.database.allActiveItems().map(\.id) == ["item"])
+        #expect(try harness.database.allAutoFillDescriptors().isEmpty == false)
+        #expect(try harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt != previousRefresh)
+        #expect(try harness.database.offlineItemSelection(itemId: "item")?.cacheStatus == .cached)
+        #expect(await harness.runner.viewRequests().isEmpty)
+    }
+
     @Test("explicit Retry then matching coordinator sync adds zero item views")
     func matchingSyncAfterRetryAddsZeroViews() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor"])
