@@ -113,6 +113,22 @@ final class PanelController {
 
     var isVisible: Bool { panel.isVisible }
     var windowForPresentation: NSWindow { panel }
+
+    /// The search field is the panel's only editable text field. SwiftUI's
+    /// FocusState alone is not proof that AppKit is routing typing to it.
+    var hasSearchKeyboardFocus: Bool {
+        guard panel.isKeyWindow,
+              let contentView = panel.contentView,
+              let editor = panel.firstResponder as? NSTextView,
+              editor.isFieldEditor,
+              let field = editor.delegate as? NSTextField,
+              field.isEditable,
+              field.isDescendant(of: contentView),
+              field.currentEditor() === editor
+        else { return false }
+        return true
+    }
+
     func isOwnWindow(_ window: NSWindow) -> Bool {
         purgeReleasedOwnedWindows()
         return window === panel || ownedAuxiliaryWindows[ObjectIdentifier(window)]?.window === window

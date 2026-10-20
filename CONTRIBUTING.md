@@ -115,6 +115,12 @@ Quick Access for Pass/
 - Deadline-sensitive native fixtures may use the test-owned `CLIRunnerTestTaskExecutor` to keep caller/default-actor continuations off the busy cooperative pool. Keep real deadlines unchanged and forward the original absolute deadline through every native layer; executor preference must not replace `MainActor` isolation or production CLI executors.
 - Native timeout fixtures must have a finite escape without busy-spinning or leaving inherited writers. Arrange overflow so only a small builtin write crosses the accepted cap after TERM; do not require a child launch or a large transfer to fit inside termination grace.
 - Keep AppKit rendering on `MainActor`, but run expensive, pure pixel comparisons off the UI thread. Panel tests should inject outside-click monitoring rather than consume live desktop input.
+- The hosted search keyboard-focus integration test requires exclusive desktop focus and is opt-in: other parallel tests can activate windows or delay the main actor beyond its production focus deadline. Run it alone on an unlocked desktop, without interacting with other apps:
+  ```bash
+  TEST_RUNNER_QA_RUN_FOCUS_UI_TESTS=1 xcodebuild -scheme "Quick Access for Pass" test \
+    -only-testing:"Quick Access for Pass Tests/SearchFocusRequestTests"
+  ```
+  The deterministic focus-retry and native field-editor checks remain in the default suite.
 - Add regression tests for migration changes, concurrency fixes, health/recovery logic, and security-sensitive behavior
 - If you change SSH or Run proxy behavior, update or add probe/lifecycle tests as needed
 - AutoFill tests must use injected fakes or temporary/in-memory fixtures only; never access real credentials, Keychain items, or the real database. Candidate metadata stays capped at 20 and memory-only; test typed global search only after non-empty input and explicit host-local native-app association behavior. Offline AutoFill fallback is host-broker-only; the extension must never receive selection/source/cache diagnostics.
