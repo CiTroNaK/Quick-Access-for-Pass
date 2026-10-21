@@ -133,6 +133,8 @@ Read the setup guide: [Run Proxy and qa-run](docs/run-proxy.md)
 
 ## Settings
 
+Right-click the menu-bar icon and choose **Settings…** to open Settings without opening Quick Access first. You can also press **⌘,** in Quick Access. Left-clicking the icon still toggles Quick Access.
+
 **Settings → Integrations** configures supported-app presentation and custom terminal mappings shared by SSH and Run authorization prompts. Herdr is currently the only supported app with pane-details integration; it is detected automatically and enabled on first detection; you can rename or disable it, turn off **Show Herdr pane details**, or add a custom mapping. The editor accepts a pasted absolute or `~`-relative executable path, including paths with spaces, and also offers an optional file picker. Recording a path does not execute the file. Explicit opt-out and edits survive rediscovery and restart. Existing identified macOS apps keep their names and icons.
 
 For Herdr, prompts may show the requesting pane's workspace/tab, a distinct title, and working directory. Empty titles and titles that are whitespace-equivalent to the displayed command are omitted using case-sensitive equality (not substring or prefix matching); this comparison does not alter either source value. This best-effort, untrusted context is display-only: it never changes authorization scopes or remembered decisions and does not establish ownership or permission evidence. No pane output, transcripts, or agent session files are read; unavailable or ambiguous metadata leaves the base prompt usable.

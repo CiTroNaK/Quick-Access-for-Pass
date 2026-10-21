@@ -45,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private(set) var isTerminating = false
     @ObservationIgnored lazy var terminationCoordinator: AppTerminationCoordinator = makeTerminationCoordinator()
 
-    let terminalHostStore = TerminalHostStore(defaults: .standard, discovery: TerminalHostDiscovery())
+    let terminalHostStore: TerminalHostStore
+    @ObservationIgnored var activateSettingsApplication: () -> Void
     @ObservationIgnored let herdrPaneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider()
 
     let healthStore = ProxyHealthStore()
@@ -141,6 +142,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func resetPendingLockContext() {
         pendingLockContextToken = nil
         pendingLockContext = nil
+    }
+
+    override convenience init() {
+        self.init(terminalHostStore: TerminalHostStore(defaults: .standard, discovery: TerminalHostDiscovery()))
+    }
+
+    init(terminalHostStore: TerminalHostStore, activateSettingsApplication: @escaping () -> Void = { NSApp.activate() }) {
+        self.terminalHostStore = terminalHostStore
+        self.activateSettingsApplication = activateSettingsApplication
+        super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -472,7 +483,10 @@ private extension AppDelegate {
             onLoginPassCLI: {
                 NotificationCenter.default.post(name: .passCLILoginRequested, object: nil)
             },
-            onQuit: { NSApp.terminate(nil) }
+            onQuit: { NSApp.terminate(nil) },
+            onOpenSettings: { [weak self] openSettings, application in
+                self?.presentSettings(using: { openSettings() }, restoring: application)
+            }
         )
     }
 

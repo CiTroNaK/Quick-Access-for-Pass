@@ -303,8 +303,7 @@ struct QuickAccessView: View {
 
     @MainActor
     private func presentSettings() {
-        appDelegate.prepareToOpenSettings()
-        openSettings()
+        appDelegate.presentSettings(using: { openSettings() })
     }
 
     @MainActor
