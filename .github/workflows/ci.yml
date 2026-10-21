@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-26
-    timeout-minutes: 5
+    runs-on: xcode-27
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -25,7 +25,9 @@ jobs:
         run: swiftlint lint --strict
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
 
       - name: Verify bundled Proton Pass CLI
         run: scripts/prepare-bundled-pass-cli.sh "$RUNNER_TEMP/bundled-pass-cli"
@@ -34,9 +36,11 @@ jobs:
         uses: actions/cache@v5
         with:
           path: build/
-          key: derived_data-v2-${{ runner.os }}-xcode26.2-${{ hashFiles('Quick Access for Pass.xcodeproj/**') }}
+          key: >-
+            derived_data-v2-${{ runner.os }}-xcode27-${{
+              hashFiles('Quick Access for Pass.xcodeproj/**') }}
           restore-keys: |
-            derived_data-v2-${{ runner.os }}-xcode26.2-
+            derived_data-v2-${{ runner.os }}-xcode27-
 
       - name: Build
         run: |
