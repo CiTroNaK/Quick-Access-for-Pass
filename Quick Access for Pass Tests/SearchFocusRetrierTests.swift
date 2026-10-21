@@ -56,6 +56,27 @@ struct SearchFocusRetrierTests {
         #expect(waits == 1)
     }
 
+    @Test("Stale reported focus does not skip panel activation")
+    func staleFocusDoesNotSkipActivation() async {
+        var isPanelKey = false
+        var reclaims = 0
+
+        await SearchFocusRetrier.focus(
+            whileEligible: { true },
+            isPanelKey: { isPanelKey },
+            reclaimPanel: {
+                reclaims += 1
+                isPanelKey = true
+            },
+            isFocused: { true },
+            requestFocus: {},
+            waitForRetry: { true }
+        )
+
+        #expect(isPanelKey)
+        #expect(reclaims == 1)
+    }
+
     @Test("Stops when waiting is canceled")
     func stopsWhenWaitingIsCanceled() async {
         var attempts = 0

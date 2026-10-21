@@ -57,7 +57,7 @@ enum SearchFocusRetrier {
         isPanelKey: () -> Bool,
         reclaimPanel: () -> Void,
         isFocused: () -> Bool,
-        requestFocus: () -> Void,
+        requestFocus: () async -> Void,
         waitForRetry: () async -> Bool = waitForRetry
     ) async {
         let clock = ContinuousClock()
@@ -65,13 +65,13 @@ enum SearchFocusRetrier {
         await run(
             whileEligible: { clock.now < deadline && isEligible() },
             attempt: {
-                if isFocused() { return true }
                 guard isPanelKey() else {
                     reclaimPanel()
                     return false
                 }
-                requestFocus()
-                return isFocused()
+                if isFocused() { return true }
+                await requestFocus()
+                return isEligible() && isPanelKey() && isFocused()
             },
             waitForRetry: waitForRetry
         )
@@ -79,11 +79,11 @@ enum SearchFocusRetrier {
 
     static func run(
         whileEligible isEligible: () -> Bool,
-        attempt: () -> Bool,
+        attempt: () async -> Bool,
         waitForRetry: () async -> Bool
     ) async {
         while isEligible() {
-            if attempt() { return }
+            if await attempt() { return }
             guard isEligible(), await waitForRetry() else { return }
         }
     }
@@ -308,21 +308,30 @@ struct QuickAccessView: View {
 
     @MainActor
     private func focusSearchField() async {
-        isSearchFocused = false
-        await Task.yield()
-
         await SearchFocusRetrier.focus(
             whileEligible: {
                 !Task.isCancelled
                     && !appDelegate.isLocked
+                    && viewModel.detailItem == nil
                     && appDelegate.panelController?.isVisible == true
             },
             isPanelKey: {
                 appDelegate.panelController?.windowForPresentation.isKeyWindow == true
             },
             reclaimPanel: { appDelegate.panelController?.reclaimKeyboardFocus() },
-            isFocused: { isSearchFocused },
-            requestFocus: { isSearchFocused = true }
+            isFocused: { appDelegate.panelController?.hasSearchKeyboardFocus == true },
+            requestFocus: {
+                // SwiftUI can retain a stale true value across orderOut/activation.
+                // Let the reset propagate before issuing a new focus request.
+                isSearchFocused = false
+                await Task.yield()
+                guard !Task.isCancelled,
+                      !appDelegate.isLocked,
+                      viewModel.detailItem == nil,
+                      appDelegate.panelController?.isVisible == true
+                else { return }
+                isSearchFocused = true
+            }
         )
     }
 

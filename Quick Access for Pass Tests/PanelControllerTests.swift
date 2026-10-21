@@ -5,6 +5,30 @@ import AppKit
 @Suite("PanelController")
 @MainActor
 struct PanelControllerTests {
+    @Test("Search focus requires the panel's active field editor")
+    func searchFocusRequiresActiveFieldEditor() throws {
+        let controller = PanelController()
+        let window = controller.windowForPresentation
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+        let searchField = NSTextField(frame: NSRect(x: 16, y: 16, width: 300, height: 24))
+        contentView.addSubview(searchField)
+        window.contentView = contentView
+        defer { controller.hide(ignoringBlock: true) }
+        window.makeKeyAndOrderFront(nil)
+
+        window.makeFirstResponder(nil)
+        #expect(!controller.hasSearchKeyboardFocus)
+
+        #expect(window.makeFirstResponder(searchField))
+        #expect(controller.hasSearchKeyboardFocus)
+        let editor = try #require(window.firstResponder as? NSTextView)
+        editor.insertText("immediate typing", replacementRange: NSRange(location: 0, length: 0))
+        #expect(searchField.stringValue == "immediate typing")
+
+        window.makeFirstResponder(nil)
+        #expect(!controller.hasSearchKeyboardFocus)
+    }
+
     @Test func preparedLargeTypeIsOwnedBeforeSynchronousKeyNotification() throws {
         try assertPreparedLargeTypeOwnershipBeforeKeyNotification()
     }

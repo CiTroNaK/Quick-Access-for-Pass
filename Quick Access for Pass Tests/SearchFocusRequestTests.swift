@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Quick_Access_for_Pass
 
@@ -43,6 +44,58 @@ private final class SimulatedKeyWindow: NSWindow {
 @Suite("Search focus requests")
 @MainActor
 struct SearchFocusRequestTests {
+    @Test(
+        "Hosted search reacquires the real field editor after reopening",
+        .enabled(
+            if: ProcessInfo.processInfo.environment["QA_RUN_FOCUS_UI_TESTS"] == "1",
+            "Requires exclusive desktop keyboard focus; see CONTRIBUTING.md"
+        )
+    )
+    func hostedSearchReacquiresFieldEditor() async throws {
+        let suiteName = "SearchFocusRequestTests.hostedReopen"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(false, forKey: DefaultsKey.lockoutEnabled)
+        let delegate = AppDelegate()
+        let controller = PanelController(
+            frontmostApplication: { nil },
+            monitorOutsideClicks: { _ in nil }
+        )
+        let viewModel = try makeSearchFocusViewModelWithDetail()
+        viewModel.hideDetail()
+        delegate.testDefaults = defaults
+        delegate.viewModel = viewModel
+        delegate.panelController = controller
+        controller.setContent(QuickAccessView(
+            viewModel: viewModel,
+            onDismiss: { controller.hide() },
+            appDelegate: delegate
+        ))
+        controller.onShow = { delegate.requestSearchFocusIfNeeded() }
+        defer {
+            controller.onShow = nil
+            controller.hide(ignoringBlock: true)
+            controller.windowForPresentation.contentView = nil
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        for _ in 0..<3 {
+            delegate.togglePanel()
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(4))
+            while !controller.hasSearchKeyboardFocus && clock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(controller.hasSearchKeyboardFocus)
+            let editor = try #require(controller.windowForPresentation.firstResponder as? NSTextView)
+            editor.selectAll(nil)
+            editor.insertText("typed immediately", replacementRange: NSRange(location: NSNotFound, length: 0))
+            #expect(viewModel.searchQuery == "typed immediately")
+            // Reopening must recover even when the native responder was lost.
+            controller.windowForPresentation.makeFirstResponder(nil)
+            delegate.togglePanel()
+        }
+    }
+
     @Test func unlockedPanelPresentationRequestsSearchFocus() {
         let defaults = UserDefaults(suiteName: "SearchFocusRequestTests.unlocked")!
         defaults.removePersistentDomain(forName: "SearchFocusRequestTests.unlocked")
