@@ -53,6 +53,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
     private let startLogin: @MainActor @Sendable () -> Void
     private let showLoginRequired: @MainActor @Sendable () -> Void
     private let clearLoginRequired: @MainActor @Sendable () -> Void
+    private let showPATLoginFailure: @MainActor @Sendable (String) -> Void
     private var hasPostedForCurrentLogout = false
     private var isLoggedOutEpisodeActive = false
 
@@ -61,12 +62,14 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         poster: any PassCLILoginNotificationPosting = LivePassCLILoginNotificationPoster(),
         startLogin: @escaping @MainActor @Sendable () -> Void,
         showLoginRequired: @escaping @MainActor @Sendable () -> Void = {},
-        clearLoginRequired: @escaping @MainActor @Sendable () -> Void = {}
+        clearLoginRequired: @escaping @MainActor @Sendable () -> Void = {},
+        showPATLoginFailure: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.poster = poster
         self.startLogin = startLogin
         self.showLoginRequired = showLoginRequired
         self.clearLoginRequired = clearLoginRequired
+        self.showPATLoginFailure = showPATLoginFailure
         let login = UNNotificationAction(identifier: Self.loginActionIdentifier, title: String(localized: "Log In"), options: [])
         let category = UNNotificationCategory(identifier: Self.categoryIdentifier, actions: [login], intentIdentifiers: [])
         notificationRouter?.registerCategory(category)
@@ -79,7 +82,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
 
     func handleCLIHealthTransition(to health: PassCLIHealth) {
         switch health {
-        case .notLoggedIn:
+        case .notLoggedIn, .localSessionUnreadable:
             isLoggedOutEpisodeActive = true
             showLoginRequired()
             guard hasPostedForCurrentLogout == false else { return }
@@ -100,11 +103,19 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
         let body: String
         let categoryIdentifier: String?
         switch result {
+        case .busy:
+            title = String(localized: "Sign-in already in progress.")
+            body = String(localized: "Wait for the current sign-in to finish before trying again.")
+            categoryIdentifier = nil
         case .succeeded:
             clearLoginRequired()
             title = String(localized: "Proton Pass CLI connected")
             body = String(localized: "Quick Access is syncing your vaults.")
             categoryIdentifier = nil
+        case .localSessionUnreadable:
+            title = String(localized: "Local CLI session could not be decrypted")
+            body = String(localized: "Open Settings → Pass CLI and choose Reset CLI Session and Log In. You will be asked to confirm first.")
+            categoryIdentifier = Self.categoryIdentifier
         case .failed:
             title = String(localized: "Proton Pass CLI login failed")
             body = String(localized: "Pass CLI login did not complete. Open Settings → Pass CLI to retry.")
@@ -115,6 +126,7 @@ final class PassCLILoginNotifier: UserNotificationActionHandling, PassCLIHealthT
     }
 
     func handlePATLoginFailure(_ message: String) {
+        showPATLoginFailure(message)
         let title = String(localized: "Personal access token login failed")
         let body = String(localized: "Replace the saved token or log in normally from Settings → Pass CLI.")
         AccessibilityNotification.Announcement("\(title). \(body)").post()

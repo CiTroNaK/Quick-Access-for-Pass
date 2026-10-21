@@ -58,27 +58,82 @@ private final class PATInvalidRecorder {
 
 @MainActor
 struct PassCLIPATAutoLoginCoordinatorTests {
+    private struct UnreadableSessionRunner: CLIRunning {
+        func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
+            throw CLIError.commandFailed("Error getting client: Error decrypting local session(Error decrypting session: aead::Error)")
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
-    func loggedOutWithoutSavedPATFallsBackToNormalNotifier() async {
+    func unreadableSessionProbeTriggersOneAutomaticAttemptPerUnhealthyEpisode() async {
+        let outcome = await PassCLISanityCheck.checkAuthenticatedHealth(cliPath: "/fake/pass-cli", runner: UnreadableSessionRunner())
+        let fallback = FakeTransitionHandler()
+        let runner = FakePATLoginRunner(results: [.failed("recovery failed"), .succeeded])
+        let coordinator = PassCLIPATAutoLoginCoordinator(
+            credentialStore: FakePATAutoLoginCredentialStore(token: "pst_test_token::secret"),
+            loginWithSavedToken: { await runner.login() },
+            fallbackHandler: fallback,
+            patFailureHandler: { _ in },
+            browserLoginIsRunning: { false }
+        )
+
+        coordinator.handleCLIHealthTransition(to: outcome.health)
+        await coordinator.waitForCurrentAttempt()
+        coordinator.handleCLIHealthTransition(to: outcome.health)
+        await coordinator.waitForCurrentAttempt()
+        #expect(runner.callCount == 1)
+        coordinator.handleCLIHealthTransition(to: .ok)
+        coordinator.handleCLIHealthTransition(to: outcome.health)
+        await coordinator.waitForCurrentAttempt()
+        #expect(runner.callCount == 2)
+        #expect(outcome.identity == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [PassCLIHealth.notLoggedIn, .localSessionUnreadable])
+    func unusableSessionWithoutSavedPATFallsBackToNormalNotifier(health: PassCLIHealth) async {
         let store = FakePATAutoLoginCredentialStore(token: nil)
         let fallback = FakeTransitionHandler()
         let runner = FakePATLoginRunner(results: [.succeeded])
         let failures = PATFailureRecorder()
         let coordinator = PassCLIPATAutoLoginCoordinator(
             credentialStore: store,
-            loginWithSavedToken: { await runner.login() },
+            sessionMutationGate: PassCLISessionMutationGate(),
+            currentHealth: { health },
+            loginWithSavedToken: { _ in await runner.login() },
             fallbackHandler: fallback,
             patFailureHandler: { failures.record($0) },
-            invalidPATHandler: { _ in },
-            browserLoginIsRunning: { false }
+            invalidPATHandler: { _ in }
         )
 
-        coordinator.handleCLIHealthTransition(to: .notLoggedIn)
+        coordinator.handleCLIHealthTransition(to: health)
         await coordinator.waitForCurrentAttempt()
 
         #expect(runner.callCount == 0)
-        #expect(fallback.transitions == [.notLoggedIn])
+        #expect(fallback.transitions == [health])
         #expect(failures.messages.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func unreadableSessionDoesNotMutateSessionDuringBrowserLogin() async {
+        let fallback = FakeTransitionHandler()
+        let runner = FakePATLoginRunner(results: [.succeeded])
+        let gate = PassCLISessionMutationGate()
+        let lease = gate.tryAcquire(.browserLogin)
+        defer { if let lease { gate.release(lease) } }
+        let coordinator = PassCLIPATAutoLoginCoordinator(
+            credentialStore: FakePATAutoLoginCredentialStore(token: "pst_test_token::secret"),
+            sessionMutationGate: gate,
+            currentHealth: { .localSessionUnreadable },
+            loginWithSavedToken: { _ in await runner.login() },
+            fallbackHandler: fallback,
+            patFailureHandler: { _ in }
+        )
+
+        coordinator.handleCLIHealthTransition(to: .localSessionUnreadable)
+        await coordinator.waitForCurrentAttempt()
+
+        #expect(runner.callCount == 0)
+        #expect(fallback.transitions.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -131,7 +186,7 @@ struct PassCLIPATAutoLoginCoordinatorTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func failedPATLoginWarnsFallsBackAndDoesNotDeleteToken() async throws {
+    func failedPATLoginWarnsWithoutBrowserFallbackOrDeletingToken() async throws {
         let store = FakePATAutoLoginCredentialStore(token: "pst_test_token::secret")
         let fallback = FakeTransitionHandler()
         let runner = FakePATLoginRunner(results: [.failed("invalid token")])
@@ -150,7 +205,7 @@ struct PassCLIPATAutoLoginCoordinatorTests {
 
         #expect(try await store.loadToken() == "pst_test_token::secret")
         #expect(failures.messages == ["invalid token"])
-        #expect(fallback.transitions == [.notLoggedIn])
+        #expect(fallback.transitions.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -202,6 +257,6 @@ struct PassCLIPATAutoLoginCoordinatorTests {
         await coordinator.waitForCurrentAttempt()
 
         #expect(runner.callCount == 2)
-        #expect(fallback.transitions == [.notLoggedIn, .ok])
+        #expect(fallback.transitions == [.ok])
     }
 }

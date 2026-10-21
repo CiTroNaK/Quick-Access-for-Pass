@@ -12,7 +12,7 @@ final class SyncCoordinator {
     private let onResetInitiated: @MainActor @Sendable () -> Void
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
-    private let onAuthenticationRequired: (@MainActor @Sendable () async -> Void)?
+    private let onAuthenticationRequired: (@MainActor @Sendable (PassCLIHealth) async -> Void)?
 
     private var syncTask: Task<Void, Never>?
     private var resetTask: Task<Void, Never>?
@@ -28,7 +28,7 @@ final class SyncCoordinator {
         maintenance: OfflineStorageMaintenance? = nil,
         onResetInitiated: @escaping @MainActor @Sendable () -> Void = {},
         onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in },
-        onAuthenticationRequired: (@MainActor @Sendable () async -> Void)? = nil
+        onAuthenticationRequired: (@MainActor @Sendable (PassCLIHealth) async -> Void)? = nil
     ) {
         self.cliService = cliService
         self.databaseManager = databaseManager
@@ -117,7 +117,8 @@ final class SyncCoordinator {
             if viewModel.syncError?.action == .copyAndReport {
                 viewModel.syncError = nil
             }
-            await onAuthenticationRequired()
+            let health: PassCLIHealth = error.isLocalSessionDecryptionError ? .localSessionUnreadable : .notLoggedIn
+            await onAuthenticationRequired(health)
         } else {
             viewModel.syncProgress = nil
             if viewModel.syncError?.action != .updatePAT {

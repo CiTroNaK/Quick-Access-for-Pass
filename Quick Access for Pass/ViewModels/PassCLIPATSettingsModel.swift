@@ -6,10 +6,11 @@ import SwiftUI
 @Observable
 final class PassCLIPATSettingsModel {
     private let credentialStore: any PassCLIPATCredentialStoring
-    private let loginWithSavedToken: @MainActor @Sendable () async -> PassCLIPATLoginResult
+    private let sessionMutationGate: PassCLISessionMutationGate
+    private let loginWithSavedToken: @MainActor @Sendable (PassCLISessionMutationGate.Lease) async -> PassCLIPATLoginResult
     private let invalidPATHandler: @MainActor @Sendable (String) -> Void
     private let isCurrentSessionPersonalAccessToken: @MainActor @Sendable () -> Bool
-    private let logoutFromPassCLI: @MainActor @Sendable () async throws -> Void
+    private let logoutFromPassCLI: @MainActor @Sendable (PassCLISessionMutationGate.Lease) async throws -> Void
 
     var hasSavedToken = false
     var isLoggingIn = false
@@ -17,12 +18,14 @@ final class PassCLIPATSettingsModel {
     var errorMessage: String?
 
     init(
+        sessionMutationGate: PassCLISessionMutationGate,
         credentialStore: any PassCLIPATCredentialStoring,
-        loginWithSavedToken: @escaping @MainActor @Sendable () async -> PassCLIPATLoginResult,
+        loginWithSavedToken: @escaping @MainActor @Sendable (PassCLISessionMutationGate.Lease) async -> PassCLIPATLoginResult,
         invalidPATHandler: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         isCurrentSessionPersonalAccessToken: @escaping @MainActor @Sendable () -> Bool = { false },
-        logoutFromPassCLI: @escaping @MainActor @Sendable () async throws -> Void = {}
+        logoutFromPassCLI: @escaping @MainActor @Sendable (PassCLISessionMutationGate.Lease) async throws -> Void = { _ in }
     ) {
+        self.sessionMutationGate = sessionMutationGate
         self.credentialStore = credentialStore
         self.loginWithSavedToken = loginWithSavedToken
         self.invalidPATHandler = invalidPATHandler
@@ -31,10 +34,15 @@ final class PassCLIPATSettingsModel {
     }
 
     func refreshSavedTokenState() async {
-        hasSavedToken = await credentialStore.hasToken()
+        // Retain the last display state when Keychain is temporarily unavailable.
+        if let hasToken = try? await credentialStore.hasToken() {
+            hasSavedToken = hasToken
+        }
     }
 
     func saveAndLogin(token: String) async {
+        guard let lease = acquire(.savedTokenLogin) else { return }
+        defer { sessionMutationGate.release(lease) }
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else {
             setError(String(localized: "Enter a personal access token."))
@@ -47,34 +55,50 @@ final class PassCLIPATSettingsModel {
         do {
             try await credentialStore.saveToken(trimmed)
             hasSavedToken = true
-            await runSavedTokenLogin(successMessage: String(localized: "Personal access token saved and Pass CLI connected."))
+            await runSavedTokenLogin(successMessage: String(localized: "Personal access token saved and Pass CLI connected."), lease: lease)
         } catch {
             setError(String(localized: "Could not save personal access token: \(error.localizedDescription)"))
         }
     }
 
     func loginUsingSavedToken() async {
+        guard let lease = acquire(.savedTokenLogin) else { return }
         isLoggingIn = true
-        defer { isLoggingIn = false }
-        await runSavedTokenLogin(successMessage: String(localized: "Pass CLI connected with saved personal access token."))
+        defer {
+            isLoggingIn = false
+            sessionMutationGate.release(lease)
+        }
+        await runSavedTokenLogin(successMessage: String(localized: "Pass CLI connected with saved personal access token."), lease: lease)
     }
 
     func removeToken() async {
+        guard let lease = acquire(.logout) else { return }
+        defer { sessionMutationGate.release(lease) }
         do {
             try await credentialStore.deleteToken()
-            if isCurrentSessionPersonalAccessToken() {
-                try await logoutFromPassCLI()
-            }
             hasSavedToken = false
+            if isCurrentSessionPersonalAccessToken() {
+                try await logoutFromPassCLI(lease)
+            }
             setStatus(String(localized: "Personal access token removed."))
         } catch {
             setError(String(localized: "Could not remove personal access token: \(error.localizedDescription)"))
         }
     }
 
-    private func runSavedTokenLogin(successMessage: String) async {
-        let result = await loginWithSavedToken()
+    private func acquire(_ operation: PassCLISessionMutationGate.Operation) -> PassCLISessionMutationGate.Lease? {
+        guard let lease = sessionMutationGate.tryAcquire(operation) else {
+            setStatus(PassCLIPATLoginResult.busy.userFacingMessage)
+            return nil
+        }
+        return lease
+    }
+
+    private func runSavedTokenLogin(successMessage: String, lease: PassCLISessionMutationGate.Lease) async {
+        let result = await loginWithSavedToken(lease)
         switch result {
+        case .busy:
+            setStatus(result.userFacingMessage)
         case .succeeded:
             setStatus(successMessage)
         case .missingToken:

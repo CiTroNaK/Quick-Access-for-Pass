@@ -20,7 +20,7 @@ extension SSHProxyCoordinator {
         switch health {
         case .ok:
             await handleCLIHealthRecovered()
-        case .notLoggedIn:
+        case .notLoggedIn, .localSessionUnreadable:
             updateSSHHealth(.unreachable(.passCLINotLoggedIn))
         case .notInstalled:
             updateSSHHealth(.unreachable(.passCLIFailed("pass-cli not found")))

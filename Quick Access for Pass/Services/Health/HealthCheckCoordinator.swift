@@ -127,7 +127,7 @@ final class HealthCheckCoordinator {
     // MARK: - Test seams (internal)
 
     /// Executes one CLI tick body: probe → write store → dispatch transition.
-    /// Rechecks authentication recovery on every logged-out result, even if unchanged.
+    /// Rechecks authentication recovery on every logged-out or unreadable-session result, even if unchanged.
     /// Called by the production tick loop AND directly by tests.
     /// - Note: Test seam — do not inline into the loop factory.
     func tickCLI() async {
@@ -151,7 +151,7 @@ final class HealthCheckCoordinator {
             // The saved PAT may have been unavailable while Keychain was locked.
             // Recheck availability without redispatching proxy lifecycle transitions.
             // The PAT coordinator guards in-flight and already-attempted logins.
-            if outcome.health == .notLoggedIn {
+            if outcome.health.requiresAuthenticationRecovery {
                 passCLITransitionHandler?.handleCLIHealthTransition(to: outcome.health)
             }
             return
@@ -163,18 +163,18 @@ final class HealthCheckCoordinator {
 
     /// Records a CLI authentication failure immediately, without waiting for the next probe.
     /// Publishing logged-out health ensures a successful login's probe resets the recovery episode.
-    func reportAuthenticationFailure() async {
-        guard !Task.isCancelled else { return }
+    func reportAuthenticationFailure(health: PassCLIHealth = .notLoggedIn) async {
+        guard !Task.isCancelled, health.requiresAuthenticationRecovery else { return }
         let previous = cliStore.health
-        cliStore.health = .notLoggedIn
+        cliStore.health = health
         cliStore.identity = nil
 
-        if previous != .notLoggedIn {
-            runCoordinator.handleCLIHealthTransition(to: .notLoggedIn)
-            await sshCoordinator.handleCLIHealthTransition(to: .notLoggedIn)
+        if previous != health {
+            runCoordinator.handleCLIHealthTransition(to: health)
+            await sshCoordinator.handleCLIHealthTransition(to: health)
         }
-        guard !Task.isCancelled, cliStore.health == .notLoggedIn else { return }
-        passCLITransitionHandler?.handleCLIHealthTransition(to: .notLoggedIn)
+        guard !Task.isCancelled, cliStore.health == health else { return }
+        passCLITransitionHandler?.handleCLIHealthTransition(to: health)
     }
 
     func refreshPassCLI() async -> PassCLIHealth {

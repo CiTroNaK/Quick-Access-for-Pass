@@ -48,6 +48,7 @@ private nonisolated final class FakeStreamingRunner: CLIStreaming, @unchecked Se
     private struct State {
         var process: CLIStreamingProcess?
         var startCount = 0
+        var executablePaths: [String] = []
         var startWaiters: [CheckedContinuation<Void, Never>] = []
     }
 
@@ -59,6 +60,10 @@ private nonisolated final class FakeStreamingRunner: CLIStreaming, @unchecked Se
 
     var startCount: Int {
         state.withLock { $0.startCount }
+    }
+
+    var executablePaths: [String] {
+        state.withLock { $0.executablePaths }
     }
 
     func waitUntilStarted() async {
@@ -81,6 +86,7 @@ private nonisolated final class FakeStreamingRunner: CLIStreaming, @unchecked Se
     ) throws -> CLIStreamingProcess {
         let result = state.withLock { state -> Result<(CLIStreamingProcess, [CheckedContinuation<Void, Never>]), Error> in
             state.startCount += 1
+            state.executablePaths.append(executablePath)
             let waiters = state.startWaiters
             state.startWaiters.removeAll()
             guard let process = state.process else {
@@ -96,6 +102,46 @@ private nonisolated final class FakeStreamingRunner: CLIStreaming, @unchecked Se
         case .failure(let error):
             throw error
         }
+    }
+}
+
+private actor SessionResetRunner: CLIRunning {
+    struct Invocation: Sendable, Equatable {
+        let path: String
+        let arguments: [String]
+    }
+    var invocations: [Invocation] = []
+    var failure: CLIError?
+    private var shouldPause = false
+    private var resume: CheckedContinuation<Void, Never>?
+    private var entered: CheckedContinuation<Void, Never>?
+
+    func configure(failure: CLIError? = nil, pause: Bool = false) {
+        self.failure = failure
+        shouldPause = pause
+    }
+
+    func waitUntilEntered() async {
+        guard invocations.isEmpty else { return }
+        await withCheckedContinuation { entered = $0 }
+    }
+
+    func finish() {
+        resume?.resume()
+        resume = nil
+    }
+
+    func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
+        invocations.append(Invocation(path: executablePath, arguments: arguments))
+        if shouldPause {
+            await withCheckedContinuation { continuation in
+                resume = continuation
+                entered?.resume()
+                entered = nil
+            }
+        }
+        if let failure { throw failure }
+        return Data()
     }
 }
 
@@ -130,6 +176,36 @@ private func fakeProcess(
 
 @MainActor
 struct PassCLILoginCoordinatorTests {
+    @Test(.timeLimit(.minutes(1)))
+    func unreadableSessionIsNotMisreportedAsMissingBrowserURL() async {
+        var results: [PassCLILoginResult] = []
+        let opened = OpenedURLs()
+        let sync = SyncRecorder()
+        let runner = FakeStreamingRunner()
+        runner.setProcess(fakeProcess(
+            chunks: [.stderr("Error getting client: Error decrypting local session(Error decrypting session: aead::Error)")],
+            result: CLIStreamingResult(terminationStatus: 1, stdout: "", stderr: "Error decrypting local session")
+        ))
+        let coordinator = PassCLILoginCoordinator(
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            runner: runner,
+            urlOpener: FakeURLOpener(opened: opened),
+            healthRefresher: FakeHealthRefresher(health: .localSessionUnreadable),
+            syncTrigger: { await sync.sync() },
+            resultHandler: { results.append($0) },
+            urlDiscoveryTimeout: .milliseconds(500)
+        )
+
+        coordinator.startLogin()
+        await coordinator.waitForCurrentLogin()
+
+        #expect(coordinator.state == .localSessionUnreadable)
+        #expect(results == [.localSessionUnreadable])
+        #expect(await opened.count() == 0)
+        #expect(await sync.count() == 0)
+        #expect(runner.startCount == 1)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func opensParsedURLRefreshesHealthAndSyncsWhenHealthy() async throws {
         let opened = OpenedURLs()
@@ -213,6 +289,232 @@ struct PassCLILoginCoordinatorTests {
         #expect(runner.startCount == 1)
         completionBox.finishSuccessfully()
         await coordinator.waitForCurrentLogin()
+    }
+}
+
+@MainActor
+struct PassCLIBrowserSessionRepairTests {
+    private func makeCoordinator(
+        runner: FakeStreamingRunner,
+        resetRunner: SessionResetRunner,
+        currentHealth: @escaping @MainActor @Sendable () -> PassCLIHealth = { .localSessionUnreadable },
+        cliService: PassCLIService = PassCLIService(cliPath: "/fake/pass-cli"),
+        opened: OpenedURLs = OpenedURLs(),
+        sync: SyncRecorder = SyncRecorder(),
+        revoke: @escaping @MainActor @Sendable () -> Void = {}
+    ) -> PassCLILoginCoordinator {
+        PassCLILoginCoordinator(
+            cliService: cliService,
+            currentHealth: currentHealth,
+            runner: runner,
+            sessionResetRunner: resetRunner,
+            urlOpener: FakeURLOpener(opened: opened),
+            healthRefresher: FakeHealthRefresher(health: .ok),
+            syncTrigger: { await sync.sync() },
+            resultHandler: { _ in },
+            revokeTransientSecretAccess: revoke,
+            urlDiscoveryTimeout: .milliseconds(500),
+            loginCompletionTimeout: .milliseconds(500)
+        )
+    }
+
+    private func successfulRunner() -> FakeStreamingRunner {
+        let runner = FakeStreamingRunner()
+        runner.setProcess(fakeProcess(
+            chunks: [.stdout("https://account.proton.me/desktop/login?app=pass#payload=synthetic-test-payload\n")],
+            result: CLIStreamingResult(terminationStatus: 0, stdout: "", stderr: "")
+        ))
+        return runner
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func decliningRepairDoesNotRunCLIOrRevokeSecretAccess() async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        let release = SecretReleaseGuard()
+        let token = release.capture()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, revoke: { release.revoke() })
+
+        coordinator.requestLogin(confirmSessionReset: { false })
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.isEmpty)
+        #expect(runner.startCount == 0)
+        #expect(release.isCurrent(token))
+        #expect(coordinator.state == .idle)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func confirmedRepairRevokesBeforeCleanupAndStartsOneBrowserLogin() async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        await reset.configure(pause: true)
+        let opened = OpenedURLs()
+        let sync = SyncRecorder()
+        let release = SecretReleaseGuard()
+        let token = release.capture()
+        let cliService = PassCLIService(cliPath: "/fake/pass-cli")
+        let coordinator = makeCoordinator(
+            runner: runner, resetRunner: reset, cliService: cliService,
+            opened: opened, sync: sync, revoke: { release.revoke() }
+        )
+
+        coordinator.requestLogin(confirmSessionReset: { true })
+        await reset.waitUntilEntered()
+        #expect(release.isCurrent(token) == false)
+        #expect(runner.startCount == 0)
+        cliService.updateCLIPath("/different/pass-cli")
+        coordinator.requestLogin(confirmSessionReset: {
+            Issue.record("Duplicate request must not ask for another reset")
+            return true
+        })
+        await reset.finish()
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations == [.init(path: "/fake/pass-cli", arguments: ["logout", "--force"])])
+        #expect(runner.startCount == 1)
+        #expect(await opened.count() == 1)
+        #expect(await sync.count() == 1)
+        #expect(runner.executablePaths == ["/fake/pass-cli"])
+        #expect(coordinator.state == .succeeded)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [CLIError.timeout, .commandFailed("private cleanup diagnostic")])
+    func failedCleanupDoesNotStartBrowserLogin(error: CLIError) async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        await reset.configure(failure: error)
+        let sync = SyncRecorder()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, sync: sync)
+
+        coordinator.requestLogin(confirmSessionReset: { true })
+        await coordinator.waitForCurrentLogin()
+
+        #expect(runner.startCount == 0)
+        #expect(await sync.count() == 0)
+        guard case .failed(let message) = coordinator.state else {
+            Issue.record("Expected cleanup failure")
+            return
+        }
+        #expect(message.contains("reset"))
+        #expect(message.contains("private cleanup diagnostic") == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellationDuringCleanupBlocksLoginAndOverlappingRepair() async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        await reset.configure(pause: true)
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
+        coordinator.requestLogin(confirmSessionReset: { true })
+        await reset.waitUntilEntered()
+
+        coordinator.cancel()
+        coordinator.requestLogin(confirmSessionReset: {
+            Issue.record("Cancelled operation must unwind before a new reset")
+            return true
+        })
+        await reset.finish()
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.count == 1)
+        #expect(runner.startCount == 0)
+        #expect(coordinator.state == .idle)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellationBeforeCleanupPreventsMutation() async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        let release = SecretReleaseGuard()
+        let token = release.capture()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, revoke: { release.revoke() })
+        coordinator.requestLogin(confirmSessionReset: { true })
+        coordinator.cancel()
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.isEmpty)
+        #expect(release.isCurrent(token))
+        #expect(runner.startCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingDuringConfirmationInvalidatesConsent() async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
+        coordinator.requestLogin(confirmSessionReset: {
+            coordinator.cancel()
+            return true
+        })
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.isEmpty)
+        #expect(runner.startCount == 0)
+        #expect(coordinator.state == .idle)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [PassCLIHealth.notLoggedIn, .ok, .failed(reason: "network unreachable")])
+    func ordinaryLoginDoesNotAskToResetOrRunLogout(health: PassCLIHealth) async {
+        let runner = successfulRunner()
+        let reset = SessionResetRunner()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, currentHealth: { health })
+
+        coordinator.requestLogin(confirmSessionReset: {
+            Issue.record("Ordinary login must not offer session reset")
+            return true
+        })
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.isEmpty)
+        #expect(runner.startCount == 1)
+        #expect(coordinator.state == .succeeded)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [PassCLIHealth.ok, .notLoggedIn, .notInstalled, .failed(reason: "network error")])
+    func historicalFailureDoesNotAuthorizeResetAfterHealthChanges(health: PassCLIHealth) async {
+        let runner = FakeStreamingRunner()
+        runner.setProcess(fakeProcess(
+            chunks: [.stderr("Error decrypting local session")],
+            result: CLIStreamingResult(terminationStatus: 1, stdout: "", stderr: "Error decrypting local session")
+        ))
+        let reset = SessionResetRunner()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset, currentHealth: { health })
+        coordinator.startLogin()
+        await coordinator.waitForCurrentLogin()
+        #expect(coordinator.state == .localSessionUnreadable)
+
+        runner.setProcess(fakeProcess(
+            chunks: [.stdout("https://account.proton.me/desktop/login?app=pass#payload=synthetic-test-payload\n")],
+            result: CLIStreamingResult(terminationStatus: 0, stdout: "", stderr: "")
+        ))
+        coordinator.requestLogin(confirmSessionReset: {
+            Issue.record("Old login failure must not authorize cleanup after health changes")
+            return true
+        })
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.isEmpty)
+        #expect(runner.startCount == 2)
+        #expect(coordinator.state == .succeeded)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func unreadableRestartedLoginIsNotResetRecursively() async {
+        let runner = FakeStreamingRunner()
+        runner.setProcess(fakeProcess(
+            chunks: [.stderr("Error decrypting local "), .stderr("session: aead::Error")],
+            result: CLIStreamingResult(terminationStatus: 1, stdout: "", stderr: "Error decrypting local session")
+        ))
+        let reset = SessionResetRunner()
+        let coordinator = makeCoordinator(runner: runner, resetRunner: reset)
+
+        coordinator.requestLogin(confirmSessionReset: { true })
+        await coordinator.waitForCurrentLogin()
+
+        #expect(await reset.invocations.count == 1)
+        #expect(runner.startCount == 1)
+        #expect(coordinator.state == .localSessionUnreadable)
     }
 }
 

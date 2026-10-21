@@ -43,6 +43,8 @@ Quick Access for Pass is a macOS menu-bar app that provides quick access to Prot
 
 A separate `HealthCheckCoordinator` owns the probe schedule for Pass CLI, SSH, and Run.
 
+AppDelegate composes one `PassCLISessionMutationGate` for browser login/repair, saved-token login/recovery, and explicit logout. Production initializers must share that gate; do not add independent default gates. First owner wins without queuing; leases are metadata-only, role-validated and held through actual unwind, including cancellation. Compound settings save/remove claims ownership before credential changes and passes its lease to the service/logout entrypoint. Automatic contention must not consume recovery attempts or emit competing presentation. Browser reset requires live health plus full-selection/generation/lease revalidation after consent and before queued cleanup; stale consent starts no alternate operation. Sync forwards typed authentication health. Repair retains PAT/offline data; explicit successful logout alone keeps its existing purge policy.
+
 ## Concurrency Model
 
 Swift 6 strict concurrency is enforced throughout. Preserve actor and `@MainActor` boundaries.
@@ -118,6 +120,10 @@ A shared `ProxyHealthStore` and `PassCLIStatusStore` drive the status rows in Se
 - Wake handling is coordinated via `WakeObserver` / `WakeHandler`
 
 Keep the dependency direction one-way: `HealthCheckCoordinator` owns probe scheduling and dispatches to proxy coordinators; proxy coordinators must not own the health coordinator.
+
+Pass CLI's specific `Error decrypting local session` failure retains a typed `localSessionUnreadable` health state. Saved-PAT recovery handles both direct login decryption failure and confirmed unusable Already authenticated sessions with CLI-owned `logout --force` and one retry. Revoke transient secret access before cleanup and check cancellation before cleanup/retry. Do not treat generic decryption, Keychain access, network errors, or timeouts as cleanup authority; never directly remove CLI files/keys or weaken the key provider. Repeated logged-out/unreadable health ticks may recheck unavailable PATs, but completed automatic attempts remain once per unhealthy episode until `.ok`. Credential presence is a throwing query: only confirmed absence may use the generic browser sign-in notifier. Keychain errors defer without consuming an attempt; saved-PAT timeout/failure/unhealthy outcomes use PAT-specific notification and settled PAT settings presentation, never generic logged-out fallback. Preserve the last settings display state when presence is unavailable; it is not authorization authority.
+
+Browser-only session repair is user-initiated, never a background reset. Route Settings, menu, panel and notification login actions through `requestPassCLILogin()` and `PassCLILoginCoordinator.requestLogin(health:confirmSessionReset:)`. Confirm shared-session impact before bounded CLI-owned cleanup and one browser login; preserve the saved PAT and offline snapshots. Recognize chunked local-session decryption failures with typed login state/result, not a missing-URL message. Do not let a historical login failure override changed health to authorize cleanup. Keep cancellation ownership until the operation unwinds, block duplicate confirmations/resets, and use `isLoggingIn` (not a historical result state) to gate automatic PAT recovery.
 
 ## Accessibility Rules
 

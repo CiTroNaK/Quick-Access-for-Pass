@@ -34,6 +34,18 @@ private actor FakeEnvironmentRunner: CLIEnvironmentRunning {
     private var pausedInvocation: Int?
     private var firstInvocationWaiter: CheckedContinuation<Void, Never>?
     private var firstInvocationResume: CheckedContinuation<Void, Never>?
+    private var operationCompleted = false
+
+    func waitForPauseOrCompletion() async {
+        guard firstInvocationResume == nil, operationCompleted == false else { return }
+        await withCheckedContinuation { firstInvocationWaiter = $0 }
+    }
+
+    func markOperationCompleted() {
+        operationCompleted = true
+        firstInvocationWaiter?.resume()
+        firstInvocationWaiter = nil
+    }
 
     func pauseFirstInvocation() {
         pausesFirstInvocation = true
@@ -181,13 +193,16 @@ struct PassCLIPATLoginServiceTests {
         #expect(await task.value == .succeeded)
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func alreadyAuthenticatedWithMissingRemoteSessionRecoversAndSyncs() async {
+    @Test(.timeLimit(.minutes(1)), arguments: [
+        "Error getting personal access token name: failed to authenticate: non-existent session",
+        "Error getting client: Error decrypting local session: aead::Error",
+    ])
+    func alreadyAuthenticatedWithUnusableSessionRecoversAndSyncs(probeError: String) async {
         let token = "pst_test_token::secret"
         let runner = FakeEnvironmentRunner()
         await runner.setOutcomes([
             .failure(.commandFailed("Error: Already authenticated")),
-            .failure(.commandFailed("Error getting personal access token name: failed to authenticate: non-existent session")),
+            .failure(.commandFailed(probeError)),
             .success(Data()),
             .success(Data()),
         ])
@@ -305,6 +320,149 @@ struct PassCLIPATLoginServiceTests {
         #expect(await runner.invocations.map(\.arguments) == [["login"], ["info", "--output", "json"], ["logout", "--force"], ["login"]])
     }
 
+}
+
+@MainActor
+struct PassCLILocalSessionRecoveryTests {
+    @Test(.timeLimit(.minutes(1)))
+    func unreadableLocalSessionRecoversAndRevokesAccessBeforeLogout() async throws {
+        let token = "pst_test_token::secret"
+        let store = FakePATLoginCredentialStore(token: token)
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error getting client: Error decrypting local session(Error decrypting session: aead::Error)")),
+            .success(Data()),
+            .success(Data()),
+        ])
+        await runner.pauseInvocation(2)
+        let sync = PATSyncRecorder()
+        let guardState = SecretReleaseGuard()
+        let releaseToken = guardState.capture()
+        let service = PassCLIPATLoginService(
+            credentialStore: store,
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() },
+            revokeTransientSecretAccess: { guardState.revoke() }
+        )
+        let task = Task {
+            let result = await service.loginWithSavedToken()
+            await runner.markOperationCompleted()
+            return result
+        }
+        await runner.waitForPauseOrCompletion()
+        #expect(guardState.isCurrent(releaseToken) == false)
+        await runner.resumeFirstInvocation()
+        let result = await task.value
+
+        #expect(result == .succeeded)
+        #expect(guardState.isCurrent(releaseToken) == false)
+        #expect(await sync.count() == 1)
+        #expect(try await store.loadToken() == token)
+        let invocations = await runner.invocations
+        #expect(invocations.map(\.arguments) == [["login"], ["logout", "--force"], ["login"]])
+        #expect(invocations.allSatisfy { $0.executablePath == "/fake/pass-cli" })
+        for invocation in invocations {
+            let environment = invocation.arguments == ["login"] ? ["PROTON_PASS_PERSONAL_ACCESS_TOKEN": token] : [:]
+            #expect(invocation.environmentOverrides == environment)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func unreadableSessionRecoveryStopsAfterCleanupOrRetryFailure(cleanupFails: Bool) async {
+        let token = "pst_test_token::secret"
+        let runner = FakeEnvironmentRunner()
+        let decryptionError = "Error decrypting local session: aead::Error \(token)"
+        await runner.setOutcomes([
+            .failure(.commandFailed(decryptionError)),
+            cleanupFails ? .failure(.commandFailed("cleanup failed \(token)")) : .success(Data()),
+            .failure(.commandFailed(decryptionError)),
+        ])
+        let sync = PATSyncRecorder()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: token),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() }
+        )
+
+        let result = await service.loginWithSavedToken()
+
+        guard case .failed(let message) = result else {
+            Issue.record("Expected a bounded recovery failure")
+            return
+        }
+        #expect(message.contains(token) == false)
+        #expect(await sync.count() == 0)
+        let expected = cleanupFails ? [["login"], ["logout", "--force"]] : [["login"], ["logout", "--force"], ["login"]]
+        #expect(await runner.invocations.map(\.arguments) == expected)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [
+        "network unreachable",
+        "Error decrypting item: aead::Error",
+        "Error accessing credential: interaction not allowed",
+    ])
+    func unrelatedLoginFailureNeverClearsSession(message: String) async {
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcome(.failure(.commandFailed(message)))
+        let guardState = SecretReleaseGuard()
+        let releaseToken = guardState.capture()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: "pst_test_token::secret"),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: {},
+            revokeTransientSecretAccess: { guardState.revoke() }
+        )
+
+        #expect(await service.loginWithSavedToken() != .succeeded)
+        #expect(await runner.invocations.map(\.arguments) == [["login"]])
+        #expect(guardState.isCurrent(releaseToken))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [1, 2])
+    func cancelledUnreadableSessionRecoveryDoesNotStartNextMutation(pausedInvocation: Int) async {
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error decrypting local session: aead::Error")),
+            .success(Data()),
+            .success(Data()),
+        ])
+        await runner.pauseInvocation(pausedInvocation)
+        let sync = PATSyncRecorder()
+        let guardState = SecretReleaseGuard()
+        let releaseToken = guardState.capture()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: "pst_test_token::secret"),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: { await sync.increment() },
+            revokeTransientSecretAccess: { guardState.revoke() }
+        )
+        let task = Task {
+            let result = await service.loginWithSavedToken()
+            await runner.markOperationCompleted()
+            return result
+        }
+        await runner.waitForPauseOrCompletion()
+        task.cancel()
+        await runner.resumeFirstInvocation()
+
+        #expect(await task.value != .succeeded)
+        #expect(await runner.invocations.count == pausedInvocation)
+        #expect(guardState.isCurrent(releaseToken) == (pausedInvocation == 1))
+        #expect(await sync.count() == 0)
+    }
+
+}
+
+@MainActor
+struct PassCLIPATLoginFailureTests {
     @Test(.timeLimit(.minutes(1)))
     func missingTokenReturnsMissingTokenAndDoesNotRunCLI() async {
         let store = FakePATLoginCredentialStore(token: nil)

@@ -48,7 +48,7 @@ nonisolated enum MenuBarHealthAggregator {
         switch health {
         case .ok:              break
         case .notLoggedIn:     degraded.append("Pass CLI")
-        case .notInstalled, .failed: errors.append("Pass CLI")
+        case .localSessionUnreadable, .notInstalled, .failed: errors.append("Pass CLI")
         }
     }
 

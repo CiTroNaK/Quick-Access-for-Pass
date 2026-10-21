@@ -34,9 +34,14 @@ extension AppDelegate {
     }
 
     func showInvalidPATSyncIssue(userFacingMessage: String) {
+        showPATLoginFailureSyncIssue(userFacingMessage: userFacingMessage)
+    }
+
+    /// Settles automatic PAT progress without presenting browser sign-in.
+    func showPATLoginFailureSyncIssue(userFacingMessage: String) {
         viewModel?.errorMessage = nil
         viewModel?.syncProgress = nil
-        viewModel?.syncError = .invalidPAT(userFacingMessage: userFacingMessage)
+        viewModel?.syncError = .patLoginFailed(userFacingMessage: userFacingMessage)
         resolveSyncIssueWindowIfVisible()
     }
 
