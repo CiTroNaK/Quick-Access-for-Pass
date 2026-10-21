@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject {
@@ -10,6 +11,8 @@ final class StatusBarController: NSObject {
     private let onRefresh: () -> Void
     private let onLoginPassCLI: () -> Void
     private let onQuit: () -> Void
+    private let onOpenSettings: (OpenSettingsAction, NSRunningApplication?) -> Void
+    private let frontmostApplication: () -> NSRunningApplication?
 
     private var currentStatus: MenuBarStatus = .normal
 
@@ -19,7 +22,12 @@ final class StatusBarController: NSObject {
         onToggle: @escaping () -> Void,
         onRefresh: @escaping () -> Void,
         onLoginPassCLI: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onQuit: @escaping () -> Void,
+        onOpenSettings: @escaping (OpenSettingsAction, NSRunningApplication?) -> Void,
+        frontmostApplication: @escaping () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication },
+        makeStatusItem: () -> NSStatusItem? = {
+            NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        }
     ) {
         self.healthStore = healthStore
         self.passCLIStatusStore = passCLIStatusStore
@@ -27,9 +35,11 @@ final class StatusBarController: NSObject {
         self.onRefresh = onRefresh
         self.onLoginPassCLI = onLoginPassCLI
         self.onQuit = onQuit
+        self.onOpenSettings = onOpenSettings
+        self.frontmostApplication = frontmostApplication
         super.init()
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = makeStatusItem()
 
         if let button = statusItem?.button {
             button.image = Self.compositeIcon(for: .normal)
@@ -175,126 +185,26 @@ final class StatusBarController: NSObject {
     }
 
     private func showMenu() {
-        let menu = NSMenu()
-
-        // Status rows
-        addStatusItem(
-            to: menu,
-            label: String(localized: "Pass CLI"),
-            health: passCLIStatusStore.health,
-            recommendedVersionWarning: passCLIStatusStore.recommendedVersionWarning
-        )
-
-        if healthStore.sshHealth != .disabled {
-            addStatusItem(to: menu, label: String(localized: "SSH Agent"), proxyHealth: healthStore.sshHealth)
-        }
-        if healthStore.runHealth != .disabled {
-            addStatusItem(to: menu, label: String(localized: "Run Proxy"), proxyHealth: healthStore.runHealth)
-        }
-
-        if passCLIStatusStore.health.requiresAuthenticationRecovery {
-            let item = NSMenuItem(
-                title: passCLIStatusStore.health.loginActionTitle,
-                action: #selector(loginPassCLIClicked),
-                keyEquivalent: ""
-            )
-            item.target = self
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
-
-        menu.addItem(NSMenuItem(
-            title: String(localized: "Refresh Now"),
-            action: #selector(refreshClicked),
-            keyEquivalent: "r"
-        ))
-        menu.items.last?.target = self
-
-        menu.addItem(NSMenuItem(
-            title: String(localized: "Quit"),
-            action: #selector(quitClicked),
-            keyEquivalent: "q"
-        ))
-        menu.items.last?.target = self
-
+        let menu = makeMenu()
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
     }
 
-}
-
-extension StatusBarController {
-    // MARK: - Menu Status Items
-
-    private func addStatusItem(
-        to menu: NSMenu,
-        label: String,
-        health: PassCLIHealth,
-        recommendedVersionWarning: PassCLIRecommendedVersionWarning?
-    ) {
-        let text: String
-        let color: NSColor
-        switch health {
-        case .ok where recommendedVersionWarning != nil:
-            text = String(localized: "\(label): update recommended")
-            color = .systemOrange
-        case .ok:
-            text = String(localized: "\(label): Connected")
-            color = .systemGreen
-        case .notLoggedIn:
-            text = String(localized: "\(label): not logged in")
-            color = .systemOrange
-        case .localSessionUnreadable:
-            text = String(localized: "\(label): local session could not be decrypted")
-            color = .systemRed
-        case .notInstalled:
-            text = String(localized: "\(label): not installed")
-            color = .systemRed
-        case .failed:
-            text = String(localized: "\(label): error")
-            color = .systemRed
-        }
-        let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        item.image = Self.coloredDot(color: color)
-        menu.addItem(item)
+    /// Creates a short-lived menu and captures foreground identity before menu activation.
+    func makeMenu() -> NSMenu {
+        let application = frontmostApplication()
+        let restorationTarget = application?.processIdentifier == NSRunningApplication.current.processIdentifier ? nil : application
+        let onOpenSettings = onOpenSettings
+        return NSHostingMenu(rootView: StatusBarMenuContent(
+            cliHealth: passCLIStatusStore.health,
+            recommendedVersionWarning: passCLIStatusStore.recommendedVersionWarning,
+            sshHealth: healthStore.sshHealth,
+            runHealth: healthStore.runHealth,
+            onRefresh: onRefresh,
+            onLoginPassCLI: onLoginPassCLI,
+            onQuit: onQuit,
+            onOpenSettings: { onOpenSettings($0, restorationTarget) }
+        ))
     }
-
-    private func addStatusItem(to menu: NSMenu, label: String, proxyHealth: ProxyHealthState) {
-        let text: String
-        let color: NSColor
-        switch proxyHealth {
-        case .ok(let detail):
-            let suffix = detail.map { " (\($0))" } ?? ""
-            text = String(localized: "\(label): OK\(suffix)")
-            color = .systemGreen
-        case .degraded(let reason):
-            text = String(localized: "\(label): \(reason.userFacingText)")
-            color = .systemOrange
-        case .unreachable(let reason):
-            text = String(localized: "\(label): \(reason.userFacingText)")
-            color = .systemRed
-        case .disabled:
-            return // Should not be called for disabled, but guard anyway
-        }
-        let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        item.image = Self.coloredDot(color: color)
-        menu.addItem(item)
-    }
-
-    private static func coloredDot(color: NSColor) -> NSImage {
-        let size = NSSize(width: 8, height: 8)
-        return NSImage(size: size, flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            return true
-        }
-    }
-
-    @objc private func refreshClicked() { onRefresh() }
-    @objc private func loginPassCLIClicked() { onLoginPassCLI() }
-    @objc private func quitClicked() { onQuit() }
 }

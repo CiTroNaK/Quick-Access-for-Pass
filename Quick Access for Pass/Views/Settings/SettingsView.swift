@@ -10,6 +10,7 @@ struct SettingsView: View {
     let onWindowAvailable: @MainActor (NSWindow) -> Void
     let autoFillAppAssociationsSettingsModel: AutoFillAppAssociationsSettingsModel?
     let terminalHostStore: TerminalHostStore
+    var isSettingsWindowVisible = false
 
     @AppStorage(DefaultsKey.clipboardClearTimeout) var clipboardClearTimeout: Double = 30
     @AppStorage(DefaultsKey.concealFromClipboardManagers) var concealFromClipboardManagers: Bool = true
@@ -87,15 +88,13 @@ struct SettingsView: View {
                     passCLISelection: $passCLISelection
                 )
             }
-            Tab("SSH", systemImage: "lock.shield.fill", value: SettingsTab.ssh) {
-                SSHSettingsTab(
-                    sshProxyEnabled: $sshProxyEnabled,
-                    sshUpstreamSocketPath: $sshUpstreamSocketPath
-                )
-            }
-            Tab("Run", systemImage: "play.circle", value: SettingsTab.run) {
-                RunSettingsTab(runProxyEnabled: $runProxyEnabled)
-            }
+            SettingsProxyTabs(
+                selectedTab: selectedTab,
+                isSettingsWindowVisible: isSettingsWindowVisible,
+                sshProxyEnabled: $sshProxyEnabled,
+                sshUpstreamSocketPath: $sshUpstreamSocketPath,
+                runProxyEnabled: $runProxyEnabled
+            )
             Tab("Integrations", systemImage: "puzzlepiece.extension", value: SettingsTab.integrations) {
                 IntegrationsSettingsTab(store: terminalHostStore)
             }

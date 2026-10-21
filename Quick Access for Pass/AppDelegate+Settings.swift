@@ -2,11 +2,17 @@ import AppKit
 
 @MainActor
 extension AppDelegate {
+    /// Presents Settings through its current SwiftUI scene action after preparing focus.
+    func presentSettings(using openSettings: () -> Void, restoring application: NSRunningApplication? = nil) {
+        prepareToOpenSettings(restoring: application)
+        openSettings()
+    }
+
     /// Hides the quick-access panel while retaining its previous application for Settings dismissal.
-    func prepareToOpenSettings() {
-        let applicationToRestore = panelController?.hideForWindowTransition()
+    func prepareToOpenSettings(restoring application: NSRunningApplication? = nil) {
+        let applicationToRestore = panelController?.hideForWindowTransition() ?? application
         settingsWindowCoordinator.deferFocusRestoration(to: applicationToRestore)
-        NSApp.activate()
+        activateSettingsApplication()
     }
 
     /// Handles a notification delivered by the main-queue observer synchronously.

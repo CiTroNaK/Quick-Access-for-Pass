@@ -21,7 +21,8 @@ struct SettingsRoot: View {
                 appDelegate.settingsWindowCoordinator.observeSettingsWindow(window)
             },
             autoFillAppAssociationsSettingsModel: autoFillAppAssociationsSettingsModel,
-            terminalHostStore: appDelegate.terminalHostStore
+            terminalHostStore: appDelegate.terminalHostStore,
+            isSettingsWindowVisible: appDelegate.settingsWindowCoordinator.isSettingsWindowVisible
         )
             .onChange(of: appDelegate.databaseManager != nil) { _, databaseIsAvailable in
                 guard databaseIsAvailable,

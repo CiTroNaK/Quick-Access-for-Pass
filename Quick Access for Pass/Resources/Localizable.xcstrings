@@ -3981,6 +3981,17 @@
         }
       }
     },
+    "Settings…" : {
+      "comment" : "Menu command for opening the Settings window.",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nastavení…"
+          }
+        }
+      }
+    },
     "Setup Failed" : {
       "localizations" : {
         "cs" : {
