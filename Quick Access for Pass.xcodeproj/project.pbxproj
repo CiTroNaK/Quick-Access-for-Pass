@@ -12,11 +12,32 @@
 		7BDFD9B4E38F6483D55EB3DC /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7BC1A4E8847A68A86DA0EA7C /* Cocoa.framework */; };
 		A1B2C3D4E5F60718293A4B5C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F203142536475869A7B8C9 /* main.swift */; };
 		A7C84B00AE6803273D2F085B /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE192C6A61056E11CDB5EA1 /* main.swift */; };
-		B1C2D3E4F5061728394A5B6C /* qa-env-export in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = D1E2F3041526374859A6B7C8 /* qa-env-export */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		CA8090ADFF78D87CD0716FBB /* qa-run in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = 4E831D0129FFC62BD7071873 /* qa-run */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AF2000010000000000000001 /* Quick Access AutoFill.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AF2000020000000000000002 /* Quick Access AutoFill.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AF3000010000000000000001 /* Quick Access for Pass/Services/AutoFill/AutoFillConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3000110000000000000011 /* Quick Access for Pass/Services/AutoFill/AutoFillConstants.swift */; };
+		AF5000040000000000000004 /* Quick Access for Pass/Services/AutoFill/AutoFillProtocolTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5000140000000000000014 /* Quick Access for Pass/Services/AutoFill/AutoFillProtocolTypes.swift */; };
+		AF5000050000000000000005 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5000150000000000000015 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerRequest.swift */; };
+		AF5000060000000000000006 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5000160000000000000016 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerResponse.swift */; };
+		AF5000020000000000000002 /* Quick Access for Pass/Services/AutoFill/AutoFillWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5000120000000000000012 /* Quick Access for Pass/Services/AutoFill/AutoFillWire.swift */; };
+		AF5000030000000000000003 /* Quick Access for Pass/Services/AutoFill/AutoFillPeerVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5000130000000000000013 /* Quick Access for Pass/Services/AutoFill/AutoFillPeerVerifier.swift */; };
+		AF7000010000000000000001 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7000110000000000000011 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClient.swift */; };
+		AF7000030000000000000003 /* Quick Access for Pass/Services/AutoFill/AutoFillWorkspaceHostOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7000130000000000000013 /* Quick Access for Pass/Services/AutoFill/AutoFillWorkspaceHostOpener.swift */; };
+		AF7000040000000000000004 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClientConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7000140000000000000014 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClientConnection.swift */; };
+		AF7000020000000000000002 /* Quick Access AutoFill/AutoFillExtensionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7000120000000000000012 /* Quick Access AutoFill/AutoFillExtensionCoordinator.swift */; };
+		AF8000010000000000000001 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift */; };
+		AF9000010000000000000001 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift */; };
+		AF9100010000000000000001 /* Quick Access AutoFill/AutoFillPickerSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9100110000000000000011 /* Quick Access AutoFill/AutoFillPickerSearchField.swift */; };
+		B1C2D3E4F5061728394A5B6C /* qa-env-export in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = D1E2F3041526374859A6B7C8 /* qa-env-export */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CA8090ADFF78D87CD0716FBB /* qa-run in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = 4E831D0129FFC62BD7071873 /* qa-run */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		4B0DDA60306A551700F7F338 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4BA584012F7C1FA0005D6F81 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AF2000090000000000000009;
+			remoteInfo = "Quick Access AutoFill";
+		};
 		4BA584CA2F7C215B005D6F81 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4BA584012F7C1FA0005D6F81 /* Project object */;
@@ -41,6 +62,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		AF2000050000000000000005 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AF2000010000000000000001 /* Quick Access AutoFill.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E18A3070B81C5F448100E008 /* Copy qa-run Helper */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -61,19 +93,61 @@
 		4BA584C62F7C215B005D6F81 /* Quick Access for Pass Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Quick Access for Pass Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E831D0129FFC62BD7071873 /* qa-run */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "qa-run"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7BC1A4E8847A68A86DA0EA7C /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		AF2000020000000000000002 /* Quick Access AutoFill.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Quick Access AutoFill.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF3000110000000000000011 /* Quick Access for Pass/Services/AutoFill/AutoFillConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillConstants.swift"; sourceTree = SOURCE_ROOT; };
+		AF5000140000000000000014 /* Quick Access for Pass/Services/AutoFill/AutoFillProtocolTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillProtocolTypes.swift"; sourceTree = SOURCE_ROOT; };
+		AF5000150000000000000015 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillBrokerRequest.swift"; sourceTree = SOURCE_ROOT; };
+		AF5000160000000000000016 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillBrokerResponse.swift"; sourceTree = SOURCE_ROOT; };
+		AF5000120000000000000012 /* Quick Access for Pass/Services/AutoFill/AutoFillWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillWire.swift"; sourceTree = SOURCE_ROOT; };
+		AF5000130000000000000013 /* Quick Access for Pass/Services/AutoFill/AutoFillPeerVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillPeerVerifier.swift"; sourceTree = SOURCE_ROOT; };
+		AF7000110000000000000011 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillBrokerClient.swift"; sourceTree = SOURCE_ROOT; };
+		AF7000130000000000000013 /* Quick Access for Pass/Services/AutoFill/AutoFillWorkspaceHostOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillWorkspaceHostOpener.swift"; sourceTree = SOURCE_ROOT; };
+		AF7000140000000000000014 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClientConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access for Pass/Services/AutoFill/AutoFillBrokerClientConnection.swift"; sourceTree = SOURCE_ROOT; };
+		AF7000120000000000000012 /* Quick Access AutoFill/AutoFillExtensionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access AutoFill/AutoFillExtensionCoordinator.swift"; sourceTree = SOURCE_ROOT; };
+		AF8000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access AutoFill/AutoFillCandidatePickerModel.swift"; sourceTree = SOURCE_ROOT; };
+		AF9000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access AutoFill/AutoFillCandidatePickerView.swift"; sourceTree = SOURCE_ROOT; };
+		AF9100110000000000000011 /* Quick Access AutoFill/AutoFillPickerSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access AutoFill/AutoFillPickerSearchField.swift"; sourceTree = SOURCE_ROOT; };
 		D1E2F3041526374859A6B7C8 /* qa-env-export */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "qa-env-export"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1F203142536475869A7B8C9 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AF2000150000000000000015 /* Exceptions for "Quick Access for Pass" folder in "Quick Access for Pass" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4BA584082F7C1FA0005D6F81 /* Quick Access for Pass */;
+		};
+		AF2000160000000000000016 /* Exceptions for "Quick Access AutoFill" folder in "Quick Access AutoFill" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AF2000090000000000000009 /* Quick Access AutoFill */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4BA5840B2F7C1FA0005D6F81 /* Quick Access for Pass */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AF2000150000000000000015 /* Exceptions for "Quick Access for Pass" folder in "Quick Access for Pass" target */,
+			);
 			path = "Quick Access for Pass";
 			sourceTree = "<group>";
 		};
 		4BA584C72F7C215B005D6F81 /* Quick Access for Pass Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Quick Access for Pass Tests";
+			sourceTree = "<group>";
+		};
+		AF2000060000000000000006 /* Quick Access AutoFill */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AF2000160000000000000016 /* Exceptions for "Quick Access AutoFill" folder in "Quick Access AutoFill" target */,
+			);
+			path = "Quick Access AutoFill";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -102,6 +176,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AF2000070000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F4D953614C313EAF20A879FC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -118,6 +199,8 @@
 			children = (
 				4BA5840B2F7C1FA0005D6F81 /* Quick Access for Pass */,
 				4BA584C72F7C215B005D6F81 /* Quick Access for Pass Tests */,
+				AF2000060000000000000006 /* Quick Access AutoFill */,
+				AF3000200000000000000020 /* Shared AutoFill Sources */,
 				4BA5840A2F7C1FA0005D6F81 /* Products */,
 				8C29B6D8AA346BDBE06675BA /* Frameworks */,
 				880AE4F63701C6B6EF52ECC1 /* qa-run */,
@@ -132,6 +215,7 @@
 				4BA584C62F7C215B005D6F81 /* Quick Access for Pass Tests.xctest */,
 				4E831D0129FFC62BD7071873 /* qa-run */,
 				D1E2F3041526374859A6B7C8 /* qa-env-export */,
+				AF2000020000000000000002 /* Quick Access AutoFill.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -150,6 +234,26 @@
 				BB629D02A7E9AA7186DFD4D6 /* OS X */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		AF3000200000000000000020 /* Shared AutoFill Sources */ = {
+			isa = PBXGroup;
+			children = (
+				AF3000110000000000000011 /* Quick Access for Pass/Services/AutoFill/AutoFillConstants.swift */,
+				AF5000140000000000000014 /* Quick Access for Pass/Services/AutoFill/AutoFillProtocolTypes.swift */,
+				AF5000150000000000000015 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerRequest.swift */,
+				AF5000160000000000000016 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerResponse.swift */,
+				AF5000120000000000000012 /* Quick Access for Pass/Services/AutoFill/AutoFillWire.swift */,
+				AF5000130000000000000013 /* Quick Access for Pass/Services/AutoFill/AutoFillPeerVerifier.swift */,
+				AF7000110000000000000011 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClient.swift */,
+				AF7000130000000000000013 /* Quick Access for Pass/Services/AutoFill/AutoFillWorkspaceHostOpener.swift */,
+				AF7000140000000000000014 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClientConnection.swift */,
+				AF7000120000000000000012 /* Quick Access AutoFill/AutoFillExtensionCoordinator.swift */,
+				AF8000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift */,
+				AF9000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift */,
+				AF9100110000000000000011 /* Quick Access AutoFill/AutoFillPickerSearchField.swift */,
+			);
+			name = "Shared AutoFill Sources";
 			sourceTree = "<group>";
 		};
 		BB629D02A7E9AA7186DFD4D6 /* OS X */ = {
@@ -211,12 +315,14 @@
 				4BA584062F7C1FA0005D6F81 /* Frameworks */,
 				4BA584072F7C1FA0005D6F81 /* Resources */,
 				E18A3070B81C5F448100E008 /* Copy qa-run Helper */,
+				AF2000050000000000000005 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				33445566778899AABBCCDDEE /* PBXTargetDependency */,
 				A39BAB2E19C074C336E137BF /* PBXTargetDependency */,
+				AF2000080000000000000008 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				4BA5840B2F7C1FA0005D6F81 /* Quick Access for Pass */,
@@ -253,6 +359,28 @@
 			productReference = 4BA584C62F7C215B005D6F81 /* Quick Access for Pass Tests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		AF2000090000000000000009 /* Quick Access AutoFill */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AF2000100000000000000010 /* Build configuration list for PBXNativeTarget "Quick Access AutoFill" */;
+			buildPhases = (
+				AF2000110000000000000011 /* Sources */,
+				AF2000070000000000000007 /* Frameworks */,
+				AF2000120000000000000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AF2000060000000000000006 /* Quick Access AutoFill */,
+			);
+			name = "Quick Access AutoFill";
+			packageProductDependencies = (
+			);
+			productName = "Quick Access AutoFill";
+			productReference = AF2000020000000000000002 /* Quick Access AutoFill.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -261,7 +389,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					4BA584082F7C1FA0005D6F81 = {
 						CreatedOnToolsVersion = 26.4;
@@ -269,6 +397,9 @@
 					4BA584C52F7C215B005D6F81 = {
 						CreatedOnToolsVersion = 26.4;
 						TestTargetID = 4BA584082F7C1FA0005D6F81;
+					};
+					AF2000090000000000000009 = {
+						CreatedOnToolsVersion = 26.4;
 					};
 				};
 			};
@@ -294,6 +425,7 @@
 				4BA584C52F7C215B005D6F81 /* Quick Access for Pass Tests */,
 				0CDCED80094C9CF2DE7BE887 /* qa-run */,
 				2233445566778899AABBCCDD /* qa-env-export */,
+				AF2000090000000000000009 /* Quick Access AutoFill */,
 			);
 		};
 /* End PBXProject section */
@@ -307,6 +439,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		4BA584C42F7C215B005D6F81 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF2000120000000000000012 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -336,6 +475,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AF7000020000000000000002 /* Quick Access AutoFill/AutoFillExtensionCoordinator.swift in Sources */,
+				AF8000010000000000000001 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift in Sources */,
+				AF9000010000000000000001 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift in Sources */,
+				AF9100010000000000000001 /* Quick Access AutoFill/AutoFillPickerSearchField.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -343,6 +486,22 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF2000110000000000000011 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AF3000010000000000000001 /* Quick Access for Pass/Services/AutoFill/AutoFillConstants.swift in Sources */,
+				AF5000040000000000000004 /* Quick Access for Pass/Services/AutoFill/AutoFillProtocolTypes.swift in Sources */,
+				AF5000050000000000000005 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerRequest.swift in Sources */,
+				AF5000060000000000000006 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerResponse.swift in Sources */,
+				AF5000020000000000000002 /* Quick Access for Pass/Services/AutoFill/AutoFillWire.swift in Sources */,
+				AF5000030000000000000003 /* Quick Access for Pass/Services/AutoFill/AutoFillPeerVerifier.swift in Sources */,
+				AF7000010000000000000001 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClient.swift in Sources */,
+				AF7000030000000000000003 /* Quick Access for Pass/Services/AutoFill/AutoFillWorkspaceHostOpener.swift in Sources */,
+				AF7000040000000000000004 /* Quick Access for Pass/Services/AutoFill/AutoFillBrokerClientConnection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -366,6 +525,11 @@
 			target = 0CDCED80094C9CF2DE7BE887 /* qa-run */;
 			targetProxy = ECE5D56A718919FE4A6394E3 /* PBXContainerItemProxy */;
 		};
+		AF2000080000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AF2000090000000000000009 /* Quick Access AutoFill */;
+			targetProxy = 4B0DDA60306A551700F7F338 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -374,6 +538,7 @@
 			buildSettings = {
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
 				ENABLE_APP_SANDBOX = NO;
@@ -396,6 +561,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -425,6 +591,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = AF5E2K97M8;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -450,6 +617,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -460,6 +628,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -489,6 +658,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = AF5E2K97M8;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -507,6 +677,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -521,12 +692,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = H23TXL6LPT;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Quick Access for Pass/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Quick Access fo Pass";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -560,13 +733,15 @@
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Quick Access for Pass/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Quick Access fo Pass";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -596,6 +771,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = H23TXL6LPT;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -616,6 +792,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = H23TXL6LPT;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -635,6 +812,7 @@
 			buildSettings = {
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
 				ENABLE_APP_SANDBOX = NO;
@@ -652,11 +830,65 @@
 			};
 			name = Release;
 		};
+		AF2000130000000000000013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "Quick Access AutoFill/Quick Access AutoFill.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = H23TXL6LPT;
+				ENABLE_APP_SANDBOX = YES;
+				INFOPLIST_FILE = "Quick Access AutoFill/Info.plist";
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.5.11;
+				PRODUCT_BUNDLE_IDENTIFIER = "codes.petr.quick-access-for-pass.autofill";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AF2000140000000000000014 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "Quick Access AutoFill/Quick Access AutoFill.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = H23TXL6LPT;
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = "Quick Access AutoFill/Info.plist";
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 0.5.11;
+				PRODUCT_BUNDLE_IDENTIFIER = "codes.petr.quick-access-for-pass.autofill";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Quick Access for Pass - AutoFill - Developer ID";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		BC2304AE9E57CDCD70C1FBB2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = H23TXL6LPT;
 				ENABLE_APP_SANDBOX = NO;
@@ -678,6 +910,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = H23TXL6LPT;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -727,6 +960,15 @@
 			buildConfigurations = (
 				445566778899AABBCCDDEEFF /* Debug */,
 				5566778899AABBCCDDEEFF00 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AF2000100000000000000010 /* Build configuration list for PBXNativeTarget "Quick Access AutoFill" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AF2000130000000000000013 /* Debug */,
+				AF2000140000000000000014 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

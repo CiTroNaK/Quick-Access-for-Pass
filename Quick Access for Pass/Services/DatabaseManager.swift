@@ -185,6 +185,33 @@ nonisolated final class DatabaseManager: Sendable {
             }
             try db.execute(sql: "UPDATE vaults SET shareId = id WHERE shareId = ''")
         }
+
+        migrator.registerMigration("v8") { db in
+            try db.create(table: AutoFillCredentialDescriptor.databaseTableName) { t in
+                t.column("id", .text).primaryKey()
+                t.column("vaultID", .text).notNull().references("vaults", onDelete: .cascade)
+                t.column("itemID", .text).notNull().references("items", onDelete: .cascade)
+                t.column("shareID", .text).notNull()
+                t.column("title", .text).notNull()
+                t.column("username", .text).notNull()
+                t.column("serviceIdentifier", .text).notNull()
+                t.column("hasTOTP", .boolean).notNull()
+                t.uniqueKey(["vaultID", "itemID", "serviceIdentifier", "username"])
+            }
+        }
+
+        migrator.registerMigration("v9") { db in
+            try db.create(table: "autoFillAppAssociations") { t in
+                t.column("serviceIdentifier", .text).notNull()
+                t.column("serviceKind", .text).notNull()
+                t.column("descriptorID", .text).notNull()
+                    .references(AutoFillCredentialDescriptor.databaseTableName, onDelete: .cascade)
+                t.column("serviceDisplayName", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.uniqueKey(["serviceKind", "serviceIdentifier"])
+            }
+            try db.create(index: "autoFillAppAssociations_service", on: "autoFillAppAssociations", columns: ["serviceKind", "serviceIdentifier"])
+        }
         // swiftlint:enable identifier_name
     }
 

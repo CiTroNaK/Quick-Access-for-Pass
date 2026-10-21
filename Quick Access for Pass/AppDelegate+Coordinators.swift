@@ -18,6 +18,9 @@ extension AppDelegate {
             cliService: cliService!,
             databaseManager: databaseManager!,
             viewModel: viewModel!,
+            identitySynchronizer: AutoFillIdentitySynchronizer(
+                adapter: ASCredentialIdentityStoreAdapter()
+            ),
             onSyncIssueChanged: { [weak self] presentation in
                 self?.syncIssueDidChange(presentation)
             },
@@ -41,6 +44,8 @@ extension AppDelegate {
 
         runCoordinator = makeRunCoordinator(authCallbacks: authCallbacks)
         wireLockClosures(on: runCoordinator)
+
+        setupAutoFillBroker()
 
         if let cliService, let runCoordinator, let sshCoordinator {
             healthCoordinator = HealthCheckCoordinator(
@@ -182,6 +187,70 @@ extension AppDelegate {
         )
         coordinator.setup()
         return coordinator
+    }
+
+    func setupAutoFillBroker() {
+        guard let cliService,
+              let databaseManager,
+              let keychainService,
+              let databaseURL = autoFillDatabaseURL,
+              let socketPath = autoFillSocketPath else {
+            return
+        }
+
+        let registry = autoFillRequestRegistry
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: AutoFillDescriptorStore(
+                databaseURL: databaseURL,
+                keychainService: keychainService
+            ),
+            associationStore: AutoFillAppAssociationStore(databaseManager: databaseManager),
+            secretResolver: PassCLIAutoFillSecretResolver(cliService: cliService),
+            isAppLocked: { [weak self] in self?.isLocked ?? false },
+            showLockedPanel: { [weak self] remainingSeconds in
+                await self?.showPanelAndWaitForUnlock(timeoutSeconds: remainingSeconds) ?? false
+            },
+            accessibility: LiveAutoFillAccessibilityAdapter(
+                recoverFocus: { [weak self] in self?.requestUnlockAccessibilityFocus() }
+            )
+        )
+        let broker = AutoFillBroker(
+            listenPath: socketPath,
+            registry: registry,
+            launchGate: autoFillLaunchGate,
+            requestHandler: { request, transition, appAssociationIntent in
+                try await coordinator.resolve(
+                    request: request,
+                    appAssociationIntent: appAssociationIntent,
+                    transition: transition
+                )
+            },
+            candidateHandler: { query in
+                try await coordinator.listCandidates(query: query)
+            }
+        )
+
+        autoFillBrokerCoordinator = coordinator
+        autoFillBroker = broker
+        let gate = autoFillLaunchGate
+        autoFillBrokerStartTask = Task { [weak self] in
+            do {
+                while gate.beginBrokerStart() == false {
+                    for registration in gate.drainStartupRegistrations() {
+                        try? await registry.registerWake(
+                            handle: registration.handle,
+                            deadline: registration.deadline
+                        )
+                    }
+                }
+                try await broker.start()
+                gate.markListenerReady()
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.viewModel?.errorMessage = String(localized: "Failed to start AutoFill broker.")
+            }
+        }
     }
 
     func makeRunCoordinator(authCallbacks: AuthDialogHelper.Callbacks) -> RunProxyCoordinator {

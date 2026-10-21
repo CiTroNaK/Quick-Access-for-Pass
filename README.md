@@ -47,6 +47,7 @@ Everything else is optional configuration.
 - **Large Type** — display selected values in a large temporary window when you need to read them aloud.
 - **Optional SSH Agent Proxy** — gate Proton Pass SSH key signing behind Touch ID.
 - **Optional Run Proxy** — inject Proton Pass secrets into commands through the bundled `qa-run` helper.
+- **Optional System AutoFill (macOS 27+)** — offer Proton Pass passwords and current TOTP codes to Safari and compatible native apps without adding passkey handling.
 
 ## Quick Access panel
 
@@ -93,6 +94,16 @@ For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 Quick Access works as a normal menu-bar app without these integrations. Enable them only if they fit your workflow.
 
+### System AutoFill (macOS 27+)
+
+Quick Access can provide Proton Pass passwords and current TOTP codes through macOS AutoFill in Safari and compatible native apps. After installing and opening Quick Access, go to **System Settings → General → AutoFill & Passwords**, enable AutoFill, and enable **Quick Access for Pass** as a provider.
+
+The picker shows exact typed-service matches first. A login with multiple saved website hosts appears once, retaining its earliest matching service; distinct items or usernames remain separate even when their labels match. Enter non-empty text to run a bounded global search of up to 20 distinct logins; it does not show a generic vault list before typing. Native apps start with explicit app associations only. If a field supplies no usable service identifier, the picker stays ready for search without attempting a contextual lookup. Empty results invite search; generic loading errors do not imply that the Mac is locked. After choosing a login, you can opt in to **Remember for this app**; manage or remove remembered associations in **Settings → Security → App associations**. Associations are host-local, non-secret metadata and are never inferred from a website or an app display name.
+
+Quick Access does not register or handle passkeys. You can keep Proton Pass enabled alongside it: Quick Access supplies passwords and codes, while Proton remains the passkey provider. A passkey request shows Quick Access's password/TOTP picker content rather than a blank panel, but Quick Access never creates, signs, stores, or completes a passkey. The main Quick Access app is the only component that runs Pass CLI; the extension never does. If Quick Access is quit, selecting one of its credentials wakes the menu-bar app without bringing it to the front. A locked app shows its existing unlock panel before resolving the value.
+
+The host and extension mutually verify each connected socket using its audit token and exact signed identity. Their provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the owner-only AutoFill broker socket. Protocol v2 returns at most 20 non-secret candidate records (opaque descriptor ID, title, username, kind, and match tier), retained by the extension in memory only for the active picker. The extension cannot open the SQLCipher metadata database or access the Keychain; the host alone owns the database, its Keychain passphrase, descriptor storage, and secret resolution. Passwords, TOTP seeds, and current codes are never persisted by Quick Access.
+
 ### SSH Agent Proxy
 
 The SSH Agent Proxy places a Touch ID gate between SSH clients and Proton Pass's SSH agent. Identity listing passes through, while signing requests can show an authorization prompt with requesting app and command context.
@@ -138,7 +149,7 @@ Most behavior is configurable in Settings: launch at login, global hotkey, short
 
 ## Requirements
 
-- macOS 15 or later
+- macOS 15 or later for the menu-bar app; System AutoFill requires macOS 27 or later
 - A paid Proton Pass subscription with Pass CLI access
 - Touch ID for biometric prompts
 
@@ -150,6 +161,7 @@ Signed app releases include Proton's official Pass CLI fallback. A separate `pas
 - [Proton Pass CLI integration](docs/pass-cli.md) — bundled CLI, CLI selection order, PAT support, provenance, and checksum verification.
 - [SSH Agent Proxy](docs/ssh-agent-proxy.md) — Touch-ID-gated SSH signing setup and behavior.
 - [Run Proxy and qa-run](docs/run-proxy.md) — command secret injection setup and behavior.
+- [Backup and restore scripts](scripts/README.md) — same-Mac rollback instructions and Keychain limitations.
 - [Security policy](SECURITY.md) — vulnerability reporting and security posture summary.
 
 ## Why this exists

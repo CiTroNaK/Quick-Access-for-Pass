@@ -11,6 +11,31 @@ struct CLIRunnerTimeoutTests {
     /// the call hangs waiting for the 60-second sleep, Swift Testing kills
     /// the test after 1 minute instead of blocking the entire suite.
     @Test(
+        "cancelling run terminates the child process promptly",
+        .timeLimit(.minutes(1))
+    )
+    func cancellationTerminatesProcess() async throws {
+        let clock = ContinuousClock()
+        let task = Task {
+            try await CLIRunner.run(
+                executablePath: "/bin/sleep",
+                arguments: ["60"],
+                timeout: 60
+            )
+        }
+        try await Task.sleep(for: .milliseconds(50))
+
+        let elapsed = await clock.measure {
+            task.cancel()
+            await #expect(throws: CancellationError.self) {
+                try await task.value
+            }
+        }
+
+        #expect(elapsed < .seconds(2), "Cancellation took \(elapsed)")
+    }
+
+    @Test(
         "run() throws .timeout when subprocess exceeds timeout",
         .timeLimit(.minutes(1))
     )

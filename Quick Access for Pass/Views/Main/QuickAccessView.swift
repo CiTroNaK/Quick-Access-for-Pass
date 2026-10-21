@@ -174,7 +174,8 @@ struct QuickAccessView: View {
                     endUnlock: { appDelegate.endPanelUnlock($0) },
                     keychainService: keychainService,
                     pendingContext: appDelegate.pendingLockContext,
-                    autoUnlockToken: appDelegate.autoUnlockToken
+                    autoUnlockToken: appDelegate.autoUnlockToken,
+                    accessibilityFocusRequestID: appDelegate.unlockAccessibilityFocusRequestID
                 )
                 .frame(height: 330)
             }

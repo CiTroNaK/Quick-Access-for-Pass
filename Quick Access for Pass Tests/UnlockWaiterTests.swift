@@ -187,7 +187,10 @@ struct UnlockWaiterTests {
         #expect(await shortWait == false)
         #expect(delegate.pendingUnlockWaiters.count == 1)
         #expect(delegate.panelShownForLockWait)
-        #expect(panelController.isVisible)
+        let didRemainVisible = await waitForTestCondition {
+            panelController.isVisible
+        }
+        #expect(didRemainVisible)
 
         delegate.resetAuthTimestamp()
         timeout.fireAll()
@@ -354,6 +357,32 @@ struct UnlockWaiterTests {
         #expect(didHide)
         #expect(delegate.panelShownForLockWait == false)
         #expect(delegate.searchFocusRequestID == initialRequestID)
+    }
+
+    @Test("task cancellation immediately removes its unlock waiter")
+    func taskCancellationRemovesWaiter() async {
+        let delegate = AppDelegate()
+        let timeout = ManualUnlockWaiterTimeout()
+        defer { timeout.fireAll() }
+        delegate.waitForUnlockTimeout = { _ in await timeout.wait() }
+
+        let task = Task { @MainActor in
+            await delegate.showPanelAndWaitForUnlock(timeoutSeconds: 30)
+        }
+        let didRegisterWaiter = await waitForTestCondition {
+            !delegate.pendingUnlockWaiters.isEmpty && timeout.pendingCount >= 1
+        }
+        guard didRegisterWaiter else {
+            Issue.record("Cancelled waiter did not register.")
+            task.cancel()
+            timeout.fireAll()
+            return
+        }
+
+        task.cancel()
+
+        #expect(await task.value == false)
+        #expect(delegate.pendingUnlockWaiters.isEmpty)
     }
 
     @Test func timeoutResumesWaiterWithFalse() async {

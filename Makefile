@@ -10,6 +10,9 @@ BUNDLED_PASS_CLI_DIR=$(BUILD_DIR)/bundled-pass-cli
 build:
 	rm -rf "$(BUILT_APP)/Contents/Helpers/ProtonPassCLI"
 	xcodebuild -scheme "$(SCHEME)" -configuration Release -derivedDataPath "$(BUILD_DIR)" build
+	scripts/verify-app-bundle-metadata.sh \
+		"$(BUILT_APP)" \
+		"$(BUILT_APP)/Contents/PlugIns/Quick Access AutoFill.appex"
 
 install: build
 	scripts/prepare-bundled-pass-cli.sh "$(BUNDLED_PASS_CLI_DIR)"

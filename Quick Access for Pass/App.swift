@@ -1,3 +1,7 @@
+// swiftlint:disable file_length
+// AppDelegate is the deliberately co-located composition root; split helpers
+// would require widening composition-only access beyond this file.
+
 import SwiftUI
 import AppKit
 import Darwin
@@ -28,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private var refreshObserver: Any?
     @ObservationIgnored private var resetObserver: Any?
     @ObservationIgnored private var hotkeyObserver: Any?
+    @ObservationIgnored private var setupTask: Task<Void, Never>?
 
     let healthStore = ProxyHealthStore()
     let passCLIStatusStore = PassCLIStatusStore()
@@ -37,6 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var syncCoordinator: SyncCoordinator?
     @ObservationIgnored var sshCoordinator: SSHProxyCoordinator?
     @ObservationIgnored var runCoordinator: RunProxyCoordinator?
+    @ObservationIgnored var autoFillBrokerCoordinator: AutoFillBrokerCoordinator?
+    /// Created before service setup so a nonactivating launch URL can register
+    /// its bounded wake handle while the quit host is still starting.
+    @ObservationIgnored var autoFillRequestRegistry = AutoFillRequestRegistry()
+    @ObservationIgnored let autoFillLaunchGate = AutoFillLaunchGate()
+    @ObservationIgnored var autoFillLaunchNow: @Sendable () -> UInt64 = {
+        DispatchTime.now().uptimeNanoseconds
+    }
+    @ObservationIgnored var autoFillBroker: AutoFillBroker?
+    @ObservationIgnored var autoFillBrokerStartTask: Task<Void, Never>?
+    @ObservationIgnored var autoFillDatabaseURL: URL?
+    @ObservationIgnored var autoFillSocketPath: String?
     @ObservationIgnored var healthCoordinator: HealthCheckCoordinator?
     @ObservationIgnored var notificationRouter: UserNotificationRouter?
     @ObservationIgnored var passCLILoginCoordinator: PassCLILoginCoordinator?
@@ -56,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Bumped by `scheduleAutoUnlockIfNeeded()` on each fresh locked
     /// presentation. Observed by `LockedView.task(id:)` to drive auto-unlock.
     var autoUnlockToken: UUID?
+    /// Bumped when AutoFill authentication failure handling asks the locked
+    /// view to restore VoiceOver focus to its unlock action.
+    var unlockAccessibilityFocusRequestID: UUID?
     /// Bumped whenever a visible unlocked panel should put keyboard focus
     /// back into the SwiftUI search field. Hiding the panel can leave
     /// `@FocusState` out of sync with AppKit's first responder, so each
@@ -118,20 +138,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         registerDefaultSettings()
 
-        do {
-            try setupServices()
-            setupUI()
-            setupHotkey()
-            setupCoordinators()
-            setupWakeObserver()
-            setupSystemLockObserver()
-            runLaunchTimeSanityCheck()
-        } catch {
-            showSetupError(error)
+        setupTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await setupServices()
+                try Task.checkCancellation()
+                setupUI()
+                setupHotkey()
+                setupCoordinators()
+                setupWakeObserver()
+                setupSystemLockObserver()
+                runLaunchTimeSanityCheck()
+            } catch is CancellationError {
+                return
+            } catch {
+                showSetupError(error)
+            }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        setupTask?.cancel()
         passCLILoginCoordinator?.cancel()
         healthCoordinator?.cancel()
         wakeObserver?.stop()
@@ -139,24 +166,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager?.clearOnTermination()
         sshCoordinator?.shutdown()
         runCoordinator?.shutdown()
+        autoFillBrokerStartTask?.cancel()
+        if let socketPath = autoFillSocketPath {
+            unlink(socketPath)
+        }
+        if let autoFillBroker {
+            Task { await autoFillBroker.stop() }
+        }
     }
 
+    /// Opens an existing or newly initialized database without destructive recovery.
+    /// A wrong key or malformed database is always surfaced to the caller unchanged.
+    nonisolated static func openDatabase(path: String, passphrase: Data) throws -> DatabaseManager {
+        try DatabaseManager(path: path, passphrase: passphrase)
+    }
 }
 
 private extension AppDelegate {
     // MARK: - Setup
 
-    // Note: Keychain IPC runs on MainActor here. Acceptable for a single sub-millisecond
-    // passphrase read during launch in a menu-bar app with no visible UI at this point.
-    func setupServices() throws {
-        let keychainService = KeychainService()
-        self.keychainService = keychainService
-        let passphrase = try keychainService.getOrCreatePassphrase()
+    func setupServices() async throws {
+        // Keychain and SQLCipher I/O stay off MainActor. The database remains
+        // host-owned in Application Support; only the broker socket uses App Group storage.
+        let prepared = try await Task.detached(priority: .userInitiated) {
+            let keychainService = KeychainService()
+            let database = try DatabaseStartupPreparation.prepare(
+                keychainService: keychainService
+            )
+            let databaseManager = try Self.openDatabase(
+                path: database.databaseURL.path,
+                passphrase: database.passphrase
+            )
+            let socketPath = try AutoFillConstants.brokerSocketURL().path
+            return (keychainService, databaseManager, database.databaseURL, socketPath)
+        }.value
+        try Task.checkCancellation()
 
-        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("QuickAccessForPass")
-        try FileManager.default.createDirectory(at: appSupportURL, withIntermediateDirectories: true)
-        let dbPath = appSupportURL.appendingPathComponent("app.db").path
+        keychainService = prepared.0
+        databaseManager = prepared.1
+        autoFillDatabaseURL = prepared.2
+        autoFillSocketPath = prepared.3
 
         let rawClipboardTimeout = UserDefaults.standard.double(forKey: DefaultsKey.clipboardClearTimeout)
         let clipboardTimeout = rawClipboardTimeout > 0 ? rawClipboardTimeout : 30
@@ -167,29 +216,12 @@ private extension AppDelegate {
             legacyCustomPath: cliPathOverride
         )
 
-        databaseManager = try Self.openDatabase(path: dbPath, passphrase: passphrase)
         cliService = PassCLIService(
             preference: selectionPreference,
             customPath: cliPathOverride?.isEmpty == false ? cliPathOverride : nil
         )
         searchService = SearchService(databaseManager: databaseManager!)
         clipboardManager = ClipboardManager(autoClearSeconds: clipboardTimeout)
-    }
-
-    /// Opens the encrypted database, deleting and recreating it if the file is corrupt or
-    /// was encrypted with a different passphrase (SQLite error 26). The DB is a local cache
-    /// of data fetched from pass-cli, so losing it is safe — the next sync repopulates it.
-    static func openDatabase(path: String, passphrase: Data) throws -> DatabaseManager {
-        do {
-            return try DatabaseManager(path: path, passphrase: passphrase)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == "GRDB.DatabaseError" && nsError.code == 26 {
-                try? FileManager.default.removeItem(atPath: path)
-                return try DatabaseManager(path: path, passphrase: passphrase)
-            }
-            throw error
-        }
     }
 
     func setupUI() {

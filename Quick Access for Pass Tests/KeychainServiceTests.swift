@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Security
+import Synchronization
 @testable import Quick_Access_for_Pass
 
 private let keychainTestsUnavailable: Bool = {
@@ -70,11 +71,8 @@ struct KeychainServiceTests {
     @Test("store handles duplicate by updating existing entry")
     func storeHandlesDuplicate() throws {
         defer { try? service.deletePassphrase() }
-        // First store
         try service.store("first-passphrase")
-        // Second store should hit errSecDuplicateItem and update
         try service.store("second-passphrase")
-        // Retrieve should return the updated value
         let retrieved = try service.getOrCreatePassphrase()
         #expect(retrieved == Data("second-passphrase".utf8))
     }
@@ -82,5 +80,103 @@ struct KeychainServiceTests {
     @Test func biometricAuthKindAppHasDedicatedAccount() {
         #expect(KeychainService.BiometricAuthKind.app != .ssh)
         #expect(KeychainService.BiometricAuthKind.app != .run)
+    }
+}
+
+@Suite("Keychain passphrase policy")
+struct KeychainPassphrasePolicyTests {
+    @Test("all passphrase query kinds target the unchanged shared group and data-protection keychain")
+    func exactSharedQueryPolicy() {
+        for kind in KeychainPassphraseQueryKind.allCases {
+            let query = KeychainService.PassphraseQuery(
+                kind: kind,
+                serviceName: "codes.petr.quick-access-for-pass",
+                accessGroup: AutoFillConstants.keychainAccessGroup,
+                value: kind == .add || kind == .update ? Data("value".utf8) : nil
+            )
+            let dictionary = query.searchDictionary
+            #expect(dictionary[kSecAttrAccessGroup as String] as? String == "H23TXL6LPT.codes.petr.quick-access-for-pass")
+            #expect(dictionary[kSecUseDataProtectionKeychain as String] as? Bool == true)
+            #expect(dictionary[kSecClass as String] as? String == kSecClassGenericPassword as String)
+            if kind == .add {
+                #expect(dictionary[kSecAttrAccessible as String] as? String == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+            }
+        }
+    }
+
+    @Test("explicit shared-group hit returns the unchanged passphrase without a write")
+    func explicitHitDoesNotWrite() throws {
+        let calls = CallRecorder()
+        let expected = Data("unchanged".utf8)
+        let service = makeService(calls: calls, lookup: .success(expected))
+
+        let actual = try service.retrievePassphrase()
+
+        #expect(actual == expected)
+        #expect(calls.values == [.retrieve])
+    }
+
+    @Test("lookup errors and locked-device errors never create a replacement")
+    func lookupErrorsNeverCreate() {
+        for error in [KeychainError.retrieveFailed(errSecInteractionNotAllowed), .retrieveFailed(errSecAuthFailed)] {
+            let calls = CallRecorder()
+            let service = makeService(calls: calls, lookup: .failure(error))
+
+            #expect(throws: KeychainError.self) {
+                _ = try service.getOrCreatePassphrase()
+            }
+            #expect(calls.values == [.retrieve])
+        }
+    }
+
+    @Test("missing passphrase may be created only when requested explicitly")
+    func getOrCreateMayGenerate() throws {
+        let calls = CallRecorder()
+        let service = makeService(calls: calls, lookup: .success(nil))
+
+        let generated = try service.getOrCreatePassphrase()
+
+        #expect(generated.count == 64)
+        #expect(calls.values == [.retrieve, .add])
+    }
+
+    private func makeService(
+        calls: CallRecorder,
+        lookup: Result<Data?, KeychainError>
+    ) -> KeychainService {
+        KeychainService(
+            serviceName: "codes.petr.quick-access-for-pass",
+            accessGroup: AutoFillConstants.keychainAccessGroup,
+            backend: .init(
+                retrieve: { query in
+                    calls.append(query.kind)
+                    return lookup
+                },
+                add: { query in
+                    calls.append(query.kind)
+                    return .success(())
+                },
+                update: { query in
+                    calls.append(query.kind)
+                    return .success(())
+                },
+                delete: { query in
+                    calls.append(query.kind)
+                    return .success(())
+                }
+            )
+        )
+    }
+}
+
+private final class CallRecorder: Sendable {
+    private let storage = Mutex<[KeychainPassphraseQueryKind]>([])
+
+    var values: [KeychainPassphraseQueryKind] {
+        storage.withLock { $0 }
+    }
+
+    func append(_ kind: KeychainPassphraseQueryKind) {
+        storage.withLock { $0.append(kind) }
     }
 }

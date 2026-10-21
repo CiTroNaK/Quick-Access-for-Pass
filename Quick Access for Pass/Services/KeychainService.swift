@@ -1,100 +1,198 @@
 import Foundation
 import Security
-@preconcurrency import LocalAuthentication
+
+nonisolated enum KeychainPassphraseQueryKind: Sendable, CaseIterable {
+    case retrieve
+    case add
+    case update
+    case delete
+}
 
 nonisolated struct KeychainService: Sendable {
-    let serviceName: String
-    private let databasePassphraseAccount = "database-passphrase"
+    static let defaultServiceName = "codes.petr.quick-access-for-pass"
+    private static let databasePassphraseAccount = "database-passphrase"
 
-    init(serviceName: String = "codes.petr.quick-access-for-pass") {
+    let serviceName: String
+    let accessGroup: String
+    private let backend: Backend
+
+    init(
+        serviceName: String = KeychainService.defaultServiceName,
+        accessGroup: String = AutoFillConstants.keychainAccessGroup,
+        backend: Backend = .system
+    ) {
         self.serviceName = serviceName
+        self.accessGroup = accessGroup
+        self.backend = backend
+    }
+
+    func retrievePassphrase() throws -> Data? {
+        try retrieve(accessGroup: accessGroup)
+    }
+
+    /// Diagnostic-only lookup matching the historical implicit-group query.
+    /// Callers must never use its result to copy, update, or rekey an existing item.
+    func retrieveLegacyPassphrase() throws -> Data? {
+        try retrieve(accessGroup: nil)
     }
 
     func getOrCreatePassphrase() throws -> Data {
-        if let existing = try retrieve() {
-            return Data(existing.utf8)
+        if let existing = try retrievePassphrase() {
+            return existing
         }
         let passphrase = try generatePassphrase()
-        try store(passphrase)
-        return Data(passphrase.utf8)
+        try storeData(passphrase)
+        return passphrase
     }
 
     func deletePassphrase() throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: databasePassphraseAccount,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.deleteFailed(status)
+        let query = PassphraseQuery(
+            kind: .delete,
+            serviceName: serviceName,
+            accessGroup: accessGroup
+        )
+        switch backend.delete(query) {
+        case .success:
+            return
+        case .failure(.deleteFailed(errSecItemNotFound)):
+            return
+        case .failure(let error):
+            throw error
         }
-    }
-
-    private func retrieve() throws -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: databasePassphraseAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data,
-              let string = String(data: data, encoding: .utf8) else {
-            throw KeychainError.retrieveFailed(status)
-        }
-        return string
     }
 
     func store(_ passphrase: String) throws {
         guard let data = passphrase.data(using: .utf8) else {
             throw KeychainError.storeFailed(errSecParam)
         }
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: databasePassphraseAccount,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        if status == errSecDuplicateItem {
-            let searchQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: serviceName,
-                kSecAttrAccount as String: databasePassphraseAccount,
-                kSecUseDataProtectionKeychain as String: true,
-            ]
-            let updateStatus = SecItemUpdate(
-                searchQuery as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary
+        try storeData(data)
+    }
+
+    private func retrieve(accessGroup: String?) throws -> Data? {
+        let query = PassphraseQuery(
+            kind: .retrieve,
+            serviceName: serviceName,
+            accessGroup: accessGroup
+        )
+        return try backend.retrieve(query).get()
+    }
+
+    private func storeData(_ passphrase: Data) throws {
+        let addQuery = PassphraseQuery(
+            kind: .add,
+            serviceName: serviceName,
+            accessGroup: accessGroup,
+            value: passphrase
+        )
+        switch backend.add(addQuery) {
+        case .success:
+            return
+        case .failure(.storeFailed(errSecDuplicateItem)):
+            let updateQuery = PassphraseQuery(
+                kind: .update,
+                serviceName: serviceName,
+                accessGroup: accessGroup,
+                value: passphrase
             )
-            guard updateStatus == errSecSuccess else {
-                throw KeychainError.storeFailed(updateStatus)
-            }
-        } else if status != errSecSuccess {
-            throw KeychainError.storeFailed(status)
+            try backend.update(updateQuery).get()
+        case .failure(let error):
+            throw error
         }
     }
 
-    private func generatePassphrase() throws -> String {
+    private func generatePassphrase() throws -> Data {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         guard status == errSecSuccess else {
             throw KeychainError.randomGenerationFailed(status)
         }
-        return bytes.map { String(format: "%02x", $0) }.joined()
+        return Data(bytes.map { String(format: "%02x", $0) }.joined().utf8)
+    }
+
+    nonisolated struct PassphraseQuery: Sendable {
+        let kind: KeychainPassphraseQueryKind
+        let serviceName: String
+        let accessGroup: String?
+        let value: Data?
+
+        init(kind: KeychainPassphraseQueryKind, serviceName: String, accessGroup: String?, value: Data? = nil) {
+            self.kind = kind
+            self.serviceName = serviceName
+            self.accessGroup = accessGroup
+            self.value = value
+        }
+
+        var searchDictionary: [String: Any] {
+            var query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: serviceName,
+                kSecAttrAccount as String: KeychainService.databasePassphraseAccount,
+                kSecUseDataProtectionKeychain as String: true,
+            ]
+            if let accessGroup {
+                query[kSecAttrAccessGroup as String] = accessGroup
+            }
+            switch kind {
+            case .retrieve:
+                query[kSecReturnData as String] = true
+                query[kSecMatchLimit as String] = kSecMatchLimitOne
+            case .add:
+                query[kSecValueData as String] = value
+                query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            case .update, .delete:
+                break
+            }
+            return query
+        }
+
+        var updateDictionary: [String: Any] {
+            guard kind == .update, let value else { return [:] }
+            return [kSecValueData as String: value]
+        }
+    }
+
+    nonisolated struct Backend: Sendable {
+        let retrieve: @Sendable (PassphraseQuery) -> Result<Data?, KeychainError>
+        let add: @Sendable (PassphraseQuery) -> Result<Void, KeychainError>
+        let update: @Sendable (PassphraseQuery) -> Result<Void, KeychainError>
+        let delete: @Sendable (PassphraseQuery) -> Result<Void, KeychainError>
+
+        static let system = Backend(
+            retrieve: { query in
+                var result: AnyObject?
+                let status = SecItemCopyMatching(query.searchDictionary as CFDictionary, &result)
+                switch status {
+                case errSecSuccess:
+                    guard let data = result as? Data else {
+                        return .failure(.retrieveFailed(errSecDecode))
+                    }
+                    return .success(data)
+                case errSecItemNotFound:
+                    return .success(nil)
+                default:
+                    return .failure(.retrieveFailed(status))
+                }
+            },
+            add: { query in
+                let status = SecItemAdd(query.searchDictionary as CFDictionary, nil)
+                return status == errSecSuccess ? .success(()) : .failure(.storeFailed(status))
+            },
+            update: { query in
+                let status = SecItemUpdate(
+                    query.searchDictionary as CFDictionary,
+                    query.updateDictionary as CFDictionary
+                )
+                return status == errSecSuccess ? .success(()) : .failure(.storeFailed(status))
+            },
+            delete: { query in
+                let status = SecItemDelete(query.searchDictionary as CFDictionary)
+                return status == errSecSuccess ? .success(()) : .failure(.deleteFailed(status))
+            }
+        )
     }
 }
 
-nonisolated enum KeychainError: Error, LocalizedError {
+nonisolated enum KeychainError: Error, LocalizedError, Sendable {
     case storeFailed(OSStatus)
     case retrieveFailed(OSStatus)
     case deleteFailed(OSStatus)
@@ -110,242 +208,5 @@ nonisolated enum KeychainError: Error, LocalizedError {
         case .randomGenerationFailed(let s): String(localized: "Secure random generation failed: \(s)")
         }
         // swiftlint:enable identifier_name
-    }
-}
-
-// MARK: - Biometric Authorization
-
-/// Kind of biometric-gated action being authorized.
-///
-/// Each kind corresponds to a distinct `GenericPassword` keychain
-/// sentinel item under the same service. Retrieving a sentinel via
-/// `SecItemCopyMatching` against its `SecAccessControl(.biometryCurrentSet)`
-/// wrapper is the authorization signal; the retrieved bytes are discarded.
-extension KeychainService {
-    nonisolated enum BiometricAuthKind: Sendable, Equatable {
-        case ssh
-        case run
-        case app
-
-        fileprivate var account: String {
-            switch self {
-            case .ssh: return "ssh-auth-sentinel"
-            case .run: return "run-auth-sentinel"
-            case .app: return "app-unlock-sentinel"
-            }
-        }
-    }
-}
-
-/// Abstraction over biometric authorization. Conformed to by
-/// `KeychainService` in production and by `FakeBiometricAuthorizer`
-/// in tests, so dialog state-machine logic can be exercised without
-/// touching real Touch ID hardware.
-///
-/// Note on `LAContext` and Sendable: `LAContext` is a reference type
-/// that Apple has not annotated `Sendable`. Every file that imports
-/// this protocol and constructs or calls with an `LAContext` must use
-/// `@preconcurrency import LocalAuthentication` to suppress the
-/// checker. Apple's documentation explicitly supports passing an
-/// `LAContext` across threads for the purpose of a single keychain or
-/// `evaluatePolicy` call — we are not touching its mutable state from
-/// multiple threads concurrently.
-protocol BiometricAuthorizing: Sendable {
-    func authorize(
-        kind: KeychainService.BiometricAuthKind,
-        context: LAContext
-    ) async throws
-}
-
-/// Error surfaced from `BiometricAuthorizing.authorize(kind:context:)`.
-/// Maps directly to the dialog's failure states.
-nonisolated enum BiometricAuthError: Error, LocalizedError, Equatable {
-    case biometryUnavailable(String)
-    case biometryLockedOut
-    case userCancelled
-    case authenticationFailed
-    case interactionNotAllowed
-    case keychainFailure(OSStatus)
-
-    var errorDescription: String? {
-        switch self {
-        case .biometryUnavailable(let message):
-            return String(localized: "Touch ID not available: \(message)")
-        case .biometryLockedOut:
-            return String(localized: "Touch ID is locked. Unlock your Mac with your password to re-enable Touch ID.")
-        case .userCancelled:
-            return String(localized: "Authentication cancelled.")
-        case .authenticationFailed:
-            return String(localized: "Authentication failed.")
-        case .interactionNotAllowed:
-            return String(localized: "Device is locked. Unlock and try again.")
-        case .keychainFailure(let status):
-            return String(localized: "Keychain error: \(status)")
-        }
-    }
-}
-
-// MARK: - BiometricAuthorizing conformance
-
-extension KeychainService: BiometricAuthorizing {
-
-    /// Authorize a biometric-gated action by retrieving a sentinel keychain
-    /// item protected by `.biometryCurrentSet`. Returns on success; throws
-    /// `BiometricAuthError` on any failure. The retrieved data is discarded —
-    /// the act of retrieval is the authorization signal.
-    ///
-    /// Biometric authorization flow (hybrid pattern):
-    ///
-    /// 1. The dialog embeds `LAAuthenticationView`, which presents the system
-    ///    biometric UI and calls `evaluatePolicy` on the shared `LAContext`.
-    /// 2. That same `LAContext` is then passed here, with reuse semantics handled
-    ///    by LocalAuthentication.
-    /// 3. `blockingAuthorize` calls `SecItemCopyMatching` with
-    ///    `kSecUseAuthenticationContext`, binding the authorization to a real
-    ///    keychain sentinel item.
-    ///
-    /// This gives us the embedded `LAAuthenticationView` UX without losing the
-    /// keychain-bound security of an actual `.biometryCurrentSet` item lookup.
-    ///
-    /// If the sentinel does not exist (first use, or biometric enrollment
-    /// change invalidated it), it is created lazily and the retrieval is
-    /// retried exactly once.
-    ///
-    /// - Parameters:
-    ///   - kind: Which sentinel to retrieve (.ssh or .run).
-    ///   - context: The `LAContext` to use for the biometric prompt. Pass
-    ///     the dialog's own `@State` context so the embedded
-    ///     `LAAuthenticationView` reflects the auth state.
-    func authorize(kind: BiometricAuthKind, context: LAContext) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global().async {
-                let outcome = Self.blockingAuthorize(
-                    serviceName: self.serviceName,
-                    account: kind.account,
-                    context: context
-                )
-                cont.resume(with: outcome)
-            }
-        }
-    }
-
-    private nonisolated static func blockingAuthorize(
-        serviceName: String,
-        account: String,
-        context: LAContext
-    ) -> Result<Void, Error> {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: account,
-            kSecUseAuthenticationContext as String: context,
-            kSecReturnData as String: true,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        switch status {
-        case errSecSuccess:
-            return .success(())
-        case errSecItemNotFound:
-            return createSentinelAndRetry(
-                serviceName: serviceName,
-                account: account,
-                context: context
-            )
-        case errSecUserCanceled:
-            return .failure(BiometricAuthError.userCancelled)
-        case errSecAuthFailed:
-            return .failure(BiometricAuthError.authenticationFailed)
-        case errSecInteractionNotAllowed:
-            return .failure(BiometricAuthError.interactionNotAllowed)
-        case errSecNotAvailable:
-            // Intel Mac without Touch ID, or biometric hardware present
-            // but unreachable at this moment. The dialog's preflight
-            // `canEvaluatePolicy` check should usually catch this first,
-            // but it can still reach here if the policy evaluated as
-            // available via a password fallback while the keychain
-            // operation specifically needs biometry.
-            return .failure(BiometricAuthError.biometryUnavailable("Touch ID not available on this device"))
-        default:
-            return .failure(BiometricAuthError.keychainFailure(status))
-        }
-    }
-
-    private nonisolated static func createSentinelAndRetry(
-        serviceName: String,
-        account: String,
-        context: LAContext
-    ) -> Result<Void, Error> {
-        // Recovery path: the sentinel is either missing (first use on
-        // this install) or cryptographically invalidated by a Touch ID
-        // enrollment change. In both cases we delete-then-add rather
-        // than using the usual add-or-update pattern — updating a
-        // `.biometryCurrentSet`-wrapped item does NOT regenerate the
-        // Secure Enclave key wrapping; only a fresh `SecItemAdd` does.
-        // This is a deliberate, narrow exception to Core Guideline #6.
-        //
-        // Best-effort delete tolerates both "doesn't exist" and
-        // "exists but stale".
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        _ = SecItemDelete(deleteQuery as CFDictionary)
-
-        // 32 random bytes — the value itself is irrelevant.
-        var bytes = [UInt8](repeating: 0, count: 32)
-        let randStatus = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        guard randStatus == errSecSuccess else {
-            return .failure(BiometricAuthError.keychainFailure(randStatus))
-        }
-
-        var cfError: Unmanaged<CFError>?
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.biometryCurrentSet],
-            &cfError
-        ) else {
-            _ = cfError?.takeRetainedValue()
-            return .failure(BiometricAuthError.keychainFailure(errSecParam))
-        }
-
-        // No kSecAttrAccessible here — it is encoded inside the access control.
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: Data(bytes),
-            kSecAttrAccessControl as String: accessControl,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            return .failure(BiometricAuthError.keychainFailure(addStatus))
-        }
-
-        // Exactly one retry. No loop.
-        let retryQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: account,
-            kSecUseAuthenticationContext as String: context,
-            kSecReturnData as String: true,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        var retryResult: AnyObject?
-        let retryStatus = SecItemCopyMatching(retryQuery as CFDictionary, &retryResult)
-        switch retryStatus {
-        case errSecSuccess:              return .success(())
-        case errSecUserCanceled:         return .failure(BiometricAuthError.userCancelled)
-        case errSecAuthFailed:           return .failure(BiometricAuthError.authenticationFailed)
-        case errSecInteractionNotAllowed: return .failure(BiometricAuthError.interactionNotAllowed)
-        case errSecNotAvailable:         return .failure(BiometricAuthError.biometryUnavailable("Touch ID not available on this device"))
-        default:                         return .failure(BiometricAuthError.keychainFailure(retryStatus))
-        }
     }
 }

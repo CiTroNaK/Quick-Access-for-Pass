@@ -195,16 +195,25 @@ extension AppDelegate {
             panelController?.show()
         }
 
-        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            pendingUnlockWaiters[token] = cont
-            Task { @MainActor in
-                await self.waitForUnlockTimeout(timeoutSeconds)
-                if let waiter = pendingUnlockWaiters.removeValue(forKey: token) {
-                    waiter.resume(returning: false)
-                    self.hidePanelAfterLockWaitIfNeeded()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                pendingUnlockWaiters[token] = cont
+                Task { @MainActor in
+                    await self.waitForUnlockTimeout(timeoutSeconds)
+                    self.cancelUnlockWaiter(token: token)
                 }
             }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelUnlockWaiter(token: token)
+            }
         }
+    }
+
+    private func cancelUnlockWaiter(token: UUID) {
+        guard let waiter = pendingUnlockWaiters.removeValue(forKey: token) else { return }
+        waiter.resume(returning: false)
+        hidePanelAfterLockWaitIfNeeded()
     }
 
     private func resolveUnlockWaiters(returning result: Bool) {

@@ -25,7 +25,8 @@ This policy covers the Quick Access for Pass application, including:
 - the SSH agent proxy (`SSHAgentProxy`) and Pass CLI daemon integration
 - SSH BatchMode notification handling and remembered decisions
 - the Run Proxy (`RunProxy`) and the bundled `qa-run` helper
-- local socket authentication and peer verification (`PeerVerifier`)
+- the macOS 27 System AutoFill credential-provider extension and host broker
+- local socket authentication and peer verification (`PeerVerifier` and `AutoFillPeerVerifier`)
 - database encryption and Keychain usage
 - health checks, recovery logic, and local service lifecycle handling
 
@@ -39,8 +40,19 @@ Quick Access for Pass is designed around a few core invariants:
 - **Optional Proton Pass CLI personal access tokens stay in Keychain** — PATs use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and are never written to UserDefaults, SQLite, logs, notifications, or captured CLI output
 - **Local proxies are permission constrained** — sockets are created with strict owner-only permissions
 - **Run proxy peers are verified** — unverified local clients are rejected; trusted helper handling is explicit
+- **AutoFill IPC is mutually authenticated** — both endpoints bind the connected socket's audit token to a signed-code check that pins the Apple anchor, exact bundle identifier, and certificate Team ID; socket permissions alone are not trusted
 - **Authorization is contextual** — remembered decisions are scoped to app identity and command/profile context rather than globally
 - **Clipboard exposure is reduced** — copied secrets are marked with `org.nspasteboard.ConcealedType` and auto-cleared on a timer
+
+## System AutoFill Boundary
+
+System AutoFill is available only on macOS 27 and later. The credential-provider extension advertises passwords and one-time codes only; it does not register, retrieve, or sign passkeys. Proton Pass can remain enabled as the passkey provider while Quick Access supplies passwords and current TOTP codes in Safari and compatible native apps.
+
+The main app is the only component that invokes Pass CLI. The extension sends an opaque descriptor ID and a fixed value kind over a dedicated local broker connection. Both endpoints verify the connected peer using the socket audit token and signed-code requirements before processing a request. A `quickaccesspass://autofill` URL contains only a random, expiring wake handle: it can launch the host without activating it, but it never identifies a credential or authorizes a fill. The first verified cold-host candidate-list or direct credential-resolution request must atomically claim the matching handle. Handle-free requests are allowed only to an already-warm host or after that initial bootstrap claim succeeds.
+
+The provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the AutoFill broker socket directory and socket. The directory is owner-only (`0700`) and the socket is owner-only (`0600`). The extension has no database or Keychain Sharing entitlement: it sends only the system identity's opaque descriptor ID and fixed value kind over the verified broker. The host alone opens the local SQLCipher metadata database and accesses its `H23TXL6LPT.codes.petr.quick-access-for-pass` Keychain Sharing group with the data-protection Keychain and `WhenUnlockedThisDeviceOnly` accessibility.
+
+Passwords, TOTP seeds, and generated TOTP codes are not persisted by Quick Access in the database, system identity store, App Group files, logs, or launch URLs. Values are resolved on demand by the host, returned once to the verified extension, and discarded.
 
 ## Sensitive Components
 
@@ -50,6 +62,7 @@ The most security-sensitive parts of the codebase are:
 - `DatabaseManager` and Keychain integration
 - `Services/SSHAgent/*`
 - `Services/RunProxy/*`
+- `Services/AutoFill/*`
 - `Services/Security/PeerVerifier.swift`
 - authorization dialogs and remembered-decision flows
 
