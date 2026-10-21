@@ -29,7 +29,7 @@ struct PassCLIDiscoveryTests {
         #expect(candidates.map(\.displayVersion) == ["2.2.1", "2.2.1"])
     }
 
-    @Test("production manifest ships 2.3.3 and retains rollback versions")
+    @Test("production manifest ships 2.4.2 and retains rollback versions")
     func productionManifestVersions() {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -41,7 +41,7 @@ struct PassCLIDiscoveryTests {
 
         let manifest = PassCLIBundledManifest.load(from: manifestURL)
 
-        #expect(manifest.versions.map(\.version) == ["2.1.4", "2.2.3", "2.3.3"])
+        #expect(manifest.versions.map(\.version) == ["2.1.4", "2.2.3", "2.3.3", "2.4.2"])
     }
 
     @Test("discovers bundled versions newest first for current architecture")
