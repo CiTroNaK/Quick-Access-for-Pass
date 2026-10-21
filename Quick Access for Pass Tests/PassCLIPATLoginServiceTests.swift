@@ -31,11 +31,16 @@ private actor FakeEnvironmentRunner: CLIEnvironmentRunning {
     private var outcome: Outcome = .success(Data())
     private var queuedOutcomes: [Outcome] = []
     private var pausesFirstInvocation = false
+    private var pausedInvocation: Int?
     private var firstInvocationWaiter: CheckedContinuation<Void, Never>?
     private var firstInvocationResume: CheckedContinuation<Void, Never>?
 
     func pauseFirstInvocation() {
         pausesFirstInvocation = true
+    }
+
+    func pauseInvocation(_ ordinal: Int) {
+        pausedInvocation = ordinal
     }
 
     func waitForFirstInvocation() async {
@@ -68,7 +73,7 @@ private actor FakeEnvironmentRunner: CLIEnvironmentRunning {
             environmentOverrides: environmentOverrides
         ))
         let nextOutcome = queuedOutcomes.isEmpty ? outcome : queuedOutcomes.removeFirst()
-        if pausesFirstInvocation && invocations.count == 1 {
+        if (pausesFirstInvocation && invocations.count == 1) || pausedInvocation == invocations.count {
             await withCheckedContinuation { continuation in
                 firstInvocationResume = continuation
                 firstInvocationWaiter?.resume()
@@ -146,6 +151,34 @@ struct PassCLIPATLoginServiceTests {
         // The guard must be released after completion, not block future logins.
         #expect(await service.loginWithSavedToken() == .succeeded)
         #expect(await runner.invocations.count == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func forcedLogoutRecoveryRevokesBlockedSecretAccessBeforeRunnerStarts() async {
+        let runner = FakeEnvironmentRunner()
+        await runner.setOutcomes([
+            .failure(.commandFailed("Error: Already authenticated")),
+            .failure(.notLoggedIn),
+            .success(Data()),
+            .success(Data()),
+        ])
+        await runner.pauseInvocation(3)
+        let guardState = SecretReleaseGuard()
+        let token = guardState.capture()
+        let service = PassCLIPATLoginService(
+            credentialStore: FakePATLoginCredentialStore(token: "pst_test_token::secret"),
+            runner: runner,
+            cliService: PassCLIService(cliPath: "/fake/pass-cli"),
+            healthRefresher: FakePATHealthRefresher(health: .ok),
+            syncTrigger: {},
+            revokeTransientSecretAccess: { guardState.revoke() }
+        )
+        let task = Task { await service.loginWithSavedToken() }
+        await runner.waitForFirstInvocation()
+        #expect(await runner.invocations.map(\.arguments) == [["login"], ["info", "--output", "json"], ["logout", "--force"]])
+        #expect(guardState.isCurrent(token) == false)
+        await runner.resumeFirstInvocation()
+        #expect(await task.value == .succeeded)
     }
 
     @Test(.timeLimit(.minutes(1)))

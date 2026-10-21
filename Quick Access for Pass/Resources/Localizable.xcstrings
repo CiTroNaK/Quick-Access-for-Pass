@@ -4370,7 +4370,211 @@
           }
         }
       }
+    },
+    "Make available offline" : {},
+    "Remove offline copy" : {},
+    "Enable this vault in Settings to make its items available offline." : {},
+    "The item is no longer available in the current vault catalog." : {},
+  "Offline" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Offline"
+        }
+      }
     }
+  },
+  "Offline settings are unavailable." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Offline settings are unavailable."
+        }
+      }
+    }
+  },
+  "Offline vaults" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Offline vaults"
+        }
+      }
+    }
+  },
+  "No vaults are available." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "No vaults are available."
+        }
+      }
+    }
+  },
+  "Selected offline items" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Selected offline items"
+        }
+      }
+    }
+  },
+  "No items are selected for offline access." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "No items are selected for offline access."
+        }
+      }
+    }
+  },
+  "Destructive actions" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Destructive actions"
+        }
+      }
+    }
+  },
+  "Remove all offline data" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Remove all offline data"
+        }
+      }
+    }
+  },
+  "Remove all offline data?" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Remove all offline data?"
+        }
+      }
+    }
+  },
+  "This removes all device-bound offline copies and their selections." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "This removes all device-bound offline copies and their selections."
+        }
+      }
+    }
+  },
+  "Available" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Available"
+        }
+      }
+    }
+  },
+  "Stale" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Stale"
+        }
+      }
+    }
+  },
+  "Unavailable" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Unavailable"
+        }
+      }
+    }
+  },
+  "Remove offline copy of %@" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Remove offline copy of %@"
+        }
+      }
+    }
+  },
+  "Removes this item’s device-bound offline copy" : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Removes this item’s device-bound offline copy"
+        }
+      }
+    }
+  },
+  "Could not update offline vault settings. Try again." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Could not update offline vault settings. Try again."
+        }
+      }
+    }
+  },
+  "Offline copy removed for %@." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Offline copy removed for %@."
+        }
+      }
+    }
+  },
+  "Could not remove offline copy. Try again." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Could not remove offline copy. Try again."
+        }
+      }
+    }
+  },
+  "All offline data removed." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "All offline data removed."
+        }
+      }
+    }
+  },
+  "Could not remove offline data. Try again." : {
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "new",
+          "value" : "Could not remove offline data. Try again."
+        }
+      }
+    }
+  }
   },
   "version" : "1.0"
 }

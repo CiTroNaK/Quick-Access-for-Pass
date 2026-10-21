@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import Quick_Access_for_Pass
 
 @Suite("SSHAgentProtocol Tests")
@@ -99,9 +100,19 @@ struct SSHAgentProtocolTests {
         pipe.fileHandleForWriting.write(wireData)
         pipe.fileHandleForWriting.closeFile()
 
-        let message = try SSHAgentMessage.read(from: pipe.fileHandleForReading)
+        defer { try? pipe.fileHandleForReading.close() }
+        // A missing observation or mislabeled header/body must fail even while
+        // the original literal message assertions continue to pass.
+        let observations = OSAllocatedUnfairLock(initialState: [SSHAgentMessage.ReadObservation]())
+        let message = try SSHAgentMessage.read(from: pipe.fileHandleForReading, readObservation: { event in
+            observations.withLock { $0.append(event) }
+        })
         #expect(message.type == .requestIdentities)
         #expect(message.payload == payload)
+        let reads = observations.withLock { $0 }
+        #expect(reads.filter { $0.phase == .header }.reduce(0) { $0 + $1.resultCount } == 4)
+        #expect(reads.filter { $0.phase == .body }.reduce(0) { $0 + $1.resultCount } == 3)
+        #expect(reads.allSatisfy { $0.resultCount > 0 && $0.errorNumber == nil })
     }
 
     @Test("read from empty stream throws unexpectedEOF")
@@ -109,9 +120,19 @@ struct SSHAgentProtocolTests {
         let pipe = Pipe()
         pipe.fileHandleForWriting.closeFile()
 
+        defer { try? pipe.fileHandleForReading.close() }
+        let observations = OSAllocatedUnfairLock(initialState: [SSHAgentMessage.ReadObservation]())
         #expect(throws: SSHAgentError.unexpectedEOF) {
-            _ = try SSHAgentMessage.read(from: pipe.fileHandleForReading)
+            _ = try SSHAgentMessage.read(from: pipe.fileHandleForReading, readObservation: { event in
+                observations.withLock { $0.append(event) }
+            })
         }
+        let reads = observations.withLock { $0 }
+        #expect(reads.count == 1)
+        #expect(reads.first?.phase == .header)
+        #expect(reads.first?.resultCount == 0)
+        #expect(reads.first?.completedCount == 0)
+        #expect(reads.first?.errorNumber == nil)
     }
 
     // MARK: - Parse identities response

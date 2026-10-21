@@ -51,18 +51,17 @@ nonisolated enum DatabaseStartupPreparation {
         keychainService: KeychainService,
         databaseURL: URL
     ) throws -> PreparedDatabase {
+        try HardenedDatabaseFiles.prepareDatabaseDirectory(for: databaseURL)
         if try databaseExists(at: databaseURL, fileManager: fileManager) {
+            try HardenedDatabaseFiles.protectDatabaseFiles(at: databaseURL)
             guard let passphrase = try keychainService.retrievePassphrase() else {
                 throw Error.passphraseMissing
             }
             try validateReadOnly(databaseURL: databaseURL, passphrase: passphrase, fileManager: fileManager)
+            try HardenedDatabaseFiles.protectDatabaseFiles(at: databaseURL)
             return PreparedDatabase(databaseURL: databaseURL, passphrase: passphrase)
         }
 
-        try fileManager.createDirectory(
-            at: databaseURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         return PreparedDatabase(
             databaseURL: databaseURL,
             passphrase: try keychainService.getOrCreatePassphrase()
@@ -94,9 +93,8 @@ nonisolated enum DatabaseStartupPreparation {
             isDirectory: true
         )
         try fileManager.createDirectory(at: stagingDirectoryURL, withIntermediateDirectories: false)
-        try fileManager.setAttributes(
-            [.posixPermissions: NSNumber(value: 0o700)],
-            ofItemAtPath: stagingDirectoryURL.path
+        try HardenedDatabaseFiles.prepareDatabaseDirectory(
+            for: stagingDirectoryURL.appendingPathComponent(AutoFillConstants.databaseFileName)
         )
         defer { try? fileManager.removeItem(at: stagingDirectoryURL) }
 
@@ -114,11 +112,12 @@ nonisolated enum DatabaseStartupPreparation {
               try databaseSetHashes(databaseURL: stagedDatabaseURL, suffixes: suffixes) == originalHashes else {
             throw Error.inconsistentDatabaseFiles
         }
+        try HardenedDatabaseFiles.protectDatabaseFiles(at: stagedDatabaseURL)
 
         var configuration = Configuration()
         configuration.readonly = true
         configuration.prepareDatabase { database in
-            try database.usePassphrase(passphrase)
+            try EncryptedDatabaseConfiguration.prepare(database, passphrase: passphrase)
         }
         let queue = try DatabaseQueue(path: stagedDatabaseURL.path, configuration: configuration)
         try queue.read { database in

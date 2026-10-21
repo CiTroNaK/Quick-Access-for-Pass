@@ -2,10 +2,6 @@ import AppKit
 import SwiftUI
 import Observation
 
-/// Async closure that fetches a fully-decoded item from pass-cli. Injected into
-/// `QuickAccessViewModel` so tests can stub the secret-bearing call.
-typealias CLIItemFetcher = @Sendable (_ itemId: String, _ shareId: String) async throws -> CLIItem
-typealias LargeTypePresenter = @MainActor @Sendable (LargeTypeDisplay) -> Void
 typealias PasteboardStringWriter = @MainActor @Sendable (String) -> Void
 typealias URLOpener = @MainActor @Sendable (URL) -> Bool
 
@@ -18,14 +14,26 @@ final class QuickAccessViewModel {
     private(set) var items: [PassItem] = []
     var selectedIndex = 0
     var isLoading = false
-    var isActionLoading = false
+    var isActionLoading: Bool {
+        inFlightCopy != nil || inFlightLargeType != nil || inFlightOfflineOperation != nil
+    }
     var errorMessage: String?
     var syncError: SyncErrorPresentation?
     var syncProgress: SyncProgressPresentation?
     var skippedSyncItems: SyncSkippedItemsPresentation?
     var isShowingSkippedSyncItems = false
-    var detailItem: PassItem?
-    var selectedRowIndex = 0
+    var detailItem: PassItem? {
+        didSet { resetDetailSelection() }
+    }
+    var detailSelectionState = DetailSelectionState()
+    var selectedDetailRowID: DetailRow.ID? { detailSelectionState.selectedID }
+    var selectedRowIndex: Int {
+        get {
+            guard let item = detailItem, let selected = selectedDetailRow(for: item) else { return -1 }
+            return rows(for: item).firstIndex(of: selected) ?? -1
+        }
+        set { selectDetailRow(at: newValue) }
+    }
     private(set) var cliPath: String = ""
     var lastCommand: String = ""
 
@@ -35,16 +43,20 @@ final class QuickAccessViewModel {
     let onDismiss: () -> Void
     let onActivity: () -> Void
     let defaults: UserDefaults
-    let fetchItem: CLIItemFetcher
-    let presentLargeType: LargeTypePresenter
+    let secretResolver: any SecretItemResolving
+    let offlineModeCoordinator: OfflineModeCoordinator?
+    let secretReleaseGuard: SecretReleaseGuard
+    let largeTypePresentation: LargeTypePresentationActions?
     let writeStringToPasteboard: PasteboardStringWriter
     let openURL: URLOpener
     private var searchTask: Task<Void, Never>?
     private var clearSearchTask: Task<Void, Never>?
     var inFlightCopy: Task<Void, Never>?
     var inFlightLargeType: Task<Void, Never>?
+    var inFlightOfflineOperation: Task<Void, Never>?
     var copyGeneration = 0
     var largeTypeGeneration = 0
+    var offlineOperationGeneration = 0
 
     init(
         searchService: SearchService,
@@ -53,8 +65,11 @@ final class QuickAccessViewModel {
         onDismiss: @escaping () -> Void,
         onActivity: @escaping () -> Void = {},
         defaults: UserDefaults = .standard,
+        secretResolver: (any SecretItemResolving)? = nil,
+        offlineModeCoordinator: OfflineModeCoordinator? = nil,
+        secretReleaseGuard: SecretReleaseGuard = SecretReleaseGuard(),
         fetchItem: CLIItemFetcher? = nil,
-        presentLargeType: LargeTypePresenter? = nil,
+        largeTypePresentation: LargeTypePresentationActions? = nil,
         writeStringToPasteboard: @escaping PasteboardStringWriter = { value in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
@@ -70,15 +85,21 @@ final class QuickAccessViewModel {
         self.onActivity = onActivity
         self.defaults = defaults
         self.cliPath = cliService.cliPath
-        self.presentLargeType = presentLargeType ?? { _ in }
+        self.offlineModeCoordinator = offlineModeCoordinator
+        self.secretReleaseGuard = secretReleaseGuard
+        self.largeTypePresentation = largeTypePresentation
         self.writeStringToPasteboard = writeStringToPasteboard
         self.openURL = openURL
-        if let fetchItem {
-            self.fetchItem = fetchItem
+        if let secretResolver {
+            self.secretResolver = secretResolver
+        } else if let fetchItem {
+            self.secretResolver = LegacySecretItemResolver(fetchItem: fetchItem, cliService: cliService)
         } else {
-            self.fetchItem = { itemId, shareId in
-                try await cliService.viewItem(itemId: itemId, shareId: shareId)
-            }
+            self.secretResolver = LiveSecretItemResolver(cliService: cliService)
+        }
+        offlineModeCoordinator?.onDetailSelectionInputsChanged = { [weak self] in
+            guard let self, let item = self.detailItem else { return }
+            self.reconcileDetailSelection(for: item)
         }
     }
 
@@ -139,10 +160,9 @@ final class QuickAccessViewModel {
     func clearForLock() {
         clearSearchTask?.cancel()
         clearSearchTask = nil
-        inFlightCopy?.cancel()
-        inFlightCopy = nil
-        inFlightLargeType?.cancel()
-        inFlightLargeType = nil
+        cancelSecretActions()
+        inFlightOfflineOperation?.cancel()
+        inFlightOfflineOperation = nil
 
         searchQuery = ""
         searchTask?.cancel()
@@ -158,7 +178,16 @@ final class QuickAccessViewModel {
         skippedSyncItems = nil
         isShowingSkippedSyncItems = false
         isLoading = false
-        isActionLoading = false
+        offlineOperationGeneration += 1
+    }
+
+    /// Cancels only view-model-owned secret action tasks and advances their
+    /// release generations. Search and offline maintenance remain untouched.
+    func cancelSecretActions() {
+        inFlightCopy?.cancel()
+        inFlightCopy = nil
+        inFlightLargeType?.cancel()
+        inFlightLargeType = nil
         copyGeneration += 1
         largeTypeGeneration += 1
     }
@@ -176,13 +205,17 @@ final class QuickAccessViewModel {
     func handleEnter() {
         onActivity()
         if let item = detailItem {
-            let rows = rows(for: item)
-            guard let row = rows[safe: selectedRowIndex], row.isSelectable else { return }
+            reconcileDetailSelection(for: item)
+            guard let row = selectedDetailRow(for: item) else { return }
             switch row {
             case .namedAction(let action, _, _):
                 handleAction(action, for: item)
             case .field(let key, _, _):
                 copyField(key, from: item)
+            case .offlineAvailability:
+                handleOfflineAvailability(for: item)
+            case .keepOfflineIndividually:
+                handleKeepOfflineIndividually(for: item)
             case .sectionHeader:
                 return
             }

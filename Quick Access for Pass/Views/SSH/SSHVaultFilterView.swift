@@ -16,29 +16,35 @@ struct SSHVaultFilterView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Limit to vaults")
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Limit to vaults")
+                .font(.body)
 
             ForEach(availableVaults, id: \.self) { name in
-                Toggle(name, isOn: binding(for: name))
-                    .toggleStyle(.checkbox)
+                SettingsLayout.settingsRow(label: LocalizedStringKey(name)) {
+                    Toggle(name, isOn: binding(for: name))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
             }
 
             Text("Only keys from selected vaults will be available. Empty = all vaults.")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { loadVaults() }
     }
 
     private func loadVaults() {
         availableVaults = ((try? databaseManager?.allVaults()) ?? [])
+            .sorted { lhs, rhs in
+                lhs.name == rhs.name
+                    ? lhs.id < rhs.id
+                    : lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
             .map(\.name)
-            .sorted()
     }
 
     private func binding(for name: String) -> Binding<Bool> {

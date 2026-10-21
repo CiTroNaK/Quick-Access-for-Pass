@@ -5,10 +5,12 @@ import Foundation
 ///
 /// `.sectionHeader` rows are non-selectable separators used inside
 /// `.custom` items; arrow-key traversal skips them.
-nonisolated enum DetailRow: Sendable, Identifiable {
+nonisolated enum DetailRow: Sendable, Identifiable, Equatable {
     case namedAction(action: ItemAction, label: String, shortcut: String)
     case field(key: FieldKey, label: String, isSensitive: Bool)
     case sectionHeader(name: String, id: String)
+    case offlineAvailability(OfflineItemAvailability)
+    case keepOfflineIndividually
 
     var id: String {
         switch self {
@@ -18,6 +20,10 @@ nonisolated enum DetailRow: Sendable, Identifiable {
             return "field:\(Self.fieldStableId(for: key))"
         case .sectionHeader(_, let id):
             return "section:\(id)"
+        case .offlineAvailability:
+            return "offlineAvailability"
+        case .keepOfflineIndividually:
+            return "keepOfflineIndividually"
         }
     }
 
@@ -25,6 +31,7 @@ nonisolated enum DetailRow: Sendable, Identifiable {
         switch self {
         case .namedAction, .field: true
         case .sectionHeader: false
+        case .offlineAvailability, .keepOfflineIndividually: true
         }
     }
 

@@ -3,7 +3,7 @@ import Foundation
 import AppKit
 @testable import Quick_Access_for_Pass
 
-@Suite("ClipboardManager Tests")
+@Suite("ClipboardManager Tests", .timeLimit(.minutes(1)))
 struct ClipboardManagerTests {
 
     /// Each test gets its own named pasteboard to avoid interference from parallel tests.
@@ -52,6 +52,52 @@ struct ClipboardManagerTests {
             let work = scheduledWork.remove(at: index)
             work.run()
         }
+    }
+
+    @Test @MainActor func splitWriteDoesNotScheduleUntilAfterRelease() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
+        let item = try #require(fixture.items.first)
+        let service = fixture.service()
+        try await initializeOfflineFixtureService(service)
+        try await service.makeAvailableOffline(item: item, shareId: "share")
+        let resolved = try await OfflineSecretResolver(live: ClipboardUnavailableLive(), repository: fixture.repository,
+            codec: fixture.codec(), readiness: service).resolveItem(itemId: item.id, vaultId: item.vaultId, shareId: "share")
+        let password = try resolved.map { item -> String in
+            guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
+            return login.password
+        }
+        let pb = NSPasteboard.withUniqueName()
+        defer { pb.releaseGlobally() }
+        let defaults = UserDefaults(suiteName: "task3-clipboard-\(UUID())")!
+        defaults.set(true, forKey: DefaultsKey.concealFromClipboardManagers)
+        let scheduler = ReentrantClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 30, pasteboard: pb, userDefaults: defaults, scheduler: scheduler)
+        scheduler.onSchedule = {
+            try! fixture.database.syncItems([]) // Reenter the real writer/authority, after release lock.
+        }
+        try password.release(validating: {}, effect: { manager.writeConcealedValue($0) })
+        #expect(scheduler.operations.isEmpty)
+        #expect(pb.string(forType: .string) == "fake-password")
+        #expect(pb.data(forType: .init("org.nspasteboard.ConcealedType")) != nil)
+        manager.completeCopy(label: "Fixture copied")
+        #expect(scheduler.operations.count == 2)
+        #expect(throws: OfflineReleaseError.revoked) {
+            try password.release(validating: {}, effect: { _ in Issue.record("released twice") })
+        }
+        #expect(pb.string(forType: .string) == "fake-password") // Already released cannot be recalled.
+    }
+
+    @Test @MainActor func clearTimerUsesCommittedCountBeforeReentrantCancellation() {
+        let pb = NSPasteboard.withUniqueName()
+        defer { pb.releaseGlobally() }
+        let scheduler = ReentrantClipboardScheduler()
+        let manager = ClipboardManager(autoClearSeconds: 30, pasteboard: pb, scheduler: scheduler)
+        manager.copy("old")
+        manager.writeConcealedValue("committed")
+        scheduler.onCancel = { manager.writeConcealedValue("newer") }
+        manager.completeCopy(label: "Fixture copied")
+        scheduler.operations[2]() // Timer for committed, not a newer reentrant write.
+        #expect(pb.string(forType: .string) == "newer")
     }
 
     // MARK: - Copy behaviour
@@ -233,5 +279,29 @@ struct ClipboardManagerTests {
 
         #expect(didClear == false)
         #expect(pb.string(forType: .string) == "user-value")
+    }
+}
+
+private struct ClipboardUnavailableLive: OfflineSecretResolvingLive {
+    func viewItem(itemId: String, shareId: String) async throws -> CLIItem { throw CLIError.notLoggedIn }
+    func getTotp(itemId: String, shareId: String) async throws -> String { throw CLIError.notLoggedIn }
+    func viewItem(itemId: String, shareId: String, timeout: TimeInterval) async throws -> CLIItem { throw CLIError.notLoggedIn }
+    func getTotp(itemId: String, shareId: String, timeout: TimeInterval) async throws -> String { throw CLIError.notLoggedIn }
+}
+
+@MainActor
+private final class ReentrantClipboardScheduler: ClipboardScheduling {
+    var onSchedule: () -> Void = {}
+    var onCancel: () -> Void = {}
+    var operations: [@MainActor () -> Void] = []
+    func schedule(after delay: Duration, operation: @escaping @MainActor () -> Void) -> any ClipboardScheduledWork {
+        operations.append(operation)
+        onSchedule()
+        return Work(cancel: { [weak self] in self?.onCancel() })
+    }
+    private final class Work: ClipboardScheduledWork {
+        let cancellation: () -> Void
+        init(cancel: @escaping () -> Void) { cancellation = cancel }
+        func cancel() { cancellation() }
     }
 }

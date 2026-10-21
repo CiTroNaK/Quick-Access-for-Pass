@@ -5,6 +5,77 @@ import Testing
 @testable import Quick_Access_for_Pass
 
 @MainActor
+final class WindowVisibilityWaiter {
+    private let window: NSWindow
+    private let marker: ((String, UInt64?) -> Void)?
+    private var observer: NSObjectProtocol?
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var timeoutTask: Task<Void, Never>?
+
+    init(window: NSWindow, marker: ((String, UInt64?) -> Void)? = nil) {
+        self.window = window
+        self.marker = marker
+        observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            let deliveredAt = DispatchTime.now().uptimeNanoseconds
+            Task { @MainActor in
+                // State is sampled at task entry, not backdated to delivery.
+                self?.marker?("keyNotificationTaskEntered", deliveredAt)
+                self?.finish(visible: true)
+            }
+        }
+    }
+
+    func wait(timeout: Duration = .seconds(1)) async -> Bool {
+        marker?("visibilityWaitEntered", nil)
+        guard window.isVisible == false else {
+            marker?("visibilityAlreadyVisible", nil)
+            return true
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+                marker?("visibilityContinuationArmed", nil)
+                timeoutTask = Task { @MainActor [weak self] in
+                    self?.marker?("visibilityTimeoutTaskEntered", nil)
+                    try? await Task.sleep(for: timeout)
+                    self?.marker?("visibilityTimeoutSleepReturned", nil)
+                    guard Task.isCancelled == false else { return }
+                    self?.marker?("visibilityTimeoutFiring", nil)
+                    self?.finish(visible: false)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.marker?("visibilityCancellationTaskEntered", nil)
+                self?.finish(visible: false)
+            }
+        }
+    }
+
+    func cancel() {
+        marker?("visibilityWaiterCancel", nil)
+        finish(visible: false)
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+            self.observer = nil
+        }
+    }
+
+    private func finish(visible: Bool) {
+        marker?(visible ? "visibilityFinishTrue" : "visibilityFinishFalse", nil)
+        if continuation == nil { marker?("visibilityFinishWithoutContinuation", nil) }
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        continuation?.resume(returning: visible)
+        continuation = nil
+    }
+}
+
+@MainActor
 final class ManualUnlockWaiterTimeout {
     private var continuations: [CheckedContinuation<Void, Never>] = []
     private var resumesFutureWaiters = false
@@ -33,6 +104,58 @@ final class ManualUnlockWaiterTimeout {
         for continuation in pending {
             continuation.resume()
         }
+    }
+}
+
+/// Bounded test-only metadata. No window identities, process handles, auth
+/// values or output are recorded. The state clock is never a delivery clock.
+@MainActor
+private final class UnlockPanelVisibilityTrace {
+    struct Snapshot: Sendable {
+        let visible: Bool
+        let key: Bool
+        let pendingWaiters: Int
+        let systemPanel: Bool
+        let authInFlight: Bool
+    }
+    private struct Entry {
+        let event: String
+        let stateClock: UInt64
+        let originClock: UInt64?
+        let snapshot: Snapshot
+    }
+    private let snapshot: () -> Snapshot
+    private var entries: [Entry] = []
+    private var dropped = 0
+
+    init(delegate: AppDelegate, panelController: PanelController) {
+        snapshot = { [weak delegate, weak panelController] in
+            Snapshot(
+                visible: panelController?.isVisible ?? false,
+                key: panelController?.windowForPresentation.isKeyWindow ?? false,
+                pendingWaiters: delegate?.pendingUnlockWaiters.count ?? 0,
+                systemPanel: delegate?.panelShownForLockWait ?? false,
+                authInFlight: delegate?.isUnlockInFlight ?? false
+            )
+        }
+        panelController.onShow = { [weak self] in self?.record("panelOnShow") }
+        panelController.onHide = { [weak self] in self?.record("panelOnHide") }
+    }
+
+    func record(_ event: String, originClock: UInt64? = nil) {
+        guard entries.count < 64 else { dropped += 1; return }
+        let clock = DispatchTime.now().uptimeNanoseconds
+        entries.append(Entry(event: event, stateClock: clock, originClock: originClock, snapshot: snapshot()))
+    }
+
+    func report() {
+        let records = entries.map { entry in
+            let origin = entry.originClock.map { String($0) } ?? "none"
+            let state = entry.snapshot
+            return "\(entry.event)@\(entry.stateClock):origin=\(origin):visible=\(state.visible):key=\(state.key):" +
+                "pending=\(state.pendingWaiters):system=\(state.systemPanel):auth=\(state.authInFlight)"
+        }.joined(separator: ",")
+        print("Unlock panel visibility metadata: \(records); dropped=\(dropped)")
     }
 }
 
@@ -151,54 +274,75 @@ struct UnlockWaiterTests {
 
         let delegate = AppDelegate()
         let panelController = PanelController()
+        let trace = UnlockPanelVisibilityTrace(delegate: delegate, panelController: panelController)
+        let visibilityWaiter = WindowVisibilityWaiter(
+            window: panelController.windowForPresentation,
+            marker: { [weak trace] event, origin in trace?.record(event, originClock: origin) }
+        )
         let timeout = ManualUnlockWaiterTimeout()
         defer {
+            trace.record("cleanupStarted")
             timeout.fireAll()
             panelController.hide(ignoringBlock: true)
+            visibilityWaiter.cancel()
             defaults.removePersistentDomain(forName: suiteName)
+            panelController.onShow = nil
+            panelController.onHide = nil
+            trace.record("cleanupFinished")
+            trace.report()
         }
         delegate.testDefaults = defaults
         delegate.lastActivityAt = nil
         delegate.panelController = panelController
         delegate.waitForUnlockTimeout = { _ in await timeout.wait() }
 
+        trace.record("beforeLongWait")
         async let longWait = delegate.showPanelAndWaitForUnlock(timeoutSeconds: 5)
         let didRegisterLongWait = await waitForTestCondition {
             delegate.pendingUnlockWaiters.count >= 1 && timeout.pendingCount >= 1
         }
+        trace.record(didRegisterLongWait ? "longWaitRegistered" : "longWaitRegistrationFailed")
         guard didRegisterLongWait else {
             Issue.record("Long unlock waiter and timeout did not register.")
             delegate.cancelPanelUnlock()
             timeout.fireAll()
             return
         }
+        trace.record("beforeShortWait")
         async let shortWait = delegate.showPanelAndWaitForUnlock(timeoutSeconds: 0.01)
         let didRegisterShortWait = await waitForTestCondition {
             delegate.pendingUnlockWaiters.count >= 2 && timeout.pendingCount >= 2
         }
+        trace.record(didRegisterShortWait ? "shortWaitRegistered" : "shortWaitRegistrationFailed")
         guard didRegisterShortWait else {
             Issue.record("Short unlock waiter and timeout did not register.")
             delegate.cancelPanelUnlock()
             timeout.fireAll()
             return
         }
+        trace.record("beforeShortTimeoutFire")
         timeout.fire(at: 1)
 
         #expect(await shortWait == false)
+        trace.record("shortWaitCompleted")
         #expect(delegate.pendingUnlockWaiters.count == 1)
         #expect(delegate.panelShownForLockWait)
-        let didRemainVisible = await waitForTestCondition {
-            panelController.isVisible
-        }
+        trace.record("beforeVisibilityWait")
+        let didRemainVisible = await visibilityWaiter.wait()
+        trace.record(didRemainVisible ? "visibilityWaitReturnedTrue" : "visibilityWaitReturnedFalse")
         #expect(didRemainVisible)
+        #expect(panelController.isVisible)
 
+        trace.record("beforeAuthenticationReset")
         delegate.resetAuthTimestamp()
         timeout.fireAll()
 
         #expect(await longWait)
+        trace.record("longWaitCompleted")
         let didHide = await waitForTestCondition {
             panelController.isVisible == false
         }
+        trace.record(didHide ? "finalHideObserved" : "finalHideNotObserved")
         #expect(didHide)
     }
 

@@ -140,6 +140,37 @@ struct KeychainPassphrasePolicyTests {
         #expect(calls.values == [.retrieve, .add])
     }
 
+    @Test("get-or-create returns a concurrent duplicate winner without updating it")
+    func getOrCreateDuplicateReturnsWinnerWithoutUpdate() throws {
+        let calls = CallRecorder()
+        let winner = Data("concurrent-winner".utf8)
+        let service = KeychainService(
+            serviceName: "codes.petr.quick-access-for-pass",
+            accessGroup: AutoFillConstants.keychainAccessGroup,
+            backend: .init(
+                retrieve: { query in
+                    calls.append(query.kind)
+                    return calls.values == [.retrieve] ? .success(nil) : .success(winner)
+                },
+                add: { query in
+                    calls.append(query.kind)
+                    return .failure(.storeFailed(errSecDuplicateItem))
+                },
+                update: { query in
+                    calls.append(query.kind)
+                    return .success(())
+                },
+                delete: { query in
+                    calls.append(query.kind)
+                    return .success(())
+                }
+            )
+        )
+
+        #expect(try service.getOrCreatePassphrase() == winner)
+        #expect(calls.values == [.retrieve, .add, .retrieve])
+    }
+
     private func makeService(
         calls: CallRecorder,
         lookup: Result<Data?, KeychainError>

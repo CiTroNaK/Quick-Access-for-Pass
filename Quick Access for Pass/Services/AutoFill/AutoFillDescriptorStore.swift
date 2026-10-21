@@ -185,7 +185,7 @@ actor AutoFillDescriptorStore: AutoFillDescriptorStoring {
         var configuration = Configuration()
         configuration.readonly = true
         configuration.prepareDatabase { connection in
-            try connection.usePassphrase(passphrase)
+            try EncryptedDatabaseConfiguration.prepare(connection, passphrase: passphrase)
         }
         let opened = try DatabaseQueue(
             path: databaseURL.path,

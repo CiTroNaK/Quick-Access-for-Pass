@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import Quick_Access_for_Pass
 
 // MARK: - Test Helpers
@@ -115,9 +116,11 @@ private final class TestSocketClient: @unchecked Sendable {
         handle.write(data)
     }
 
-    func readMessage() throws -> SSHAgentMessage {
+    func readMessage(
+        readObservation: (@Sendable (SSHAgentMessage.ReadObservation) -> Void)? = nil
+    ) throws -> SSHAgentMessage {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        return try SSHAgentMessage.read(from: handle)
+        return try SSHAgentMessage.read(from: handle, readObservation: readObservation)
     }
 
     func disconnect() {
@@ -125,6 +128,46 @@ private final class TestSocketClient: @unchecked Sendable {
             close(fd)
             fd = -1
         }
+    }
+}
+
+/// Owned by one finite denied-sign fixture. No lock spans callbacks or I/O.
+/// Snapshot time is host observation time, not a kernel/native event timestamp.
+nonisolated private final class SSHDeniedTrace: Sendable {
+    nonisolated enum Stage: Sendable {
+        case clientConnected, requestSent, responseReadStarted, responseReadCompleted
+        case clientDisconnect, testThrew, upstreamStop
+    }
+    nonisolated enum Event: Sendable {
+        case proxy(SSHAgentProxy.LifecycleTesting.Event)
+        case clientResponseRead(SSHAgentMessage.ReadObservation)
+        case fixture(Stage)
+    }
+    nonisolated struct Entry: Sendable {
+        let relativeNanoseconds: UInt64
+        let event: Event
+    }
+    nonisolated struct State: Sendable {
+        var entries: [Entry] = []
+        var dropped = 0
+    }
+    private let start = DispatchTime.now().uptimeNanoseconds
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func record(_ event: Event) {
+        let entry = Entry(relativeNanoseconds: DispatchTime.now().uptimeNanoseconds - start, event: event)
+        state.withLock { state in
+            guard state.entries.count < 64 else { state.dropped += 1; return }
+            state.entries.append(entry)
+        }
+    }
+
+    func snapshot() -> String {
+        let snapshot = state.withLock { $0 }
+        let entries = snapshot.entries.enumerated().map { index, entry in
+            "\(index):\(entry.relativeNanoseconds)ns:\(entry.event)"
+        }.joined(separator: ";")
+        return "dropped=\(snapshot.dropped);host-observations=[\(entries)]"
     }
 }
 
@@ -207,25 +250,37 @@ struct SSHAgentProxyTests {
     func signRequestDenied() async throws {
         let upstreamPath = NSTemporaryDirectory() + UUID().uuidString + ".sock"
         let proxyPath = NSTemporaryDirectory() + UUID().uuidString + ".sock"
+        let trace = SSHDeniedTrace()
+        // One bounded metadata snapshot, including a visible dropped counter.
+        // Existing cleanup is deliberately not joined/reordered to diagnose it.
+        defer { print("SSH_DENIED_DIAGNOSTICS \(trace.snapshot())") }
 
         let upstream = TestSocketServer(path: upstreamPath) { _ in
             SSHAgentMessage.failureResponse()
         }
         try upstream.start()
-        defer { upstream.stop() }
+        defer {
+            trace.record(.fixture(.upstreamStop))
+            upstream.stop()
+        }
 
         let proxy = SSHAgentProxy(
             listenPath: proxyPath,
             upstreamPath: upstreamPath,
             authorizationHandler: { _, _ in .deny },
-            failureSignal: { _ in }
+            failureSignal: { _ in },
+            lifecycleTesting: .init(observe: { trace.record(.proxy($0)) })
         )
         try await proxy.start()
 
         do {
             let client = TestSocketClient(path: proxyPath)
             try client.connect()
-            defer { client.disconnect() }
+            trace.record(.fixture(.clientConnected))
+            defer {
+                trace.record(.fixture(.clientDisconnect))
+                client.disconnect()
+            }
 
             let keyBlob = Data([0x00, 0x01, 0x02, 0x03])
             let signData = Data([0xAA, 0xBB])
@@ -240,10 +295,13 @@ struct SSHAgentProxyTests {
 
             let signMessage = SSHAgentMessage(type: .signRequest, payload: payload)
             client.send(signMessage.serialize())
-
-            let response = try client.readMessage()
+            trace.record(.fixture(.requestSent))
+            trace.record(.fixture(.responseReadStarted))
+            let response = try client.readMessage(readObservation: { trace.record(.clientResponseRead($0)) })
+            trace.record(.fixture(.responseReadCompleted))
             #expect(response.type == .failure)
         } catch {
+            trace.record(.fixture(.testThrew))
             await proxy.stop()
             throw error
         }

@@ -51,6 +51,7 @@ Swift 6 strict concurrency is enforced throughout. Preserve actor and `@MainActo
 - **`@MainActor`** for UI and orchestration: `AppDelegate`, `QuickAccessViewModel`, `ClipboardManager`, `HotkeyManager`, `SyncCoordinator`, `SSHProxyCoordinator`, `RunProxyCoordinator`, auth window controllers, health stores/coordinator
 - **All models are `Sendable`** and intentionally cross actor boundaries as value types
 - **`CheckedContinuation`** bridges blocking process/socket work into async/await in `CLIRunner`, `SSHAgentProxy`, and `RunProxy`
+- **CLI startup** remains a structured child joined by its caller, but runs on the operation-owned control executor rather than the caller's cooperative pool. The original absolute deadline still includes queued admission
 - **`nonisolated(unsafe)`** is used sparingly and should stay justified with comments
 
 If you add shared mutable state, prefer an actor or isolate it to `@MainActor` instead of weakening the model.
@@ -124,17 +125,37 @@ Views follow VoiceOver and Voice Control patterns throughout:
 
 These are core constraints, not implementation details:
 
-- **No secrets in the database** — only metadata is persisted locally
-- **Secrets are never persisted locally**; sync may temporarily load full item content from `pass-cli` to derive metadata, and selected actions fetch current values on demand
-- **Database encryption** uses GRDB/SQLCipher with a 256-bit passphrase from Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`)
+- **Ordinary database tables are metadata-only** — sync may temporarily load full item content from `pass-cli` to derive metadata, and ordinary selected actions fetch current values on demand
+- **The only approved persisted-secret exception is Offline Mode** — users may explicitly select an individual item or a whole vault (including future items after successful sync); item exclusions and manual selections are retained according to policy. Full snapshots may be stored only in the unified database's encrypted `offlineSnapshots` table, after operation-scoped encryption. Do not write offline secrets to ordinary tables, UserDefaults, logs, diagnostics, UI state, FTS, App Group files, or proxy paths; do not create a second offline database or legacy reader
+- **Offline snapshot key material is device-bound** — its distinct snapshot cipher key uses `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; the cipher/key is operation-scoped while the SQLCipher connection passphrase is connection-lifetime. Purge/removal retains keys; maintenance never reads or deletes them. Offline snapshots must stay excluded from SSH and Run proxies and may serve only ordinary host copy/Large Type actions or the existing verified host-broker System AutoFill password/TOTP request
+- **Database encryption** uses GRDB/SQLCipher with a 256-bit passphrase from Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). The unified file and known sidecars are owner-only and backup-excluded, including local Run profiles and remembered decisions; backup exclusion is guidance, not a portable backup/restore or secure-erasure guarantee
 - **Socket permissions are strict** (`0600`), and socket directories are owner-only
 - **Run proxy peer verification is mandatory** — reject unverified local clients
 - **FTS5 queries must remain sanitized** before search execution
 - **Clipboard concealment** should be preserved when copying secrets
 
+Offline Mode preserves existing app authorization; do not add mandatory Touch ID,
+user-presence ACLs, Secure Enclave gates, or authorization-reuse windows. Reserve
+metadata-only request ownership before fetch, publish ciphertext/status/timestamps
+atomically, and never reverse an actual commit because of late cancellation.
+Startup recovery/readiness and terminal observation failure must leave live
+operations and explicit removal/purge usable while new offline selections wait
+for explicit retry. The repository owns persisted authority and current selection
+proofs; the database-owned release authority owns non-secret invalidation ordering,
+and `SecretReleaseGuard` owns the lifecycle check at final release. Test fixtures
+may provide catalog mutation setup helpers only in the test target; production
+writers must use the repository/database mutation paths. Display only non-secret
+committed counts/status/timestamps;
+never use stale display state as authorization. Secret-facing native CLI work
+must honor the original AutoFill deadline, bounded termination/output, external
+cancellation, and final release guards. See `SECURITY.md` for exact limits and
+accepted host-compromise, backup, memory-clearing, and already-released-value
+risks. No legacy cache import, compatibility reader, transfer, or automatic
+file/Keychain cleanup is permitted.
+
 ## Database Schema
 
-`DatabaseManager` currently defines **9 migrations**:
+`DatabaseManager` currently defines **12 migrations**:
 
 - **v1**
   - `vaults`
@@ -160,6 +181,26 @@ These are core constraints, not implementation details:
   - adds non-secret `autoFillDescriptors` with stable opaque IDs and a unique vault/item/service/username identity key
 - **v9**
   - adds non-secret `autoFillAppAssociations` for explicit native-app AutoFill associations
+- **v10**
+  - adds non-secret `offlineVaults` and `offlineItems` catalog tables for explicit Offline Mode selection and cache state
+- **v11**
+  - adds pending request ownership to `offlineItems` and encrypted `offlineSnapshots` with composite selection identity, strict ciphertext metadata constraints, and cascading selection deletion
+- **v12**
+  - adds whole-vault policy generations, manual item selection flags and generations, and cascading per-item vault exclusions
+  - clears legacy permission-only vault rows without changing existing item selections or encrypted snapshot bytes
+  - existing selected items remain individually selected; prior vault permission does not become whole-vault consent
+
+### Offline Mode Documentation Verification Checklist
+
+Before changing Offline Mode documentation, confirm it states all of the following:
+
+- Offline access is opt-in by individual item or whole vault; whole-vault selection covers future items after successful sync, exclusions persist until re-selection, and turning off a vault retains manual selections.
+- Full secrets are stored only in the dedicated encrypted `offlineSnapshots` table in the host-only unified database, protected by a device-bound key.
+- Authorized usable cached content is preferred without a live request or connectivity probe. Sync refreshes cached values; without a usable cached copy, Quick Access uses Pass CLI.
+- Settings lists and removes selected items and can purge all offline data.
+- Offline cache data is excluded from SSH and Run proxies.
+- Ordinary host copy and Large Type prefer an authorized usable selected snapshot; the only external integration is the existing verified host-broker System AutoFill password/TOTP request. The extension never receives cache access or fallback diagnostics.
+- Maintenance requests a bounded out-of-transaction WAL checkpoint after committed offline deletion. It reduces active-file remnants but does not promise secure erase, cryptographic shredding, APFS/manual-backup removal, or forced-termination cleanup.
 
 When changing schema:
 

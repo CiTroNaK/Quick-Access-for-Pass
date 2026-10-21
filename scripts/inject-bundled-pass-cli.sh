@@ -12,43 +12,35 @@ select_signing_identity() {
 		return 0
 	fi
 
-	local identities
-	identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+	# Keep the signer selected by Xcode so the embedded provisioning profiles
+	# still authorize the app. Matching certificate names/team IDs is not enough.
+	local certificate_prefix="$SIGNING_TEMP_DIR/certificate"
+	if ! codesign -d --extract-certificates="$certificate_prefix" "$APP_PATH" 2>/dev/null \
+		|| [[ ! -s "${certificate_prefix}0" ]]; then
+		cat >&2 <<'ERROR'
+Cannot read the built app's signing certificate.
 
-	# Use the ASCII certificate fingerprint: codesign can misdecode non-ASCII names.
-	local developer_id
-	developer_id="$(printf '%s\n' "$identities" | sed -n 's/.* \([[:xdigit:]]\{40\}\) "Developer ID Application:[^"]*".*/\1/p' | head -n 1)"
-	if [[ -n "$developer_id" ]]; then
-		printf '%s\n' "$developer_id"
-		return 0
-	fi
+Build with a certificate-backed signing identity, or explicitly override with:
+  SIGN_IDENTITY="<certificate fingerprint or signing identity>" make install
 
-	local apple_development
-	apple_development="$(printf '%s\n' "$identities" | sed -n 's/.* \([[:xdigit:]]\{40\}\) "Apple Development:[^"]*".*/\1/p' | head -n 1)"
-	if [[ -n "$apple_development" ]]; then
-		printf '%s\n' "$apple_development"
-		return 0
-	fi
-
-	cat >&2 <<'ERROR'
-No suitable code signing identity found.
-
-Install a Developer ID Application or Apple Development certificate, or run:
-  SIGN_IDENTITY="Your Signing Identity" make install
-
-Release CI signs with SIGN_IDENTITY="Developer ID Application".
+The signing identity must match the app's embedded provisioning profile.
 ERROR
-	return 1
+		return 1
+	fi
+
+	# Use the leaf certificate's ASCII fingerprint to avoid accented-name issues.
+	shasum -a 1 "${certificate_prefix}0" | awk '{print toupper($1)}'
 }
 
 APP_PATH="$1"
 PREPARED_DIR="$2"
+SIGNING_TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$SIGNING_TEMP_DIR"' EXIT
 SIGN_IDENTITY="$(select_signing_identity)"
 HELPERS_DIR="$APP_PATH/Contents/Helpers"
 RESOURCES_DIR="$APP_PATH/Contents/Resources"
 CLI_RESOURCES_DIR="$RESOURCES_DIR/ProtonPassCLI"
-APP_ENTITLEMENTS_PATH="$(mktemp)"
-trap 'rm -f "$APP_ENTITLEMENTS_PATH"' EXIT
+APP_ENTITLEMENTS_PATH="$SIGNING_TEMP_DIR/entitlements.plist"
 
 codesign -d --entitlements :- "$APP_PATH" >"$APP_ENTITLEMENTS_PATH" 2>/dev/null
 

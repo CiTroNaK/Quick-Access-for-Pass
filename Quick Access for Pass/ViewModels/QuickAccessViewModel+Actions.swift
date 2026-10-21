@@ -33,13 +33,13 @@ extension QuickAccessViewModel {
         inFlightLargeType = nil
         largeTypeGeneration += 1
         inFlightCopy?.cancel()
-        isActionLoading = true
         copyGeneration += 1
         let generation = copyGeneration
+        let releaseToken = secretReleaseGuard.capture()
         inFlightCopy = Task { [weak self] in
             guard let self else { return }
             defer { self.finishCopyTaskIfCurrent(generation) }
-            await self.runSecretActionTask(action, for: item, generation: generation)
+            await self.runSecretActionTask(action, for: item, generation: generation, releaseToken: releaseToken)
         }
     }
 
@@ -99,42 +99,58 @@ extension QuickAccessViewModel {
         onDismiss()
     }
 
-    private func runSecretActionTask(_ action: ItemAction, for item: PassItem, generation: Int) async {
+    private func runSecretActionTask(
+        _ action: ItemAction,
+        for item: PassItem,
+        generation: Int,
+        releaseToken: UUID
+    ) async {
         do {
-            try await handleSecretAction(action, for: item, generation: generation)
-            guard isCurrentCopyGeneration(generation) else { return }
+            try await handleSecretAction(action, for: item, generation: generation, releaseToken: releaseToken)
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
             try? searchService.recordUsage(itemId: item.id)
-            guard isCurrentCopyGeneration(generation) else { return }
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
             onDismiss()
         } catch is CancellationError {
             return
+        } catch let error as OfflineSecretResolver.Error {
+            publishCopyError(error.localizedDescription, generation: generation)
         } catch let error as CLIError where error.isAuthError {
             publishCopyError(cliService.cliSelection.loginRequiredMessage, generation: generation)
-        } catch {
+        } catch let error as SecretCopyError {
             publishCopyError(String(localized: "Failed: \(error.localizedDescription)"), generation: generation)
+        } catch {
+            publishCopyError(String(localized: "Failed to copy secret"), generation: generation)
         }
     }
 
-    private func handleSecretAction(_ action: ItemAction, for item: PassItem, generation: Int) async throws {
+    private func handleSecretAction(
+        _ action: ItemAction,
+        for item: PassItem,
+        generation: Int,
+        releaseToken: UUID
+    ) async throws {
         let currentShareId = shareId(for: item)
         switch action {
         case .copyPassword:
             lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
-            let detail = try await cliService.viewItem(itemId: item.id, shareId: currentShareId)
+            let detail = try await secretResolver.resolveItem(itemId: item.id, vaultId: item.vaultId, shareId: currentShareId)
             try Task.checkCancellation()
-            guard isCurrentCopyGeneration(generation) else { return }
-            if case .login(let login) = detail.content.content {
-                clipboardManager.copy(login.password, label: String(localized: "Password copied"))
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
+            let password = try detail.map { item in
+                guard case .login(let login) = item.content.content else { throw AutoFillSecretResolverError.itemIsNotLogin }
+                return login.password
             }
+            try releaseCopy(password, label: String(localized: "Password copied"), generation: generation, token: releaseToken)
         case .copyTotp:
             lastCommand = "\(cliService.cliPath) item totp --output json pass://\(currentShareId)/\(item.id)"
-            let code = try await cliService.getTotp(itemId: item.id, shareId: currentShareId)
+            let code = try await secretResolver.resolveTOTP(itemId: item.id, vaultId: item.vaultId, shareId: currentShareId)
             try Task.checkCancellation()
-            guard isCurrentCopyGeneration(generation) else { return }
-            clipboardManager.copy(code, label: String(localized: "TOTP code copied"))
+            guard canReleaseCopy(generation, token: releaseToken) else { return }
+            try releaseCopy(code, label: String(localized: "TOTP code copied"), generation: generation, token: releaseToken)
         case .copyPrimary:
             lastCommand = "\(cliService.cliPath) item view --output json pass://\(currentShareId)/\(item.id)"
-            try await copyPrimarySecret(for: item, generation: generation)
+            try await copyPrimarySecret(for: item, generation: generation, releaseToken: releaseToken)
         case .copyUsername, .openURL:
             return
         }
@@ -147,33 +163,25 @@ extension QuickAccessViewModel {
         return ShortcutFormatting.label(keyCode: code, modifiers: mods)
     }
 
-    private func copyPrimarySecret(for item: PassItem, generation: Int) async throws {
-        let detail = try await cliService.viewItem(itemId: item.id, shareId: shareId(for: item))
+    private func copyPrimarySecret(for item: PassItem, generation: Int, releaseToken: UUID) async throws {
+        let detail = try await secretResolver.resolveItem(itemId: item.id, vaultId: item.vaultId, shareId: shareId(for: item))
         try Task.checkCancellation()
-        guard isCurrentCopyGeneration(generation) else { return }
-        let content = detail.content.content
-
-        switch content {
-        case .login(let login):
-            clipboardManager.copy(login.password, label: String(localized: "Password copied"))
-        case .creditCard(let card):
-            clipboardManager.copy(card.number, label: String(localized: "Card number copied"))
-        case .note:
-            clipboardManager.copy(detail.content.note, label: String(localized: "Note copied"))
-        case .identity(let identity):
-            clipboardManager.copy(identity.email, label: String(localized: "Email copied"))
-        case .alias(let alias):
-            let aliasEmail = alias.email.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !aliasEmail.isEmpty else {
-                throw SecretCopyError.aliasEmailUnavailable
+        guard canReleaseCopy(generation, token: releaseToken) else { return }
+        let extracted = try detail.map { detail -> (String, String) in
+            switch detail.content.content {
+            case .login(let login): return (login.password, String(localized: "Password copied"))
+            case .creditCard(let card): return (card.number, String(localized: "Card number copied"))
+            case .note: return (detail.content.note, String(localized: "Note copied"))
+            case .identity(let identity): return (identity.email, String(localized: "Email copied"))
+            case .alias(let alias):
+                let email = alias.email.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !email.isEmpty else { throw SecretCopyError.aliasEmailUnavailable }
+                return (email, String(localized: "Alias copied"))
+            case .sshKey(let key): return (key.publicKey, String(localized: "Public key copied"))
+            case .wifi(let wifi): return (wifi.password, String(localized: "Password copied"))
+            case .custom: return (detail.content.note, String(localized: "Content copied"))
             }
-            clipboardManager.copy(aliasEmail, label: String(localized: "Alias copied"))
-        case .sshKey(let key):
-            clipboardManager.copy(key.publicKey, label: String(localized: "Public key copied"))
-        case .wifi(let wifi):
-            clipboardManager.copy(wifi.password, label: String(localized: "Password copied"))
-        case .custom:
-            clipboardManager.copy(detail.content.note, label: String(localized: "Content copied"))
         }
+        try releaseCopy(extracted.map { $0.0 }, label: extracted.value.1, generation: generation, token: releaseToken)
     }
 }

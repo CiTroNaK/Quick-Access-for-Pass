@@ -8,13 +8,34 @@ nonisolated enum SSHAuthorizationResult: Sendable {
 
 typealias SSHAuthorizationHandler = @Sendable (Data, VerifiedConnection) async -> SSHAuthorizationResult
 
+nonisolated struct SSHAgentProxyLifecycleTesting: Sendable {
+    nonisolated enum CloseReason: Sendable {
+        case peerUnavailable, upstreamSocketFailed, upstreamConnectFailed
+        case clientReadFailed, upstreamWriteFailed, upstreamReadFailed, clientWriteFailed
+    }
+    nonisolated enum Event: Sendable {
+        case accepted, verificationCompleted(peerAvailable: Bool), clientLoopEntered
+        case upstreamSocketFailed(errorNumber: Int32), upstreamConnectFailed(errorNumber: Int32)
+        case upstreamConnected, clientRequestRead(SSHAgentMessage.ReadObservation)
+        case clientReadCompleted(isSignRequest: Bool), clientReadFailed
+        case authorizationEntered, authorizationCompleted(allowed: Bool), authorizationWaitFinished(timedOut: Bool)
+        case denialWriteFinished(succeeded: Bool), stopRequested, closed(CloseReason)
+    }
+    let observe: @Sendable (Event) -> Void
+}
+
 actor SSHAgentProxy {
+    /// Nil in production. Events describe boundaries, not peer identities,
+    /// payloads, descriptor values or arbitrary error-associated text.
+    typealias LifecycleTesting = SSHAgentProxyLifecycleTesting
+
     private struct AcceptContext {
         let verifier: @Sendable (Int32) -> VerifiedConnection
         let upstreamPath: String
         let authorizationHandler: SSHAuthorizationHandler
         let failureSignal: @Sendable (SSHClientLoopFailure) -> Void
         let activeClientFDs: OSAllocatedUnfairLock<Set<Int32>>
+        let lifecycleTesting: LifecycleTesting?
     }
 
     private let listenPath: String
@@ -22,6 +43,7 @@ actor SSHAgentProxy {
     private let authorizationHandler: SSHAuthorizationHandler
     private let failureSignal: @Sendable (SSHClientLoopFailure) -> Void
     private let verifier: @Sendable (Int32) -> VerifiedConnection
+    private let lifecycleTesting: LifecycleTesting?
     private nonisolated let activeClientFDs = OSAllocatedUnfairLock(initialState: Set<Int32>())
     private var serverFd: Int32 = -1
     private var acceptSource: DispatchSourceRead?
@@ -31,13 +53,15 @@ actor SSHAgentProxy {
         upstreamPath: String,
         authorizationHandler: @escaping SSHAuthorizationHandler,
         failureSignal: @escaping @Sendable (SSHClientLoopFailure) -> Void,
-        verifier: @escaping @Sendable (Int32) -> VerifiedConnection = PeerVerifier.verify
+        verifier: @escaping @Sendable (Int32) -> VerifiedConnection = PeerVerifier.verify,
+        lifecycleTesting: LifecycleTesting? = nil
     ) {
         self.listenPath = listenPath
         self.upstreamPath = upstreamPath
         self.authorizationHandler = authorizationHandler
         self.failureSignal = failureSignal
         self.verifier = verifier
+        self.lifecycleTesting = lifecycleTesting
     }
 
     func start() throws {
@@ -62,7 +86,8 @@ actor SSHAgentProxy {
             upstreamPath: capturedUpstreamPath,
             authorizationHandler: capturedHandler,
             failureSignal: capturedFailureSignal,
-            activeClientFDs: activeClientFDs
+            activeClientFDs: activeClientFDs,
+            lifecycleTesting: lifecycleTesting
         )
 
         source.setEventHandler {
@@ -74,6 +99,7 @@ actor SSHAgentProxy {
     }
 
     func stop() {
+        lifecycleTesting?.observe(.stopRequested)
         if let source = acceptSource {
             source.cancel()
             acceptSource = nil
@@ -142,14 +168,17 @@ actor SSHAgentProxy {
         let clientFd = accept(serverFD, nil, nil)
         guard clientFd >= 0 else { return }
 
+        context.lifecycleTesting?.observe(.accepted)
         _ = context.activeClientFDs.withLock { $0.insert(clientFd) }
         let connection = context.verifier(clientFd)
+        context.lifecycleTesting?.observe(.verificationCompleted(peerAvailable: connection.pid != 0))
         guard connection.pid != 0 else {
             AppLogger.sshProxy.warning(
                 "Rejecting connection: failed to extract peer identity from fd \(clientFd, privacy: .public)"
             )
             _ = context.activeClientFDs.withLock { $0.remove(clientFd) }
             close(clientFd)
+            context.lifecycleTesting?.observe(.closed(.peerUnavailable))
             return
         }
 
@@ -158,7 +187,8 @@ actor SSHAgentProxy {
                 connection: connection,
                 upstreamPath: context.upstreamPath,
                 authorizationHandler: context.authorizationHandler,
-                failureSignal: context.failureSignal
+                failureSignal: context.failureSignal,
+                lifecycleTesting: context.lifecycleTesting
             )
             _ = activeClientFDs.withLock { $0.remove(connection.fd) }
         }
@@ -168,39 +198,67 @@ actor SSHAgentProxy {
         connection: VerifiedConnection,
         upstreamPath: String,
         authorizationHandler: @escaping SSHAuthorizationHandler,
-        failureSignal: @escaping @Sendable (SSHClientLoopFailure) -> Void
+        failureSignal: @escaping @Sendable (SSHClientLoopFailure) -> Void,
+        lifecycleTesting: LifecycleTesting?
     ) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.global().async {
                 Self.runClientLoop(
                     connection: connection,
-                    upstreamPath: upstreamPath,
-                    authorizationHandler: authorizationHandler,
-                    failureSignal: failureSignal,
+                    context: ClientLoopContext(
+                        upstreamPath: upstreamPath, authorizationHandler: authorizationHandler,
+                        failureSignal: failureSignal, lifecycleTesting: lifecycleTesting
+                    ),
                     completion: { continuation.resume() }
                 )
             }
         }
     }
 
+}
+
+private extension SSHAgentProxy {
+    struct ClientLoopContext: Sendable {
+        let upstreamPath: String
+        let authorizationHandler: SSHAuthorizationHandler
+        let failureSignal: @Sendable (SSHClientLoopFailure) -> Void
+        let lifecycleTesting: LifecycleTesting?
+    }
+
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private static func runClientLoop(
         connection: VerifiedConnection,
-        upstreamPath: String,
-        authorizationHandler: @escaping SSHAuthorizationHandler,
-        failureSignal: @escaping @Sendable (SSHClientLoopFailure) -> Void,
+        context: ClientLoopContext,
         completion: @escaping @Sendable () -> Void
     ) {
+        let upstreamPath = context.upstreamPath
+        let authorizationHandler = context.authorizationHandler
+        let failureSignal = context.failureSignal
+        let lifecycleTesting = context.lifecycleTesting
+        var closeReason: LifecycleTesting.CloseReason = .clientReadFailed
         defer {
             close(connection.fd)
+            lifecycleTesting?.observe(.closed(closeReason))
             completion()
+        }
+        lifecycleTesting?.observe(.clientLoopEntered)
+        let readObservation: (@Sendable (SSHAgentMessage.ReadObservation) -> Void)?
+        if let lifecycleTesting {
+            readObservation = { event in lifecycleTesting.observe(.clientRequestRead(event)) }
+        } else {
+            readObservation = nil
         }
 
         let pid = connection.pid
         let clientHandle = FileHandle(fileDescriptor: connection.fd, closeOnDealloc: false)
 
         let upstreamFd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard upstreamFd >= 0 else { return }
+        guard upstreamFd >= 0 else {
+            let err = errno
+            closeReason = .upstreamSocketFailed
+            lifecycleTesting?.observe(.upstreamSocketFailed(errorNumber: err))
+            return
+        }
         defer { close(upstreamFd) }
 
         var upstreamAddr = SSHAgentConstants.makeUnixAddr(path: upstreamPath)
@@ -211,18 +269,24 @@ actor SSHAgentProxy {
         }
         guard connectResult == 0 else {
             let err = errno
+            closeReason = .upstreamConnectFailed
+            lifecycleTesting?.observe(.upstreamConnectFailed(errorNumber: err))
             AppLogger.sshProxy.error("upstream connect failed pid=\(pid, privacy: .public) errno=\(err, privacy: .public)")
             failureSignal(.upstreamConnectFailed(errno: err))
             return
         }
 
+        lifecycleTesting?.observe(.upstreamConnected)
         let upstreamHandle = FileHandle(fileDescriptor: upstreamFd, closeOnDealloc: false)
 
         while true {
             let message: SSHAgentMessage
             do {
-                message = try SSHAgentMessage.read(from: clientHandle)
+                message = try SSHAgentMessage.read(from: clientHandle, readObservation: readObservation)
+                lifecycleTesting?.observe(.clientReadCompleted(isSignRequest: message.type == .signRequest))
             } catch {
+                closeReason = .clientReadFailed
+                lifecycleTesting?.observe(.clientReadFailed)
                 AppLogger.sshProxy.debug("client closed or read failed pid=\(pid, privacy: .public)")
                 break
             }
@@ -233,21 +297,35 @@ actor SSHAgentProxy {
                 let box = FinalizableBox<SSHAuthorizationResult>(initial: .deny)
                 let handler = authorizationHandler
                 Task.detached { @Sendable in
+                    lifecycleTesting?.observe(.authorizationEntered)
                     let outcome = await handler(keyBlob, connection)
+                    if case .allow = outcome {
+                        lifecycleTesting?.observe(.authorizationCompleted(allowed: true))
+                    } else {
+                        lifecycleTesting?.observe(.authorizationCompleted(allowed: false))
+                    }
                     box.setIfNotFinalized(outcome)
                     semaphore.signal()
                 }
 
                 let result: SSHAuthorizationResult
                 if semaphore.wait(timeout: .now() + 60) == .timedOut {
+                    lifecycleTesting?.observe(.authorizationWaitFinished(timedOut: true))
                     result = box.finalize(.deny)
                 } else {
+                    lifecycleTesting?.observe(.authorizationWaitFinished(timedOut: false))
                     result = box.value
                 }
 
                 switch result {
                 case .deny:
-                    try? clientHandle.writeAll(SSHAgentMessage.failureResponse())
+                    do {
+                        try clientHandle.writeAll(SSHAgentMessage.failureResponse())
+                        lifecycleTesting?.observe(.denialWriteFinished(succeeded: true))
+                    } catch {
+                        // Preserve the original swallowed write error/continue.
+                        lifecycleTesting?.observe(.denialWriteFinished(succeeded: false))
+                    }
                     continue
                 case .allow:
                     break
@@ -257,6 +335,7 @@ actor SSHAgentProxy {
             do {
                 try upstreamHandle.writeAll(message.serialize())
             } catch {
+                closeReason = .upstreamWriteFailed
                 AppLogger.sshProxy.error("upstream write failed pid=\(pid, privacy: .public)")
                 failureSignal(.upstreamWriteFailed)
                 break
@@ -266,6 +345,7 @@ actor SSHAgentProxy {
             do {
                 response = try SSHAgentMessage.read(from: upstreamHandle)
             } catch {
+                closeReason = .upstreamReadFailed
                 AppLogger.sshProxy.error("upstream response read failed pid=\(pid, privacy: .public)")
                 failureSignal(.upstreamResponseReadFailed)
                 try? clientHandle.writeAll(SSHAgentMessage.failureResponse())
@@ -281,6 +361,7 @@ actor SSHAgentProxy {
             do {
                 try clientHandle.writeAll(response.serialize())
             } catch {
+                closeReason = .clientWriteFailed
                 break
             }
         }

@@ -75,6 +75,9 @@ struct SettingsView: View {
                     }
                 )
             }
+            Tab("Offline", systemImage: "arrow.down.circle", value: SettingsTab.offline) {
+                OfflineSettingsTab()
+            }
             Tab("Pass CLI", systemImage: "terminal", value: SettingsTab.passCLI) {
                 PassCLISettingsTab(
                     syncInterval: $syncInterval,

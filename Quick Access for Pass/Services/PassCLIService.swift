@@ -3,41 +3,11 @@ import os
 
 typealias SyncProgressHandler = @Sendable (SyncProgressPresentation) async -> Void
 
-nonisolated enum CLIError: Error, LocalizedError {
-    case notInstalled
-    case notLoggedIn
-    case commandFailed(String)
-    case timeout
-    case parseError(String)
-
-    var isNotInstalled: Bool {
-        if case .notInstalled = self { return true }
-        return false
-    }
-
-    var isAuthError: Bool {
-        switch self {
-        case .notLoggedIn: true
-        case .commandFailed(let msg): CLIRunner.stderrIndicatesNotLoggedIn(msg)
-        default: false
-        }
-    }
-
-    var errorDescription: String? {
-        switch self {
-        case .notInstalled: String(localized: "pass-cli is not installed. Instructionas at https://protonpass.github.io/pass-cli/")
-        case .notLoggedIn: String(localized: "Pass CLI is logged out. Open Settings → Pass CLI to log in.")
-        case .commandFailed(let msg): String(localized: "pass-cli command failed: \(msg)")
-        case .timeout: String(localized: "pass-cli command timed out")
-        case .parseError(let msg): String(localized: "Failed to parse pass-cli output: \(msg)")
-        }
-    }
-}
-
 actor PassCLIService {
     private nonisolated let selectionStore: OSAllocatedUnfairLock<PassCLISelection>
     private let resolver: PassCLIResolver
     private let timeoutSeconds: Double = 300
+    private static let secretOutputLimit = (4 * 1024 * 1024) + (4 * 1024)
     private let runner: any CLIRunning
     private var supportsShowSecretsCache: (path: String, supported: Bool)?
     private var supportsShowSecretsTask: (path: String, task: Task<Bool, Never>)?
@@ -138,47 +108,45 @@ actor PassCLIService {
     }
 
     func viewItem(itemId: String, shareId: String) async throws -> CLIItem {
+        try await viewItem(itemId: itemId, shareId: shareId, timeout: timeoutSeconds)
+    }
+
+    func viewItem(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> CLIItem {
         let uri = "pass://\(shareId)/\(itemId)"
-        let data = try await run(arguments: ["item", "view", "--output", "json", uri])
-        let response = try JSONDecoder().decode(CLIItemViewResponse.self, from: data)
-        return response.item
+        let data = try await runSecret(arguments: ["item", "view", "--output", "json", uri], deadline: deadline)
+        do { return try JSONDecoder().decode(CLIItemViewResponse.self, from: data).item } catch { throw CLIError.secretFetchFailed }
+    }
+
+    /// Secret reads always use the bounded runner, including ordinary actions.
+    func viewItem(itemId: String, shareId: String, timeout: TimeInterval) async throws -> CLIItem {
+        let uri = "pass://\(shareId)/\(itemId)"
+        let data = try await runSecret(arguments: ["item", "view", "--output", "json", uri], timeout: timeout)
+        do {
+            return try JSONDecoder().decode(CLIItemViewResponse.self, from: data).item
+        } catch {
+            throw CLIError.secretFetchFailed
+        }
     }
 
     func getTotp(itemId: String, shareId: String) async throws -> String {
-        let uri = "pass://\(shareId)/\(itemId)"
-        let data = try await run(arguments: ["item", "totp", "--output", "json", uri])
-        return try Self.parseTotp(from: data)
+        try await getTotp(itemId: itemId, shareId: shareId, timeout: timeoutSeconds)
     }
 
-    func fetchAllItems(
-        progress: SyncProgressHandler? = nil
-    ) async throws -> (
-        vaults: [CLIVault],
-        items: [(item: CLIItem, vaultId: String)],
-        skippedItems: [SkippedSyncItem]
-    ) {
-        let vaults = try await listVaults()
-        let syncResult = try await withThrowingTaskGroup(
-            of: (items: [(item: CLIItem, vaultId: String)], skippedItems: [SkippedSyncItem]).self
-        ) { group in
-            for vault in vaults {
-                group.addTask {
-                    let result = try await self.listItemsForSync(vault: vault, progress: progress)
-                    return (
-                        items: result.items.map { (item: $0, vaultId: vault.vaultId) },
-                        skippedItems: result.skippedItems
-                    )
-                }
-            }
-            var items: [(item: CLIItem, vaultId: String)] = []
-            var skippedItems: [SkippedSyncItem] = []
-            for try await batch in group {
-                items.append(contentsOf: batch.items)
-                skippedItems.append(contentsOf: batch.skippedItems)
-            }
-            return (items: items, skippedItems: skippedItems)
+    func getTotp(itemId: String, shareId: String, deadline: CLIExecutionDeadline) async throws -> String {
+        let uri = "pass://\(shareId)/\(itemId)"
+        let data = try await runSecret(arguments: ["item", "totp", "--output", "json", uri], deadline: deadline)
+        do { return try JSONDecoder().decode(CLITotpResponse.self, from: data).totp } catch { throw CLIError.secretFetchFailed }
+    }
+
+    /// Secret reads always use the bounded runner, including ordinary actions.
+    func getTotp(itemId: String, shareId: String, timeout: TimeInterval) async throws -> String {
+        let uri = "pass://\(shareId)/\(itemId)"
+        let data = try await runSecret(arguments: ["item", "totp", "--output", "json", uri], timeout: timeout)
+        do {
+            return try JSONDecoder().decode(CLITotpResponse.self, from: data).totp
+        } catch {
+            throw CLIError.secretFetchFailed
         }
-        return (vaults, syncResult.items, syncResult.skippedItems)
     }
 
     // MARK: - CLI Capabilities
@@ -223,6 +191,39 @@ actor PassCLIService {
 
     private func run(arguments: [String]) async throws -> Data {
         try await runner.run(executablePath: cliPath, arguments: arguments, timeout: timeoutSeconds)
+    }
+
+    private func runSecret(arguments: [String], deadline: CLIExecutionDeadline) async throws -> Data {
+        do {
+            return try await runner.run(
+                executablePath: cliPath, arguments: arguments,
+                deadline: deadline, maximumOutputBytes: Self.secretOutputLimit
+            )
+        } catch {
+            throw Self.sanitizedSecretRunnerError(error)
+        }
+    }
+
+    private func runSecret(arguments: [String], timeout: TimeInterval) async throws -> Data {
+        do {
+            return try await runner.run(
+                executablePath: cliPath, arguments: arguments,
+                timeout: timeout, maximumOutputBytes: Self.secretOutputLimit
+            )
+        } catch {
+            throw Self.sanitizedSecretRunnerError(error)
+        }
+    }
+
+    private static func sanitizedSecretRunnerError(_ error: any Error) -> any Error {
+        if error is CancellationError { return error }
+        guard let cliError = error as? CLIError else { return CLIError.secretFetchFailed }
+        switch cliError {
+        case .notInstalled, .notLoggedIn, .timeout, .outputLimitExceeded:
+            return cliError
+        case .commandFailed, .secretFetchFailed, .parseError:
+            return CLIError.secretFetchFailed
+        }
     }
 
     // MARK: - Parsing (static for testing)
@@ -270,5 +271,40 @@ actor PassCLIService {
     static func codingPathDescription(_ path: [CodingKey]) -> String {
         guard !path.isEmpty else { return "<root>" }
         return path.map(\.stringValue).joined(separator: ".")
+    }
+}
+
+extension PassCLIService {
+    func fetchAllItems(
+        progress: SyncProgressHandler? = nil
+    ) async throws -> CLISyncFetchResult {
+        let vaults = try await listVaults()
+        let syncResult = try await withThrowingTaskGroup(
+            of: (items: [(item: CLIItem, vaultId: String)], skippedItems: [SkippedSyncItem], presenceUncertainty: SyncItemPresenceUncertainty).self
+        ) { group in
+            for vault in vaults {
+                group.addTask {
+                    let result = try await self.listItemsForSync(vault: vault, progress: progress)
+                    return (
+                        items: result.items.map { (item: $0, vaultId: vault.vaultId) },
+                        skippedItems: result.skippedItems,
+                        presenceUncertainty: result.presenceUncertainty
+                    )
+                }
+            }
+            var items: [(item: CLIItem, vaultId: String)] = []
+            var skippedItems: [SkippedSyncItem] = []
+            var presenceUncertainties: [SyncItemPresenceUncertainty] = []
+            for try await batch in group {
+                items.append(contentsOf: batch.items)
+                skippedItems.append(contentsOf: batch.skippedItems)
+                presenceUncertainties.append(batch.presenceUncertainty)
+            }
+            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties)
+        }
+        return CLISyncFetchResult(
+            vaults: vaults, items: syncResult.items, skippedItems: syncResult.skippedItems,
+            presenceUncertainties: syncResult.presenceUncertainties
+        )
     }
 }

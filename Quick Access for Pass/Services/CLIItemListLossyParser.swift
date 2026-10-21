@@ -40,10 +40,19 @@ nonisolated struct SkippedSyncItem: Equatable, Sendable {
     }
 }
 
+/// Transient, non-secret evidence that a successful vault list was incomplete.
+/// Vault identity comes only from the enumerated vault, never a malformed entry.
+nonisolated struct SyncItemPresenceUncertainty: Sendable {
+    let vaultID: String
+    let skippedItemIDs: Set<String>
+    let hasUnidentifiedSkippedItems: Bool
+}
+
 nonisolated struct CLIItemListParseResult: Sendable {
     let items: [CLIItem]
     let skippedItems: [SkippedSyncItem]
     let totalItemCount: Int
+    let presenceUncertainty: SyncItemPresenceUncertainty
 }
 
 nonisolated enum CLIItemListLossyParser {
@@ -55,13 +64,20 @@ nonisolated enum CLIItemListLossyParser {
 
         var decodedItems: [CLIItem] = []
         var skippedItems: [SkippedSyncItem] = []
+        var skippedItemIDs: Set<String> = []
+        var hasUnidentifiedSkippedItems = false
         let decoder = JSONDecoder()
 
         for (index, rawItem) in rawItems.enumerated() {
             do {
-                let itemData = try JSONSerialization.data(withJSONObject: rawItem, options: [])
+                let itemData = try JSONSerialization.data(withJSONObject: rawItem, options: [.fragmentsAllowed])
                 decodedItems.append(try decoder.decode(CLIItem.self, from: itemData))
             } catch {
+                if let id = itemId(from: rawItem), !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    skippedItemIDs.insert(id)
+                } else {
+                    hasUnidentifiedSkippedItems = true
+                }
                 skippedItems.append(SkippedSyncItem(
                     vaultId: vaultId,
                     vaultName: vaultName,
@@ -77,7 +93,11 @@ nonisolated enum CLIItemListLossyParser {
         return CLIItemListParseResult(
             items: decodedItems,
             skippedItems: skippedItems,
-            totalItemCount: rawItems.count
+            totalItemCount: rawItems.count,
+            presenceUncertainty: SyncItemPresenceUncertainty(
+                vaultID: vaultId, skippedItemIDs: skippedItemIDs,
+                hasUnidentifiedSkippedItems: hasUnidentifiedSkippedItems
+            )
         )
     }
 
