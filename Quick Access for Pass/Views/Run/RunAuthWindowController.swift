@@ -11,31 +11,79 @@ final class RunAuthWindowController {
     private var isShowingDialog = false
     let databaseManager: DatabaseManager
     private let keychainService: any BiometricAuthorizing
+    private let dialogPresenter: (@MainActor @Sendable (RunAuthRequest) -> Void)?
     private let callbacks: AuthDialogHelper.Callbacks
-    var sessionCache: [String: Date] = [:]
+    var sessionCache: [SessionCacheKey: (allowed: Bool, expiresAt: Date)] = [:]
     let sessionCacheDuration: TimeInterval = 10
 
+    /// The independent identity components of a short-lived Run decision.
+    nonisolated struct SessionCacheKey: Hashable, Sendable {
+        let appIdentifier: String
+        let profileSlug: String
+        let scope: RunAuthorizationIdentity
+    }
+
+    nonisolated struct AuthorizationMatch: Sendable {
+        let identity: RunAuthorizationIdentity
+        let allowed: Bool
+    }
+
     private nonisolated enum DialogOutcome: Sendable {
-        case dialog(allowed: Bool, persistedScope: String?)
-        case cached(scope: String)
+        case dialog(allowed: Bool, persistedScope: RunAuthorizationIdentity?)
+        case cached(AuthorizationMatch)
     }
 
     private struct PendingRunAuthRequest {
+        let id = UUID()
         let appName: String
         let appBundleURL: URL?
         let profileName: String
         let profileSlug: String
-        let scopeOptions: [String]
+        let scopeOptions: [RunAuthorizationScope]
         let fullCommand: String
         let appIdentifier: String
         let appTeamID: String?
         let continuation: CheckedContinuation<DialogOutcome, Never>
     }
 
-    init(databaseManager: DatabaseManager, keychainService: any BiometricAuthorizing, callbacks: AuthDialogHelper.Callbacks) {
+    init(
+        databaseManager: DatabaseManager,
+        keychainService: any BiometricAuthorizing,
+        callbacks: AuthDialogHelper.Callbacks,
+        dialogPresenter: (@MainActor @Sendable (RunAuthRequest) -> Void)? = nil
+    ) {
         self.databaseManager = databaseManager
         self.keychainService = keychainService
         self.callbacks = callbacks
+        self.dialogPresenter = dialogPresenter
+    }
+
+    /// Returns whether a cached denial applies without resolving secrets or displaying a prompt.
+    func hasCachedDenial(
+        for request: RunProxyRequest,
+        connection: VerifiedConnection
+    ) -> Bool {
+        guard let identity = resolveIdentity(for: connection, profile: request.profile) else {
+            return true
+        }
+
+        let scopeOptions = Self.authorizationScopes(from: request.command)
+        guard let match = anyCachedMatch(
+            appIdentifier: identity.appIdentifier,
+            profileSlug: request.profile,
+            scopeOptions: scopeOptions.map(\.identity)
+        ), match.allowed == false else {
+            return false
+        }
+
+        logDecision(
+            appIdentifier: identity.appIdentifier,
+            profile: request.profile,
+            matchType: match.identity.matchType.rawValue,
+            allowed: false,
+            source: "cached"
+        )
+        return true
     }
 
     func authorize(
@@ -48,21 +96,22 @@ final class RunAuthWindowController {
             return RunProxyResponse(decision: .deny, env: nil)
         }
 
-        let scopeOptions = Self.scopeOptions(from: request.command)
-
-        if let matchedScope = anyCachedMatch(
+        let scopeOptions = Self.authorizationScopes(from: request.command)
+        if let match = anyCachedMatch(
             appIdentifier: identity.appIdentifier,
             profileSlug: request.profile,
-            scopeOptions: scopeOptions
+            scopeOptions: scopeOptions.map(\.identity)
         ) {
             logDecision(
                 appIdentifier: identity.appIdentifier,
                 profile: request.profile,
-                command: matchedScope,
-                allowed: true,
+                matchType: match.identity.matchType.rawValue,
+                allowed: match.allowed,
                 source: "cached"
             )
-            return RunProxyResponse(decision: .allow, env: env)
+            return match.allowed
+                ? RunProxyResponse(decision: .allow, env: env)
+                : RunProxyResponse(decision: .deny, env: nil)
         }
 
         let outcome = await enqueueAuthorization(
@@ -73,13 +122,15 @@ final class RunAuthWindowController {
         )
 
         switch outcome {
-        case .cached:
-            return RunProxyResponse(decision: .allow, env: env)
+        case .cached(let match):
+            return match.allowed
+                ? RunProxyResponse(decision: .allow, env: env)
+                : RunProxyResponse(decision: .deny, env: nil)
         case .dialog(let allowed, let persistedScope):
             logDecision(
                 appIdentifier: identity.appIdentifier,
                 profile: request.profile,
-                command: persistedScope ?? scopeOptions.first ?? "",
+                matchType: persistedScope?.matchType.rawValue ?? scopeOptions.first?.identity.matchType.rawValue ?? "none",
                 allowed: allowed,
                 source: "dialog"
             )
@@ -111,7 +162,8 @@ final class RunAuthWindowController {
     private func persist(
         decisionFor pending: PendingRunAuthRequest,
         resolved: ResolvedRemember,
-        scope: String
+        scope: RunAuthorizationScope,
+        allowed: Bool
     ) {
         let expiresAt: Date?
         switch resolved {
@@ -121,9 +173,10 @@ final class RunAuthWindowController {
         }
         try? databaseManager.saveRunDecision(
             appIdentifier: pending.appIdentifier,
-            subcommand: scope,
+            scope: scope,
             profileSlug: pending.profileSlug,
             expiresAt: expiresAt,
+            allowed: allowed,
             appTeamID: pending.appTeamID
         )
     }
@@ -132,19 +185,19 @@ final class RunAuthWindowController {
         pruneSessionCache()
         while let pending = requestQueue.first {
             requestQueue.removeFirst()
-            if let matchedScope = anyCachedMatch(
+            if let match = anyCachedMatch(
                 appIdentifier: pending.appIdentifier,
                 profileSlug: pending.profileSlug,
-                scopeOptions: pending.scopeOptions
+                scopeOptions: pending.scopeOptions.map(\.identity)
             ) {
                 logDecision(
                     appIdentifier: pending.appIdentifier,
                     profile: pending.profileSlug,
-                    command: matchedScope,
-                    allowed: true,
+                    matchType: match.identity.matchType.rawValue,
+                    allowed: match.allowed,
                     source: "cached"
                 )
-                pending.continuation.resume(returning: .cached(scope: matchedScope))
+                pending.continuation.resume(returning: .cached(match))
                 continue
             }
             currentRequest = pending
@@ -154,75 +207,6 @@ final class RunAuthWindowController {
         }
         isShowingDialog = false
         currentRequest = nil
-    }
-
-    private func presentDialog(for pending: PendingRunAuthRequest) {
-        let request = RunAuthRequest(
-            appName: pending.appName,
-            appBundleURL: pending.appBundleURL,
-            profileName: pending.profileName,
-            command: pending.fullCommand,
-            scopeOptions: pending.scopeOptions,
-            keychainService: self.keychainService,
-            callbacks: self.callbacks
-        ) { [weak self] allowed, duration, chosenScope in
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    pending.continuation.resume(
-                        returning: .dialog(allowed: allowed, persistedScope: nil)
-                    )
-                    return
-                }
-                var persistedScope: String?
-                if allowed, let scope = chosenScope {
-                    self.storeSessionCache(
-                        appIdentifier: pending.appIdentifier,
-                        profileSlug: pending.profileSlug,
-                        scope: scope
-                    )
-                    let resolved = duration.resolved()
-                    if case .doNotRemember = resolved {
-                        // Session cache covers the rapid-fire burst; skip DB persist.
-                    } else {
-                        self.persist(decisionFor: pending, resolved: resolved, scope: scope)
-                        persistedScope = scope
-                    }
-                }
-                pending.continuation.resume(
-                    returning: .dialog(allowed: allowed, persistedScope: persistedScope)
-                )
-                self.dismissAndShowNext()
-            }
-        }
-
-        let dialogView = RunAuthDialogView(request: request)
-        let hc = NSHostingController(rootView: dialogView)
-        hostingController = hc
-
-        // swiftlint:disable identifier_name
-        let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 0),
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered,
-            defer: true
-        )
-        p.title = String(localized: "Command Authorization")
-        p.level = .floating
-        p.isFloatingPanel = true
-        p.hidesOnDeactivate = false
-        p.contentView = hc.view
-
-        let size = hc.sizeThatFits(in: CGSize(width: 380, height: 600))
-        if let screen = NSScreen.main {
-            let x = screen.frame.midX - size.width / 2
-            let y = screen.frame.midY - size.height - 40
-            p.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
-        }
-
-        p.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-        panel = p
-        // swiftlint:enable identifier_name
     }
 
     private func dismissAndShowNext() {
@@ -236,7 +220,7 @@ final class RunAuthWindowController {
         identity: ResolvedIdentity,
         request: RunProxyRequest,
         profileName: String,
-        scopeOptions: [String]
+        scopeOptions: [RunAuthorizationScope]
     ) async -> DialogOutcome {
         await withCheckedContinuation { (continuation: CheckedContinuation<DialogOutcome, Never>) in
             let pending = PendingRunAuthRequest(
@@ -260,12 +244,96 @@ final class RunAuthWindowController {
     func logDecision(
         appIdentifier: String,
         profile: String,
-        command: String,
+        matchType: String,
         allowed: Bool,
         source: String
     ) {
         let decision = allowed ? "allow" : "deny"
-        let message = "Run exec: app=\(appIdentifier) profile=\(profile) command=\(command) decision=\(decision) source=\(source)"
+        let message = "Run exec: app=\(appIdentifier) profile=\(profile) matchType=\(matchType) decision=\(decision) source=\(source)"
         AppLogger.audit.log("\(message, privacy: .public)")
+    }
+}
+
+@MainActor
+private extension RunAuthWindowController {
+    private func presentDialog(for pending: PendingRunAuthRequest) {
+        let request = RunAuthRequest(
+            appName: pending.appName,
+            appBundleURL: pending.appBundleURL,
+            profileName: pending.profileName,
+            command: pending.fullCommand,
+            scopeOptions: pending.scopeOptions,
+            keychainService: keychainService,
+            callbacks: callbacks
+        ) { [weak self] allowed, duration, chosenScope in
+            self?.completeDialogRequest(
+                pending, allowed: allowed, duration: duration, chosenScope: chosenScope
+            )
+        }
+        if let dialogPresenter {
+            dialogPresenter(request)
+            return
+        }
+        let hostingController = NSHostingController(rootView: RunAuthDialogView(request: request))
+        self.hostingController = hostingController
+        panel = makePanel(for: hostingController)
+    }
+
+    private func completeDialogRequest(
+        _ pending: PendingRunAuthRequest,
+        allowed: Bool,
+        duration: RememberDuration,
+        chosenScope: RunAuthorizationIdentity?
+    ) {
+        // A cancelled or already completed prompt cannot act on a later request.
+        guard currentRequest?.id == pending.id else { return }
+        currentRequest = nil
+        var persistedScope: RunAuthorizationIdentity?
+        if let identity = chosenScope, let scope = pending.scopeOptions.first(where: { $0.identity == identity }) {
+            storeSessionCache(
+                appIdentifier: pending.appIdentifier,
+                profileSlug: pending.profileSlug,
+                scope: identity,
+                allowed: allowed
+            )
+            let resolved = duration.resolved()
+            if case .doNotRemember = resolved {
+                // Session cache covers the rapid-fire burst; skip DB persist.
+            } else {
+                persist(decisionFor: pending, resolved: resolved, scope: scope, allowed: allowed)
+                persistedScope = identity
+            }
+        }
+        pending.continuation.resume(
+            returning: .dialog(allowed: allowed, persistedScope: persistedScope)
+        )
+        dismissAndShowNext()
+    }
+
+    private func makePanel(for hostingController: NSHostingController<RunAuthDialogView>) -> NSPanel {
+        // swiftlint:disable identifier_name
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 0),
+            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        panel.title = String(localized: "Command Authorization")
+        panel.level = .floating
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.contentView = hostingController.view
+
+        let size = hostingController.sizeThatFits(in: CGSize(width: 380, height: 600))
+        if let screen = NSScreen.main {
+            let x = screen.frame.midX - size.width / 2
+            let y = screen.frame.midY - size.height - 40
+            panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        return panel
+        // swiftlint:enable identifier_name
     }
 }

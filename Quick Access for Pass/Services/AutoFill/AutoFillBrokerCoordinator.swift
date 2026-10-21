@@ -50,6 +50,7 @@ final class AutoFillBrokerCoordinator {
 
     typealias LockedState = @MainActor @Sendable () -> Bool
     typealias ShowLockedPanel = @MainActor @Sendable (TimeInterval) async -> Bool
+    typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
 
     private let descriptorStore: any AutoFillDescriptorStoring
     private let associationStore: (any AutoFillAppAssociationStoring)?
@@ -59,7 +60,9 @@ final class AutoFillBrokerCoordinator {
     private let showLockedPanel: ShowLockedPanel
     private let accessibility: any AutoFillAccessibilityPresenting
     private let now: @Sendable () -> UInt64
+    private let deadlineSleep: DeadlineSleep
 
+    // A substituted clock must also supply a sleeper driven by that clock.
     init(
         descriptorStore: any AutoFillDescriptorStoring,
         associationStore: (any AutoFillAppAssociationStoring)? = nil,
@@ -68,7 +71,8 @@ final class AutoFillBrokerCoordinator {
         isAppLocked: @escaping LockedState,
         showLockedPanel: @escaping ShowLockedPanel,
         accessibility: (any AutoFillAccessibilityPresenting)? = nil,
-        now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+        now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        deadlineSleep: @escaping DeadlineSleep = { try await Task.sleep(for: $0) }
     ) {
         self.descriptorStore = descriptorStore
         self.associationStore = associationStore
@@ -78,6 +82,7 @@ final class AutoFillBrokerCoordinator {
         self.showLockedPanel = showLockedPanel
         self.accessibility = accessibility ?? NoOpAutoFillAccessibilityAdapter()
         self.now = now
+        self.deadlineSleep = deadlineSleep
     }
 
     /// Resolves metadata before entering either unlock UI or Pass CLI. Every
@@ -296,11 +301,12 @@ final class AutoFillBrokerCoordinator {
     ) async throws -> Value {
         let remaining = try remainingNanoseconds(until: deadline)
         let remainingDuration = Duration.nanoseconds(Int64(remaining))
+        let deadlineSleep = deadlineSleep
 
         return try await withThrowingTaskGroup(of: Value.self) { group in
             group.addTask { try await operation() }
             group.addTask {
-                try await Task.sleep(for: remainingDuration)
+                try await deadlineSleep(remainingDuration)
                 throw Error.deadlineExpired
             }
             defer { group.cancelAll() }

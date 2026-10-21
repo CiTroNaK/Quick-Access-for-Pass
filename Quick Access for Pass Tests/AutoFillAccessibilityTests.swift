@@ -7,6 +7,8 @@ import Testing
 @Suite("AutoFill accessibility behavior", .serialized)
 @MainActor
 struct AutoFillAccessibilityTests {
+    private let clock = ManualDeadlineClock()
+
     @Test("locked requests announce unlock before resolving")
     func unlockRequiredAnnouncement() async throws {
         let accessibility = RecordingAutoFillAccessibilityAdapter()
@@ -19,10 +21,12 @@ struct AutoFillAccessibilityTests {
                 locked.withLock { $0 = false }
                 return true
             },
-            accessibility: accessibility
+            accessibility: accessibility,
+            now: { clock.now },
+            deadlineSleep: { try await clock.sleep(for: $0) }
         )
 
-        _ = try await coordinator.resolve(request: makeRequest(lifetime: ordinaryPathLifetime))
+        _ = try await coordinator.resolve(request: makeRequest(lifetime: ordinaryPathLifetime, now: clock.now))
 
         #expect(accessibility.events == [.unlockRequired])
         #expect(accessibility.focusRecoveryCount == 0)
@@ -32,7 +36,7 @@ struct AutoFillAccessibilityTests {
     func timeoutAnnouncement() async {
         let accessibility = RecordingAutoFillAccessibilityAdapter()
         let request = makeRequest(lifetime: ordinaryPathLifetime)
-        let clock = OSAllocatedUnfairLock(initialState: request.deadline - UInt64(ordinaryPathLifetime * 1_000_000_000))
+        let clock = ManualDeadlineClock(now: request.deadline - UInt64(ordinaryPathLifetime * 1_000_000_000))
         let unlockCalls = OSAllocatedUnfairLock(initialState: 0)
         let resolverCalls = OSAllocatedUnfairLock(initialState: 0)
         // Expire at unlock entry, rather than racing metadata admission against
@@ -46,11 +50,12 @@ struct AutoFillAccessibilityTests {
             isAppLocked: { true },
             showLockedPanel: { _ in
                 unlockCalls.withLock { $0 += 1 }
-                clock.withLock { $0 = request.deadline }
+                clock.advance(to: request.deadline)
                 return true
             },
             accessibility: accessibility,
-            now: { clock.withLock { $0 } }
+            now: { clock.now },
+            deadlineSleep: { try await clock.sleep(for: $0) }
         )
 
         await #expect(throws: AutoFillBrokerCoordinator.Error.deadlineExpired) {
@@ -77,7 +82,7 @@ struct AutoFillAccessibilityTests {
         )
 
         await #expect(throws: (any Error).self) {
-            try await coordinator.resolve(request: makeRequest())
+            try await coordinator.resolve(request: makeRequest(now: clock.now))
         }
 
         #expect(accessibility.events == [.cliFailure])
@@ -130,7 +135,7 @@ struct AutoFillAccessibilityTests {
         )
 
         await #expect(throws: AutoFillBrokerCoordinator.Error.unlockFailed) {
-            try await coordinator.resolve(request: makeRequest())
+            try await coordinator.resolve(request: makeRequest(now: clock.now))
         }
 
         #expect(accessibility.events == [.unlockRequired])
@@ -271,20 +276,25 @@ struct AutoFillAccessibilityTests {
             secretResolver: AccessibilitySecretResolver(body: resolve),
             isAppLocked: { isLocked },
             showLockedPanel: unlock,
-            accessibility: accessibility
+            accessibility: accessibility,
+            now: { clock.now },
+            deadlineSleep: { try await clock.sleep(for: $0) }
         )
     }
 
-    /// Admission budget for ordinary paths; the timeout-announcement test
-    /// controls expiry through the coordinator's injected clock.
+    /// Mocked accessibility paths use a logical clock. The encrypted-decoder
+    /// integration retains a real deadline and the timeout test advances its clock.
     private let ordinaryPathLifetime: TimeInterval = 30
 
-    private func makeRequest(lifetime: TimeInterval = 1) -> AutoFillRegisteredRequest {
+    private func makeRequest(
+        lifetime: TimeInterval = 1,
+        now: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) -> AutoFillRegisteredRequest {
         AutoFillRegisteredRequest(
             requestID: UUID(),
             descriptorID: descriptor.id,
             kind: .password,
-            deadline: DispatchTime.now().uptimeNanoseconds + UInt64(lifetime * 1_000_000_000)
+            deadline: now + UInt64(lifetime * 1_000_000_000)
         )
     }
 

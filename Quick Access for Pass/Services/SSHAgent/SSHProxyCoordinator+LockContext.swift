@@ -7,6 +7,13 @@ extension SSHProxyCoordinator {
         connection: VerifiedConnection,
         authController: SSHAuthWindowController
     ) async -> SSHAuthorizationResult {
+        if let cachedResult = authController.cachedAuthorizationResult(
+            for: keyBlob,
+            connection: connection
+        ) {
+            return cachedResult
+        }
+
         var lockToken: UUID?
         defer {
             if let token = lockToken {

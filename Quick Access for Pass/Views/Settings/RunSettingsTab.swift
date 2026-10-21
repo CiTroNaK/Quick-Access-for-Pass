@@ -4,6 +4,7 @@ struct RunSettingsTab: View {
     @Binding var runProxyEnabled: Bool
     @Environment(ProxyHealthStore.self) private var healthStore
     @Environment(\.databaseManager) private var databaseManager
+    @State private var isDecisionsManagerPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +41,14 @@ struct RunSettingsTab: View {
 
                 Divider()
 
-                RunAuthDecisionsView(databaseManager: databaseManager)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Remembered run decisions")
+                        .font(.body)
+                    Button("Manage Run decisions…") {
+                        isDecisionsManagerPresented = true
+                    }
+                    .font(.body)
+                }
 
                 Divider()
             }
@@ -75,5 +83,12 @@ struct RunSettingsTab: View {
             RunStatusRow(state: healthStore.runHealth)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $isDecisionsManagerPresented) {
+            if let databaseManager {
+                RememberedDecisionsManagerView {
+                    RunAuthDecisionsView(databaseManager: databaseManager)
+                }
+            }
+        }
     }
 }

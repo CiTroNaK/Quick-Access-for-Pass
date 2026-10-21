@@ -8,16 +8,16 @@ nonisolated struct RunAuthRequest: Sendable {
     let appBundleURL: URL?
     let profileName: String
     let command: String
-    let scopeOptions: [String]
+    let scopeOptions: [RunAuthorizationScope]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
-    let onResult: @Sendable (Bool, RememberDuration, String?) -> Void
+    let onResult: @MainActor @Sendable (Bool, RememberDuration, RunAuthorizationIdentity?) -> Void
 }
 
 struct RunAuthDialogView: View {
     let request: RunAuthRequest
     @State private var rememberDuration: RememberDuration = .doNotRemember
-    @State private var selectedScope: String
+    @State private var selectedScope: RunAuthorizationIdentity?
     @State private var authState: AuthState = .idle
     @State private var timeRemaining: Int = 30
     @State private var resultSent = false
@@ -32,7 +32,7 @@ struct RunAuthDialogView: View {
 
     init(request: RunAuthRequest) {
         self.request = request
-        _selectedScope = State(initialValue: request.scopeOptions.first ?? "")
+        _selectedScope = State(initialValue: request.scopeOptions.first?.identity)
     }
 
     private enum AuthState {
@@ -110,7 +110,8 @@ struct RunAuthDialogView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else if request.scopeOptions.count == 1 {
-                    Text("Applies to \(request.scopeOptions[0])")
+                    RunAuthScopeText(text: request.scopeOptions[0].optionLabel)
+                        .accessibilityLabel(request.scopeOptions[0].optionLabel)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 } else {
@@ -120,15 +121,21 @@ struct RunAuthDialogView: View {
                             .foregroundStyle(.tertiary)
                         Spacer()
                         Picker("", selection: $selectedScope) {
-                            ForEach(request.scopeOptions, id: \.self) { scope in
-                                Text(scope)
+                            ForEach(request.scopeOptions, id: \.identity) { scope in
+                                Text(scope.optionLabel)
                                     .font(.system(.caption, design: .monospaced))
-                                    .tag(scope)
+                                    .tag(Optional(scope.identity))
+                                    .accessibilityLabel(scope.optionLabel)
                             }
                         }
                         .frame(width: 180)
                         .accessibilityLabel(String(localized: "Scope"))
                     }
+                }
+                if !request.scopeOptions.isEmpty {
+                    RunAuthScopeText(text: String(localized: "Exact matches every argument. Broader scopes also match commands with different arguments."))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -198,8 +205,7 @@ struct RunAuthDialogView: View {
     private func sendResult(allowed: Bool) {
         guard !resultSent else { return }
         resultSent = true
-        let scope: String? = allowed && !selectedScope.isEmpty ? selectedScope : nil
-        request.onResult(allowed, rememberDuration, scope)
+        request.onResult(allowed, rememberDuration, selectedScope)
     }
 
     private func authenticate() async {
@@ -229,5 +235,19 @@ struct RunAuthDialogView: View {
             authState = .failed(presentation)
             isTryAgainFocused = presentation.showsRetryButton
         }
+    }
+}
+
+// Prompt labels are transient; typed scope identities alone drive selection and authorization.
+extension RunAuthorizationScope {
+    nonisolated var optionLabel: String {
+        if isExact {
+            return String(
+                localized: "Exact command: \(label)",
+                comment: "Exact argv scope option. Placeholder is the natural full command text; do not translate the command."
+            )
+        }
+        return String(localized: "Broader scope: \(label)",
+                      comment: "Explicit command-prefix permission. Placeholder is the unchanged command prefix, not the exact argument vector.")
     }
 }

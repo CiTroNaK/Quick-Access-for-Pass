@@ -18,8 +18,12 @@ struct DatabaseManagerMigrationV5Tests {
 
     @Test func v5SupportsRunAuthDecisionTeamID() throws {
         let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "TEAM.com.test", subcommand: "git pull", profileSlug: "prod", expiresAt: Date().addingTimeInterval(3600), appTeamID: "TEAM")
-        let found = try db.findValidRunDecision(appIdentifier: "TEAM.com.test", subcommand: "git pull", profileSlug: "prod")
+        let scope = RunAuthorizationScope.prefix("git pull")
+        try db.saveRunDecision(
+            appIdentifier: "TEAM.com.test", scope: scope, profileSlug: "prod",
+            expiresAt: Date().addingTimeInterval(3600), allowed: true, appTeamID: "TEAM"
+        )
+        let found = try db.findValidRunDecision(appIdentifier: "TEAM.com.test", identity: scope.identity, profileSlug: "prod")
         #expect(found?.appTeamID == "TEAM")
     }
 

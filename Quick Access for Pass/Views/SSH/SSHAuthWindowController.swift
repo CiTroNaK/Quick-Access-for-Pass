@@ -4,6 +4,12 @@ import os
 
 @MainActor
 final class SSHAuthWindowController {
+    /// Uses the same app/command/host identity as persisted decisions without merging key components.
+    private nonisolated struct SessionCacheKey: Hashable, Sendable {
+        let authorizationID: String
+        let fingerprint: String
+    }
+
     private struct AuthorizationContext {
         let clientInfo: SSHClientInfo
         let appId: String
@@ -30,47 +36,59 @@ final class SSHAuthWindowController {
     private let databaseManager: DatabaseManager
     private let keychainService: any BiometricAuthorizing
     private let callbacks: AuthDialogHelper.Callbacks
+    private let identifyRequester: @MainActor (VerifiedConnection) -> SSHClientInfo
+    private let presentDialog: (@MainActor (SSHAuthRequest) -> Void)?
     var batchModeNotifier: SSHBatchModeNotifier?
-    private var sessionCache: [String: Date] = [:]
+    private var sessionCache: [SessionCacheKey: (allowed: Bool, expiresAt: Date)] = [:]
     private let sessionCacheDuration: TimeInterval = 3
 
-    init(databaseManager: DatabaseManager, keychainService: any BiometricAuthorizing, callbacks: AuthDialogHelper.Callbacks) {
+    init(
+        databaseManager: DatabaseManager,
+        keychainService: any BiometricAuthorizing,
+        callbacks: AuthDialogHelper.Callbacks,
+        identifyRequester: @escaping @MainActor (VerifiedConnection) -> SSHClientInfo = ProcessIdentifier.identifyRequester(of:),
+        presentDialog: (@MainActor (SSHAuthRequest) -> Void)? = nil
+    ) {
         self.databaseManager = databaseManager
         self.keychainService = keychainService
         self.callbacks = callbacks
+        self.identifyRequester = identifyRequester
+        self.presentDialog = presentDialog
     }
 
-    func authorize(keyBlob: Data, connection: VerifiedConnection) async -> SSHAuthorizationResult {
+    /// Returns a cached authorization outcome without displaying a prompt.
+    func cachedAuthorizationResult(
+        for keyBlob: Data,
+        connection: VerifiedConnection
+    ) -> SSHAuthorizationResult? {
         let context = makeAuthorizationContext(keyBlob: keyBlob, connection: connection)
-
         let now = Date()
-        sessionCache = sessionCache.filter { $0.value > now }
+        sessionCache = sessionCache.filter { $0.value.expiresAt > now }
 
-        if isSessionAuthorized(appId: context.appId, fingerprint: context.fingerprint, now: now) {
-            logDecision(
-                appId: context.appId,
-                fingerprint: context.fingerprint,
-                host: context.clientInfo.triggerCommand ?? "unknown",
-                allowed: true,
-                source: "cached"
-            )
-            return .allow
-        }
-
-        if isPersistentlyAuthorized(
+        if let allowed = cachedDecision(
             cacheID: context.persistentCacheId,
-            fingerprint: context.fingerprint
+            fingerprint: context.fingerprint,
+            now: now
         ) {
             logDecision(
                 appId: context.appId,
                 fingerprint: context.fingerprint,
                 host: context.clientInfo.triggerCommand ?? "unknown",
-                allowed: true,
+                allowed: allowed,
                 source: "cached"
             )
-            return .allow
+            return allowed ? .allow : .deny
         }
 
+        return nil
+    }
+
+    func authorize(keyBlob: Data, connection: VerifiedConnection) async -> SSHAuthorizationResult {
+        if let result = cachedAuthorizationResult(for: keyBlob, connection: connection) {
+            return result
+        }
+
+        let context = makeAuthorizationContext(keyBlob: keyBlob, connection: connection)
         if context.clientInfo.batchMode {
             return handleBatchMode(keyBlob: keyBlob, context: context)
         }
@@ -94,7 +112,7 @@ final class SSHAuthWindowController {
     }
 
     private func showNextRequest() {
-        drainSessionCoveredRequests()
+        drainCacheCoveredRequests()
 
         guard let pending = nextPendingRequest() else {
             isShowingDialog = false
@@ -106,6 +124,10 @@ final class SSHAuthWindowController {
         isShowingDialog = true
 
         let request = makeDialogRequest(for: pending)
+        if let presentDialog {
+            presentDialog(request)
+            return
+        }
         let dialogView = SSHAuthDialogView(request: request)
         let hostingController = NSHostingController(rootView: dialogView)
         self.hostingController = hostingController
@@ -126,7 +148,7 @@ private extension SSHAuthWindowController {
         keyBlob: Data,
         connection: VerifiedConnection
     ) -> AuthorizationContext {
-        let clientInfo = ProcessIdentifier.identifyRequester(of: connection)
+        let clientInfo = identifyRequester(connection)
         let identity = SSHAuthorizationIdentity(connection: connection, clientInfo: clientInfo)
         return AuthorizationContext(
             clientInfo: clientInfo,
@@ -137,17 +159,16 @@ private extension SSHAuthWindowController {
         )
     }
 
-    private func isSessionAuthorized(appId: String, fingerprint: String, now: Date) -> Bool {
-        let sessionKey = "\(appId):\(fingerprint)"
-        guard let sessionExpiry = sessionCache[sessionKey] else { return false }
-        return sessionExpiry > now
-    }
-
-    private func isPersistentlyAuthorized(cacheID: String, fingerprint: String) -> Bool {
-        (try? databaseManager.findValidDecision(
+    /// Prefers a live session decision only for the exact persisted authorization context.
+    private func cachedDecision(cacheID: String, fingerprint: String, now: Date) -> Bool? {
+        let key = SessionCacheKey(authorizationID: cacheID, fingerprint: fingerprint)
+        if let decision = sessionCache[key], decision.expiresAt > now {
+            return decision.allowed
+        }
+        return (try? databaseManager.findValidDecision(
             appIdentifier: cacheID,
             keyFingerprint: fingerprint
-        )) != nil
+        ))?.allowed
     }
 
     private func handleBatchMode(
@@ -218,15 +239,23 @@ private extension SSHAuthWindowController {
         }
     }
 
-    private func drainSessionCoveredRequests() {
+    private func drainCacheCoveredRequests() {
+        let now = Date()
         while let pending = requestQueue.first {
-            let sessionKey = "\(pending.appId):\(pending.fingerprint)"
-            if let expiry = sessionCache[sessionKey], expiry > Date() {
-                requestQueue.removeFirst()
-                pending.continuation.resume(returning: .allow)
-                continue
-            }
-            break
+            guard let allowed = cachedDecision(
+                cacheID: pending.persistentCacheId,
+                fingerprint: pending.fingerprint,
+                now: now
+            ) else { break }
+            requestQueue.removeFirst()
+            logDecision(
+                appId: pending.appId,
+                fingerprint: pending.fingerprint,
+                host: pending.clientInfo.triggerCommand ?? "unknown",
+                allowed: allowed,
+                source: "cached"
+            )
+            pending.continuation.resume(returning: allowed ? .allow : .deny)
         }
     }
 
@@ -262,28 +291,34 @@ private extension SSHAuthWindowController {
         allowed: Bool,
         duration: RememberDuration
     ) {
-        if allowed {
-            let sessionKey = "\(pending.appId):\(pending.fingerprint)"
-            sessionCache[sessionKey] = Date().addingTimeInterval(sessionCacheDuration)
+        let sessionKey = SessionCacheKey(
+            authorizationID: pending.persistentCacheId,
+            fingerprint: pending.fingerprint
+        )
+        sessionCache[sessionKey] = (
+            allowed: allowed,
+            expiresAt: Date().addingTimeInterval(sessionCacheDuration)
+        )
 
-            switch duration.resolved() {
-            case .doNotRemember:
-                break
-            case .expires(let expiresAt):
-                try? databaseManager.saveDecision(
-                    appIdentifier: pending.persistentCacheId,
-                    keyFingerprint: pending.fingerprint,
-                    expiresAt: expiresAt,
-                    appTeamID: pending.appTeamID
-                )
-            case .forever:
-                try? databaseManager.saveDecision(
-                    appIdentifier: pending.persistentCacheId,
-                    keyFingerprint: pending.fingerprint,
-                    expiresAt: nil,
-                    appTeamID: pending.appTeamID
-                )
-            }
+        switch duration.resolved() {
+        case .doNotRemember:
+            break
+        case .expires(let expiresAt):
+            try? databaseManager.saveDecision(
+                appIdentifier: pending.persistentCacheId,
+                keyFingerprint: pending.fingerprint,
+                expiresAt: expiresAt,
+                allowed: allowed,
+                appTeamID: pending.appTeamID
+            )
+        case .forever:
+            try? databaseManager.saveDecision(
+                appIdentifier: pending.persistentCacheId,
+                keyFingerprint: pending.fingerprint,
+                expiresAt: nil,
+                allowed: allowed,
+                appTeamID: pending.appTeamID
+            )
         }
 
         logDecision(

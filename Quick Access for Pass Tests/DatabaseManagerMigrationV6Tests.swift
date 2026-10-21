@@ -28,17 +28,13 @@ struct DatabaseManagerMigrationV6Tests {
 
     @Test func runDecisionSupportsNilExpiresAt() throws {
         let db = try makeTestDB()
+        let scope = RunAuthorizationScope.prefix("git pull")
         try db.saveRunDecision(
-            appIdentifier: "TEAM.com.test",
-            subcommand: "git pull",
-            profileSlug: "prod",
-            expiresAt: nil,
-            appTeamID: "TEAM"
+            appIdentifier: "TEAM.com.test", scope: scope,
+            profileSlug: "prod", expiresAt: nil, allowed: true, appTeamID: "TEAM"
         )
         let found = try db.findValidRunDecision(
-            appIdentifier: "TEAM.com.test",
-            subcommand: "git pull",
-            profileSlug: "prod"
+            appIdentifier: "TEAM.com.test", identity: scope.identity, profileSlug: "prod"
         )
         #expect(found != nil)
         #expect(found?.expiresAt == nil)
@@ -65,12 +61,12 @@ struct DatabaseManagerMigrationV6Tests {
     @Test func runNilDecisionSurvivesPurge() throws {
         let db = try makeTestDB()
         try db.saveRunDecision(
-            appIdentifier: "app.keep", subcommand: "sub", profileSlug: "p",
-            expiresAt: nil
+            appIdentifier: "app.keep", scope: RunAuthorizationScope.prefix("sub"), profileSlug: "p",
+            expiresAt: nil, allowed: true
         )
         try db.saveRunDecision(
-            appIdentifier: "app.drop", subcommand: "sub", profileSlug: "p",
-            expiresAt: Date().addingTimeInterval(-100)
+            appIdentifier: "app.drop", scope: RunAuthorizationScope.prefix("sub"), profileSlug: "p",
+            expiresAt: Date().addingTimeInterval(-100), allowed: true
         )
         try db.cleanupExpiredRunDecisions()
         let remaining = try db.allRunAuthDecisions()
@@ -99,12 +95,12 @@ struct DatabaseManagerMigrationV6Tests {
     @Test func runDecisionsOrderPutsNilLast() throws {
         let db = try makeTestDB()
         try db.saveRunDecision(
-            appIdentifier: "app.forever", subcommand: "s", profileSlug: "p",
-            expiresAt: nil
+            appIdentifier: "app.forever", scope: RunAuthorizationScope.prefix("s"), profileSlug: "p",
+            expiresAt: nil, allowed: true
         )
         try db.saveRunDecision(
-            appIdentifier: "app.soon", subcommand: "s", profileSlug: "p2",
-            expiresAt: Date().addingTimeInterval(60)
+            appIdentifier: "app.soon", scope: RunAuthorizationScope.prefix("s"), profileSlug: "p2",
+            expiresAt: Date().addingTimeInterval(60), allowed: true
         )
         let all = try db.allRunAuthDecisions()
         #expect(all.map(\.appIdentifier) == ["app.soon", "app.forever"])

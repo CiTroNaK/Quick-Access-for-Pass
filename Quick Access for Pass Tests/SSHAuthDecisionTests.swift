@@ -22,6 +22,41 @@ struct SSHAuthDecisionTests {
         #expect(decision?.keyFingerprint == "abc123")
     }
 
+    @Test func savedDenialIsReturned() throws {
+        let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
+        try db.saveDecision(
+            appIdentifier: "com.test.app",
+            keyFingerprint: "abc123",
+            expiresAt: Date().addingTimeInterval(300),
+            allowed: false
+        )
+
+        let decision = try #require(
+            try db.findValidDecision(appIdentifier: "com.test.app", keyFingerprint: "abc123")
+        )
+        #expect(decision.allowed == false)
+    }
+
+    @Test func denialReplacesExistingApproval() throws {
+        let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
+        try db.saveDecision(
+            appIdentifier: "com.test.app",
+            keyFingerprint: "abc123",
+            expiresAt: Date().addingTimeInterval(300)
+        )
+        try db.saveDecision(
+            appIdentifier: "com.test.app",
+            keyFingerprint: "abc123",
+            expiresAt: Date().addingTimeInterval(300),
+            allowed: false
+        )
+
+        let decision = try #require(
+            try db.findValidDecision(appIdentifier: "com.test.app", keyFingerprint: "abc123")
+        )
+        #expect(decision.allowed == false)
+    }
+
     @Test func expiredDecisionNotReturned() throws {
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         let expiry = Date().addingTimeInterval(-10)

@@ -10,6 +10,7 @@ struct AutoFillBrokerCoordinatorTests {
     @MainActor
     func descriptorBeforePasswordResolution() async throws {
         let events = OSAllocatedUnfairLock(initialState: [String]())
+        let clock = ManualDeadlineClock()
         let descriptor = makeDescriptor(hasTOTP: true)
         let store = FakeAutoFillDescriptorStore(descriptor: descriptor) {
             events.withLock { $0.append("descriptor") }
@@ -24,12 +25,14 @@ struct AutoFillBrokerCoordinatorTests {
             descriptorStore: store,
             secretResolver: resolver,
             isAppLocked: { false },
-            showLockedPanel: { _ in Issue.record("Unlocked requests must not show the panel"); return false }
+            showLockedPanel: { _ in Issue.record("Unlocked requests must not show the panel"); return false },
+            now: { clock.now },
+            deadlineSleep: { try await clock.sleep(for: $0) }
         )
 
-        let result = try await coordinator.resolve(
-            request: makeRequest(kind: .password, lifetime: ordinaryPathLifetime)
-        )
+        let result = try await coordinator.resolve(request: AutoFillRegisteredRequest(
+            requestID: UUID(), descriptorID: descriptor.id, kind: .password, deadline: 3_000_000_000
+        ))
 
         #expect(result.value == "resolved-password")
         #expect(events.withLock { $0 } == ["descriptor", "resolver", "descriptor"])
@@ -39,11 +42,18 @@ struct AutoFillBrokerCoordinatorTests {
     @MainActor
     func lockedRequestUsesRemainingDeadline() async throws {
         let descriptor = makeDescriptor(hasTOTP: true)
+        let request = makeRequest(kind: .oneTimeCode, lifetime: ordinaryPathLifetime)
+        let initialNow = request.deadline - UInt64(ordinaryPathLifetime * 1_000_000_000)
+        let clock = OSAllocatedUnfairLock(initialState: initialNow)
         let observedTimeout = OSAllocatedUnfairLock<Double?>(initialState: nil)
         let states = OSAllocatedUnfairLock(initialState: [AutoFillRequestState]())
         let locked = OSAllocatedUnfairLock(initialState: true)
+        // Test remaining-budget forwarding, not whether an unrelated MainActor
+        // workload happens to fit inside a one-second successful-path fixture.
         let coordinator = AutoFillBrokerCoordinator(
-            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor),
+            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor) {
+                clock.withLock { $0 = initialNow + 5_000_000_000 }
+            },
             secretResolver: FakeAutoFillSecretResolver { _, kind in
                 #expect(kind == .oneTimeCode)
                 return "123456"
@@ -53,18 +63,20 @@ struct AutoFillBrokerCoordinatorTests {
                 observedTimeout.withLock { $0 = timeout }
                 locked.withLock { $0 = false }
                 return true
-            }
+            },
+            now: { clock.withLock { $0 } }
         )
 
         let result = try await coordinator.resolve(
-            request: makeRequest(kind: .oneTimeCode, lifetime: 1),
+            request: request,
             transition: { state in states.withLock { $0.append(state) } }
         )
 
         #expect(result.value == "123456")
         #expect(states.withLock { $0 } == [.awaitingUnlock, .resolving])
         let timeout = try #require(observedTimeout.withLock { $0 })
-        #expect(timeout > 0 && timeout <= 1)
+        // A reset to the original budget now fails deterministically.
+        #expect(timeout == ordinaryPathLifetime - 5)
     }
 
     @Test("expired deadline never invokes unlock or Pass CLI resolution")
@@ -1011,4 +1023,41 @@ private func waitForNativeStart(at marker: URL) async throws {
         try await Task.sleep(for: .milliseconds(10))
     }
     throw CocoaError(.fileNoSuchFile)
+}
+
+extension AutoFillBrokerCoordinatorTests {
+    @Test("Unlock watchdog expires at the original logical deadline without secret resolution")
+    @MainActor
+    func unlockExpiresOnControlledClock() async throws {
+        let clock = ManualDeadlineClock()
+        let gate = OfflineTestGate()
+        let didResolve = OSAllocatedUnfairLock(initialState: false)
+        let descriptor = makeDescriptor()
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: FakeAutoFillDescriptorStore(descriptor: descriptor),
+            secretResolver: FakeAutoFillSecretResolver { _, _ in
+                didResolve.withLock { $0 = true }
+                return "must-not-release"
+            },
+            isAppLocked: { true },
+            showLockedPanel: { _ in try? await gate.wait(); return true },
+            now: { clock.now },
+            deadlineSleep: { try await clock.sleep(for: $0) }
+        )
+        let task = Task {
+            try await coordinator.resolve(request: AutoFillRegisteredRequest(
+                requestID: UUID(), descriptorID: descriptor.id, kind: .password, deadline: 3_000_000_000
+            ))
+        }
+        defer { task.cancel() }
+        try await gate.waitUntilEntered()
+        let registered = await waitForTestCondition { clock.pendingSleepCount == 1 }
+        try #require(registered)
+
+        clock.advance(to: 3_000_000_000)
+        await #expect(throws: AutoFillBrokerCoordinator.Error.deadlineExpired) { try await task.value }
+
+        #expect(!didResolve.withLock { $0 })
+        #expect(clock.pendingSleepCount == 0)
+    }
 }
