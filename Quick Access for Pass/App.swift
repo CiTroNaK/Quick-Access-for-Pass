@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored var autoFillSocketPath: String?
     @ObservationIgnored var healthCoordinator: HealthCheckCoordinator?
     @ObservationIgnored var notificationRouter: UserNotificationRouter?
+    @ObservationIgnored let passCLISessionMutationGate = PassCLISessionMutationGate()
     @ObservationIgnored var passCLILoginCoordinator: PassCLILoginCoordinator?
     @ObservationIgnored var passCLILoginNotifier: PassCLILoginNotifier?
     @ObservationIgnored var passCLIRecommendedVersionNotifier: PassCLIRecommendedVersionNotifier?
@@ -496,7 +497,7 @@ private extension AppDelegate {
             forName: .passCLILoginRequested, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.passCLILoginCoordinator?.startLogin()
+                self?.requestPassCLILogin()
             }
         }
 

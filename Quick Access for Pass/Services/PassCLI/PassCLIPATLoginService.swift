@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated enum PassCLIPATLoginResult: Sendable, Equatable {
     case succeeded
+    case busy
     case missingToken
     case notInstalled
     case timeout
@@ -13,6 +14,8 @@ nonisolated enum PassCLIPATLoginResult: Sendable, Equatable {
         switch self {
         case .succeeded:
             return String(localized: "Proton Pass CLI connected")
+        case .busy:
+            return String(localized: "Sign-in already in progress.")
         case .missingToken:
             return String(localized: "No personal access token is saved.")
         case .notInstalled:
@@ -56,6 +59,7 @@ nonisolated struct PassCLIPATOutputSanitizer: Sendable {
 
 @MainActor
 final class PassCLIPATLoginService {
+    private let sessionMutationGate: PassCLISessionMutationGate
     private let credentialStore: any PassCLIPATCredentialStoring
     private let runner: any CLIEnvironmentRunning
     private let cliService: PassCLIService
@@ -66,6 +70,7 @@ final class PassCLIPATLoginService {
     private var isLoggingIn = false
 
     init(
+        sessionMutationGate: PassCLISessionMutationGate,
         credentialStore: any PassCLIPATCredentialStoring,
         runner: any CLIEnvironmentRunning = LiveCLIRunner(),
         cliService: PassCLIService,
@@ -74,6 +79,7 @@ final class PassCLIPATLoginService {
         revokeTransientSecretAccess: @escaping @MainActor @Sendable () -> Void = {},
         timeoutSeconds: TimeInterval = 30
     ) {
+        self.sessionMutationGate = sessionMutationGate
         self.credentialStore = credentialStore
         self.runner = runner
         self.cliService = cliService
@@ -83,21 +89,31 @@ final class PassCLIPATLoginService {
         self.timeoutSeconds = timeoutSeconds
     }
 
-    func loginWithSavedToken(triggerSync: Bool = true) async -> PassCLIPATLoginResult {
-        // Settings and automatic recovery share this service. MainActor alone
-        // does not prevent their login/logout commands overlapping across awaits.
-        guard !isLoggingIn else {
-            return .failed(String(localized: "Personal access token login is already in progress."))
-        }
+    /// Uses a caller-owned saved-token lease, or acquires ownership for a standalone request.
+    func loginWithSavedToken(
+        triggerSync: Bool = true, lease callerLease: PassCLISessionMutationGate.Lease? = nil
+    ) async -> PassCLIPATLoginResult {
+        guard !isLoggingIn else { return .busy }
+        guard let lease = callerLease ?? sessionMutationGate.tryAcquire(.savedTokenLogin) else { return .busy }
+        guard lease.operation == .savedTokenLogin, sessionMutationGate.owns(lease) else { return .busy }
         isLoggingIn = true
-        defer { isLoggingIn = false }
+        defer {
+            isLoggingIn = false
+            if callerLease == nil { sessionMutationGate.release(lease) }
+        }
+        return await performAdmittedLogin(triggerSync: triggerSync)
+    }
 
+    /// Executes while the caller retains the validated lease through the entire await.
+    private func performAdmittedLogin(triggerSync: Bool) async -> PassCLIPATLoginResult {
         do {
+            try Task.checkCancellation()
             guard let token = try await credentialStore.loadToken(), token.isEmpty == false else {
                 return .missingToken
             }
             let sanitizer = PassCLIPATOutputSanitizer(token: token)
             do {
+                try Task.checkCancellation()
                 try await login(token: token, executablePath: cliService.cliPath)
             } catch CLIError.notInstalled {
                 return .notInstalled
@@ -135,6 +151,10 @@ final class PassCLIPATLoginService {
                 timeout: timeoutSeconds
             )
             return
+        } catch let error as CLIError where error.isLocalSessionDecryptionError {
+            // Login reads the existing session before authenticating the PAT.
+            // This specific failure proves that local session cannot be reused.
+            try await resetLocalSessionAndRetryLogin(token: token, executablePath: executablePath)
         } catch CLIError.commandFailed(let message)
             where message.localizedCaseInsensitiveContains("already authenticated") {
             // A local session can block login even when it no longer works remotely.
@@ -148,30 +168,35 @@ final class PassCLIPATLoginService {
                     timeout: PassCLISanityCheck.timeoutSeconds
                 )
             } catch let error as CLIError where error.isAuthError {
-                try Task.checkCancellation()
-                // Forced logout invalidates the current Pass session; revoke any
-                // transient host secret delivery before starting its runner work.
-                revokeTransientSecretAccess()
-                _ = try await runner.run(
-                    executablePath: executablePath,
-                    arguments: ["logout", "--force"],
-                    environmentOverrides: [:],
-                    timeout: timeoutSeconds
-                )
-                try Task.checkCancellation()
-                // Retry once, not recursively. The caller classifies and sanitizes
-                // any cleanup/retry failure, including an invalid replacement PAT.
-                _ = try await runner.run(
-                    executablePath: executablePath,
-                    arguments: ["login"],
-                    environmentOverrides: environment,
-                    timeout: timeoutSeconds
-                )
+                try await resetLocalSessionAndRetryLogin(token: token, executablePath: executablePath)
                 return
             }
             // Healthy sessions must not be replaced or reported as a successful
             // login with the saved PAT: that token has not been validated yet.
             throw CLIError.commandFailed(message)
         }
+    }
+
+    /// Clears a confirmed unusable CLI session and attempts saved-token login exactly once.
+    private func resetLocalSessionAndRetryLogin(token: String, executablePath: String) async throws {
+        try Task.checkCancellation()
+        // Forced logout invalidates the local Pass session; revoke transient
+        // host secret delivery before starting its runner work.
+        revokeTransientSecretAccess()
+        _ = try await runner.run(
+            executablePath: executablePath,
+            arguments: ["logout", "--force"],
+            environmentOverrides: [:],
+            timeout: timeoutSeconds
+        )
+        try Task.checkCancellation()
+        // Do not recurse through login's recovery handlers. The caller classifies
+        // and sanitizes cleanup/retry errors, including an invalid replacement PAT.
+        _ = try await runner.run(
+            executablePath: executablePath,
+            arguments: ["login"],
+            environmentOverrides: ["PROTON_PASS_PERSONAL_ACCESS_TOKEN": token],
+            timeout: timeoutSeconds
+        )
     }
 }

@@ -167,24 +167,26 @@ struct HealthCheckCoordinatorTests {
 
     @Test("PAT recovery resumes after Keychain unlock without another health transition",
           .timeLimit(.minutes(1)),
-          arguments: [PassCLIPATLoginResult.succeeded, .invalidToken, .failed("offline")])
-    func patRecoveryResumesAfterKeychainUnlock(loginResult: PassCLIPATLoginResult) async {
+          arguments: [PassCLIPATLoginResult.succeeded, .invalidToken, .failed("offline")],
+          [PassCLIHealth.notLoggedIn, .localSessionUnreadable])
+    func patRecoveryResumesAfterKeychainUnlock(loginResult: PassCLIPATLoginResult, health: PassCLIHealth) async {
         let h = makeHarness()
         let credentials = LockablePATCredentialStore()
         let fallback = FakePassCLITransitionHandler()
-        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: .notLoggedIn, identity: nil, version: nil)
+        h.cliChecker.nextOutcome = PassCLIProbeOutcome(health: health, identity: nil, version: nil)
 
         await confirmation("Exactly one PAT login after unlocking") { loginAttempted in
             let recovery = PassCLIPATAutoLoginCoordinator(
                 credentialStore: credentials,
-                loginWithSavedToken: {
+                sessionMutationGate: PassCLISessionMutationGate(),
+                currentHealth: { h.cliStore.health },
+                loginWithSavedToken: { _ in
                     #expect(await credentials.hasToken())
                     loginAttempted()
                     return loginResult
                 },
                 fallbackHandler: fallback,
-                patFailureHandler: { _ in },
-                browserLoginIsRunning: { false }
+                patFailureHandler: { _ in }
             )
             h.coordinator.passCLITransitionHandler = recovery
 
@@ -193,8 +195,8 @@ struct HealthCheckCoordinatorTests {
             await recovery.waitForCurrentAttempt()
             await h.coordinator.tickCLI()
             await recovery.waitForCurrentAttempt()
-            #expect(h.cliStore.health == .notLoggedIn)
-            #expect(fallback.transitions.contains(.notLoggedIn))
+            #expect(h.cliStore.health == health)
+            #expect(fallback.transitions.contains(health))
 
             // Unlocking changes token availability, not CLI health.
             await credentials.setLocked(false)
@@ -204,8 +206,8 @@ struct HealthCheckCoordinatorTests {
             // A real login attempt (including rejection/failure) must not repeat each tick.
             await h.coordinator.tickCLI()
             await recovery.waitForCurrentAttempt()
-            #expect(h.runDispatcher.cliTransitions == [.notLoggedIn])
-            #expect(h.sshDispatcher.cliTransitions == [.notLoggedIn])
+            #expect(h.runDispatcher.cliTransitions == [health])
+            #expect(h.sshDispatcher.cliTransitions == [health])
         }
     }
 

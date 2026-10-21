@@ -40,6 +40,24 @@ struct AppDelegateSyncIssueTests {
         #expect(harness.viewModel.syncProgress == .loggingInWithSavedPAT())
     }
 
+    @Test("configured PAT failure clears auto-login progress without requesting browser login")
+    func configuredPATFailureClearsAutoLoginProgress() throws {
+        let harness = try makeHarness()
+        harness.appDelegate.setupPassCLIAuthenticationCoordinators(
+            cliService: harness.cliService, notificationPoster: FakeLoginNotificationPoster(), requestsAuthorization: false
+        )
+        let notifier = try #require(harness.appDelegate.passCLILoginNotifier)
+        harness.appDelegate.showPATAutoLoginSyncProgress()
+        let message = PassCLIPATLoginResult.timeout.userFacingMessage
+
+        notifier.handlePATLoginFailure(message)
+
+        #expect(harness.viewModel.syncProgress == nil)
+        #expect(harness.viewModel.syncError?.visibleMessage == message)
+        #expect(harness.viewModel.syncError?.action == .updatePAT)
+        #expect(harness.viewModel.syncError?.diagnosticReport == nil)
+    }
+
     @Test("invalid PAT helper clears stale progress and resolves visible diagnostics")
     func invalidPATHelperClearsStaleProgressAndResolvesVisibleDiagnostics() throws {
         let harness = try makeHarness()

@@ -5,6 +5,41 @@ import Testing
 @Suite("SyncCoordinator sync issue notifications")
 @MainActor
 struct SyncCoordinatorSyncIssueTests {
+    @Test("sync auth failures publish exact shared health without another probe",
+          .timeLimit(.minutes(1)), arguments: [PassCLIHealth.ok, .localSessionUnreadable], [false, true])
+    func authenticationFailurePublishesExactSharedHealth(initialHealth: PassCLIHealth, unreadable: Bool) async throws {
+        let error: CLIError = unreadable ? .commandFailed("Error decrypting local session: aead::Error") : .notLoggedIn
+        let expected: PassCLIHealth = unreadable ? .localSessionUnreadable : .notLoggedIn
+        let harness = try makeHarness(error: error)
+        let store = PassCLIStatusStore()
+        store.health = initialHealth
+        let cliChecker = FakePassCLIHealthChecker()
+        let runChecker = FakeRunProbeChecker()
+        let sshChecker = FakeSSHProbeChecker()
+        let health = HealthCheckCoordinator(
+            cliStore: store, cliService: harness.cliService, cliChecker: cliChecker,
+            runChecker: runChecker, sshChecker: sshChecker,
+            runCoordinator: FakeRunProxyDispatcher(), sshCoordinator: FakeSSHProxyDispatcher()
+        )
+        var reports = 0
+        let coordinator = SyncCoordinator(
+            cliService: harness.cliService, databaseManager: harness.databaseManager, viewModel: harness.viewModel,
+            onAuthenticationRequired: { classification in
+                await health.reportAuthenticationFailure(health: classification)
+                reports += 1
+            }
+        )
+        coordinator.refreshNow()
+        await waitForUpdateCount(1) { reports }
+
+        #expect(reports == 1)
+        #expect(store.health == expected)
+        #expect(store.health.loginActionTitle == expected.loginActionTitle)
+        #expect(cliChecker.callCount == 0)
+        #expect(runChecker.callCount == 0)
+        #expect(sshChecker.callCount == 0)
+    }
+
     @Test("auth errors resolve diagnostics window")
     func authErrorsResolveDiagnosticsWindow() async throws {
         let harness = try makeHarness(error: CLIError.notLoggedIn)
@@ -25,9 +60,10 @@ struct SyncCoordinatorSyncIssueTests {
         #expect(updates == [nil])
     }
 
-    @Test("sync auth errors let PAT recovery decide whether Login is needed",
+    @Test("sync auth errors prompt browser sign-in only for a confirmed missing PAT",
           .timeLimit(.minutes(1)),
-          arguments: [PassCLIPATLoginResult.succeeded, .missingToken, .invalidToken, .failed("offline")])
+          arguments: [PassCLIPATLoginResult.succeeded, .missingToken, .invalidToken,
+                      .failed("offline"), .timeout, .healthStillNotOK("unhealthy")])
     func authErrorsRouteThroughPATRecovery(result: PassCLIPATLoginResult) async throws {
         let harness = try makeHarness(error: CLIError.notLoggedIn)
         let viewModel = harness.viewModel
@@ -38,6 +74,10 @@ struct SyncCoordinatorSyncIssueTests {
             showLoginRequired: {
                 viewModel.syncProgress = nil
                 viewModel.syncError = .loginRequired()
+            },
+            showPATLoginFailure: { message in
+                viewModel.syncProgress = nil
+                viewModel.syncError = .patLoginFailed(userFacingMessage: message)
             }
         )
         var loginCount = 0
@@ -50,7 +90,7 @@ struct SyncCoordinatorSyncIssueTests {
                 return result
             },
             fallbackHandler: fallback,
-            patFailureHandler: { _ in },
+            patFailureHandler: { fallback.handlePATLoginFailure($0) },
             invalidPATHandler: { message in
                 viewModel.syncProgress = nil
                 viewModel.syncError = .invalidPAT(userFacingMessage: message)
@@ -69,10 +109,10 @@ struct SyncCoordinatorSyncIssueTests {
                 databaseManager: harness.databaseManager,
                 viewModel: viewModel,
                 onSyncIssueChanged: { _ in updateCount += 1 },
-                onAuthenticationRequired: {
+                onAuthenticationRequired: { health in
                     #expect(viewModel.syncError == nil, "Sync must not publish Login before deciding on PAT recovery")
                     recoveryRequested()
-                    recovery.handleCLIHealthTransition(to: .notLoggedIn)
+                    recovery.handleCLIHealthTransition(to: health)
                 }
             )
             coordinator.refreshNow()
@@ -84,10 +124,15 @@ struct SyncCoordinatorSyncIssueTests {
             case .succeeded:
                 #expect(viewModel.syncError == nil)
                 #expect(viewModel.syncProgress == .loggingInWithSavedPAT())
-            case .invalidToken:
-                #expect(viewModel.syncError?.action == .updatePAT)
-            default:
+            case .missingToken:
                 #expect(viewModel.syncError?.action == .login)
+                #expect(viewModel.syncProgress == nil)
+            case .invalidToken, .failed, .timeout, .healthStillNotOK:
+                #expect(viewModel.syncError?.action == .updatePAT)
+                #expect(viewModel.syncError?.visibleMessage == result.userFacingMessage)
+                #expect(viewModel.syncProgress == nil)
+            default:
+                Issue.record("Unexpected fixture result")
             }
         }
     }
@@ -108,7 +153,7 @@ struct SyncCoordinatorSyncIssueTests {
                 databaseManager: harness.databaseManager,
                 viewModel: harness.viewModel,
                 onSyncIssueChanged: { _ in updateCount += 1 },
-                onAuthenticationRequired: {
+                onAuthenticationRequired: { _ in
                     #expect(harness.viewModel.syncError == expectedError)
                     #expect(harness.viewModel.syncProgress == expectedProgress)
                     recoveryRequested()

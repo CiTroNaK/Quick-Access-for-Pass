@@ -211,7 +211,7 @@ final class RunProxyCoordinator {
             default:
                 break
             }
-        case .notLoggedIn:
+        case .notLoggedIn, .localSessionUnreadable:
             AppLogger.coordinator.error("run CLI transition -> notLoggedIn")
             updateRunHealth(.unreachable(.passCLINotLoggedIn))
         case .notInstalled:

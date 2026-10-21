@@ -192,9 +192,9 @@ final class StatusBarController: NSObject {
             addStatusItem(to: menu, label: String(localized: "Run Proxy"), proxyHealth: healthStore.runHealth)
         }
 
-        if passCLIStatusStore.health == .notLoggedIn {
+        if passCLIStatusStore.health.requiresAuthenticationRecovery {
             let item = NSMenuItem(
-                title: String(localized: "Log In to Proton Pass CLI…"),
+                title: passCLIStatusStore.health.loginActionTitle,
                 action: #selector(loginPassCLIClicked),
                 keyEquivalent: ""
             )
@@ -223,6 +223,9 @@ final class StatusBarController: NSObject {
         statusItem?.menu = nil
     }
 
+}
+
+extension StatusBarController {
     // MARK: - Menu Status Items
 
     private func addStatusItem(
@@ -243,6 +246,9 @@ final class StatusBarController: NSObject {
         case .notLoggedIn:
             text = String(localized: "\(label): not logged in")
             color = .systemOrange
+        case .localSessionUnreadable:
+            text = String(localized: "\(label): local session could not be decrypted")
+            color = .systemRed
         case .notInstalled:
             text = String(localized: "\(label): not installed")
             color = .systemRed

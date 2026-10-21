@@ -15,10 +15,16 @@ nonisolated enum CLIError: Error, LocalizedError {
     var isAuthError: Bool {
         switch self {
         case .notLoggedIn: true
-        case .commandFailed(let message): CLIRunner.stderrIndicatesNotLoggedIn(message)
+        case .commandFailed(let message): CLIRunner.stderrIndicatesNotLoggedIn(message) || isLocalSessionDecryptionError
         default: false
         }
     }
+    /// Identifies the CLI's specific unreadable local-session failure, not generic decryption or Keychain errors.
+    var isLocalSessionDecryptionError: Bool {
+        guard case .commandFailed(let message) = self else { return false }
+        return message.localizedCaseInsensitiveContains("error decrypting local session")
+    }
+
     var errorDescription: String? {
         switch self {
         case .notInstalled: String(localized: "pass-cli is not installed. Instructionas at https://protonpass.github.io/pass-cli/")
