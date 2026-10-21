@@ -52,7 +52,7 @@ Example: `feat: add Large Type display for selected values`
 
 ## Continuous Integration
 
-Tests run automatically on every PR via GitHub Actions. CI tests, release builds, and CodeQL use GitHub's `xcode-27` preview runner and its default Xcode 27 toolchain; each Xcode selection step logs the installed version. This image is currently a public preview and may have stability or queueing limitations. Linux-only release jobs remain on `ubuntu-latest`. CI must pass before merging. It builds and tests without Apple signing secrets.
+Tests run automatically on every PR via GitHub Actions. CI tests and release builds use GitHub's `xcode-27` preview runner and its default Xcode 27 toolchain. This image is currently a public preview and may have stability or queueing limitations. CodeQL stays on `macos-26` with Xcode 26.6 explicitly selected: [CodeQL traced extraction does not support Xcode 27/macOS 27](https://github.blog/changelog/2026-10-19-codeql-changes-for-macos-27-xcode-27-and-swift-6-4/). Keep source compatible with Xcode 26.6 for Swift analysis. Each Xcode selection step logs the installed version. Linux-only release jobs remain on `ubuntu-latest`. CI must pass before merging. It builds and tests without Apple signing secrets.
 
 ### Release signing secrets
 

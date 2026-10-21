@@ -399,12 +399,18 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                     let revisionString: String? = row["snapshotRevision"]
                     let fingerprint: Data? = row["keyFingerprint"]
                     let payloadLength: Int? = row["payloadLength"]
-                    let hasUsableSnapshot =
-                        (cacheStatus == OfflineCacheStatus.cached.rawValue || cacheStatus == OfflineCacheStatus.failed.rawValue)
+                    // Keep predicates small for the Xcode 26 CodeQL toolchain's type checker.
+                    let hasEligibleStatus: Bool = cacheStatus == OfflineCacheStatus.cached.rawValue
+                        || cacheStatus == OfflineCacheStatus.failed.rawValue
+                    let hasValidRevision: Bool = revisionString.flatMap(UUID.init(uuidString:)) != nil
+                    let hasValidPayloadLength: Bool = payloadLength.map {
+                        $0 >= 28 && $0 <= OfflineSnapshotLimits.ciphertextBytes
+                    } == true
+                    let hasUsableSnapshot: Bool = hasEligibleStatus
                         && schemaVersion == OfflineSnapshotLimits.schemaVersion
-                        && revisionString.flatMap(UUID.init(uuidString:)) != nil
+                        && hasValidRevision
                         && fingerprint?.count == 32
-                        && payloadLength.map { $0 >= 28 && $0 <= OfflineSnapshotLimits.ciphertextBytes } == true
+                        && hasValidPayloadLength
                     if hasUsableSnapshot {
                         try db.execute(
                             sql: "UPDATE offlineItems SET pendingRequestId = NULL WHERE itemId = ? AND vaultId = ?",
