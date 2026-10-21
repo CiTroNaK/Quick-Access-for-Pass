@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private(set) var isTerminating = false
     @ObservationIgnored lazy var terminationCoordinator: AppTerminationCoordinator = makeTerminationCoordinator()
 
+    let terminalHostStore = TerminalHostStore(defaults: .standard, discovery: TerminalHostDiscovery())
+    @ObservationIgnored let herdrPaneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider()
+
     let healthStore = ProxyHealthStore()
     let passCLIStatusStore = PassCLIStatusStore()
     @ObservationIgnored var wakeObserver: WakeObserver?

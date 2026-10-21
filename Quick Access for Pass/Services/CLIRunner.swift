@@ -102,6 +102,16 @@ nonisolated enum CLIRunner {
     }
 
     static func run(
+        executablePath: String, arguments: [String], environmentOverrides: [String: String],
+        deadline: CLIExecutionDeadline, maximumOutputBytes: Int
+    ) async throws -> Data {
+        try await run(
+            executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides,
+            deadline: deadline, maximumOutputBytes: maximumOutputBytes, lifecycleTesting: nil
+        )
+    }
+
+    static func run(
         executablePath: String, arguments: [String], deadline: CLIExecutionDeadline,
         maximumOutputBytes: Int
     ) async throws -> Data {
@@ -112,11 +122,11 @@ nonisolated enum CLIRunner {
     }
 
     static func run(
-        executablePath: String, arguments: [String], deadline: CLIExecutionDeadline,
-        maximumOutputBytes: Int?, lifecycleTesting: LifecycleTesting?
+        executablePath: String, arguments: [String], environmentOverrides: [String: String] = [:],
+        deadline: CLIExecutionDeadline, maximumOutputBytes: Int?, lifecycleTesting: LifecycleTesting?
     ) async throws -> Data {
         try await runInternal(
-            launch: LaunchInputs(executablePath: executablePath, arguments: arguments, environmentOverrides: [:]),
+            launch: LaunchInputs(executablePath: executablePath, arguments: arguments, environmentOverrides: environmentOverrides),
             timing: Timing(timeout: nil, deadline: DispatchTime(uptimeNanoseconds: deadline.uptimeNanoseconds)),
             maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycleTesting
         )

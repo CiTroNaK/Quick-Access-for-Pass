@@ -38,6 +38,14 @@ Host *
 
 Quick Access resolves the requesting process so the prompt can show the app and command context when available. This helps distinguish a terminal command from a GUI app request.
 
+### Shared terminal-host presentation
+
+In **Settings → Integrations**, configure supported-app options and custom executable-to-display-name mappings shared by SSH and Run prompts. Herdr auto-detection runs at startup and when its executable appears in captured requester ancestry, without running discovery candidates. It is enabled on first detection. You can edit its name, disable it, or turn off **Show Herdr pane details**; saved opt-out and edits survive rediscovery/restart and temporarily unavailable installations. **Add Custom Terminal…** opens an editor where you can paste an absolute or `~`-relative executable path (including paths with spaces), or optionally choose a file. Adding a mapping only records filesystem input; custom mappings are never executed for enrichment. A custom mapping of the same executable suppresses automatic Herdr activation, even if disabled. Existing identified macOS apps take precedence.
+
+Herdr prompts can display a bounded, one-line workspace/tab, optional distinct pane title, and working-directory context after a best-effort match to the requesting pane. An empty title or a title that is whitespace-equivalent to the command text shown in the prompt is omitted using case-sensitive equality, not substring or prefix matching; comparison does not replace or alter the original command or title. Metadata is untrusted and display-only, stays in memory for that prompt, and does not change the requesting app identity, command/host cache context, key fingerprint, or remembered decision. These display hints do not establish process ownership or permission evidence. The SSH-only **Show command for apps** setting stays separate and retains its existing behavior.
+
+The base prompt and countdown appear immediately. Lookup is attempted once only for a displayed eligible prompt, with a total 750 ms budget. Missing, stale, disabled, ambiguous, or slow metadata falls back to the base header; disabling or changing configuration clears details. Quick Access reads only allowlisted routing hints and read-only Herdr metadata, not pane output, transcripts, or agent session files.
+
 The prompt supports remembered approvals and denials, each with the selected duration. This avoids repeated Touch ID prompts for a workflow you have already approved or intentionally blocked.
 
 ## Remembered decisions and session cache

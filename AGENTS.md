@@ -98,6 +98,14 @@ Key behaviors:
 8. Approvals and denials retain existing durations and the 10-second burst cache even for Do Not Remember. Exact-before-prefix lookup spans session and persistent tiers; session wins only within the same scope. An initial cached denial prevents resolution; queued rechecks prevent release, not earlier resolution or already-released values.
 9. Allowed responses return environment variables for client-side injection
 
+## Shared requester presentation
+
+`AppDelegate` composes one `TerminalHostStore` and one `HerdrPaneDetailsProviding` provider, shared by General settings and both proxy coordinators. The store owns filesystem-only Herdr discovery and versioned mapping preferences, retains explicit opt-out/edits, and suppresses automatic Herdr activation on generic canonical-path collisions. Resolver inputs must come from `matchingEntries`, never raw preferences. Identified macOS apps take precedence.
+
+Each actually displayed SSH/Run request owns a `RequesterHeaderModel`; `RequesterHeaderView` shows the base header immediately and starts cancellable, once-only enrichment while mounted. Models subscribe to effective configuration changes even after publication and clear/cancel on change, ordinary decision, queue advance, disappearance, and cancelAll. Header context rows are conditional, with no reserved blank metadata slots; controller-owned fitting resizes preserve panel width and top edge when possible, otherwise remain within the visible screen bounds. Cache-covered requests must not create header models or enrich; Run rejects unverified peers before presentation lookup.
+
+Mappings and Herdr labels/directories are untrusted display-only context. Never replace identity-adjacent fallback fields, bundle/team IDs, SSH showCommand/command/host/key cache identities, or Run subcommand/profile scope with presentation values. A detached trusted helper's Run authorization identifier remains `unknown`. Keep metadata request-scoped, out of persistence/audit logs, and never read pane output, transcripts, or agent session files. Enrichment uses only fixed read-only Herdr commands with requester-owned socket/PID correlation and final revalidation, one absolute 750 ms deadline, 512 KiB per-command output cap, 32-pane scan and four concurrent process-info calls. Missing/ambiguous/disabled/cancelled context falls back without blocking decisions/countdowns.
+
 ## Health Checks & Recovery
 
 A shared `ProxyHealthStore` and `PassCLIStatusStore` drive the status rows in Settings and the menu-bar health badge.
