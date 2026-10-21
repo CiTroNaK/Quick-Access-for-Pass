@@ -19,6 +19,7 @@ final class SSHAuthWindowController {
     }
 
     private struct PendingAuthRequest {
+        let id = UUID()
         let clientInfo: SSHClientInfo
         let appId: String
         let persistentCacheId: String
@@ -28,6 +29,8 @@ final class SSHAuthWindowController {
         let continuation: CheckedContinuation<SSHAuthorizationResult, Never>
     }
 
+    private var activeHeaderModel: RequesterHeaderModel?
+    private let headerFactory: @MainActor (SSHClientInfo) -> RequesterHeaderModel?
     private var panel: NSPanel?
     private var hostingController: NSHostingController<SSHAuthDialogView>?
     private var requestQueue: [PendingAuthRequest] = []
@@ -47,13 +50,15 @@ final class SSHAuthWindowController {
         keychainService: any BiometricAuthorizing,
         callbacks: AuthDialogHelper.Callbacks,
         identifyRequester: @escaping @MainActor (VerifiedConnection) -> SSHClientInfo = ProcessIdentifier.identifyRequester(of:),
-        presentDialog: (@MainActor (SSHAuthRequest) -> Void)? = nil
+        presentDialog: (@MainActor (SSHAuthRequest) -> Void)? = nil,
+        headerFactory: @escaping @MainActor (SSHClientInfo) -> RequesterHeaderModel? = { _ in nil }
     ) {
         self.databaseManager = databaseManager
         self.keychainService = keychainService
         self.callbacks = callbacks
         self.identifyRequester = identifyRequester
         self.presentDialog = presentDialog
+        self.headerFactory = headerFactory
     }
 
     /// Returns a cached authorization outcome without displaying a prompt.
@@ -97,6 +102,8 @@ final class SSHAuthWindowController {
     }
 
     func cancelAll() {
+        activeHeaderModel?.cancel()
+        activeHeaderModel = nil
         if let current = currentRequest {
             current.continuation.resume(returning: .deny)
             currentRequest = nil
@@ -135,6 +142,9 @@ final class SSHAuthWindowController {
     }
 
     private func dismissAndShowNext() {
+        activeHeaderModel?.cancel()
+        activeHeaderModel = nil
+        currentRequest = nil
         panel?.orderOut(nil)
         panel = nil
         hostingController = nil
@@ -270,20 +280,28 @@ private extension SSHAuthWindowController {
             ?? "Key \(pending.fingerprint.prefix(16))..."
         let host = pending.clientInfo.command.flatMap { ProcessIdentifier.parseHost($0) }
 
+        let header = headerFactory(pending.clientInfo)
+        activeHeaderModel = header
         return SSHAuthRequest(
             appName: pending.clientInfo.name,
             appBundleURL: pending.clientInfo.bundleURL,
+            headerModel: header,
             keyName: keyName,
             triggerCommand: pending.clientInfo.triggerCommand,
             showCommand: pending.clientInfo.showCommand,
             host: host,
             keychainService: self.keychainService,
-            callbacks: self.callbacks
-        ) { [weak self] allowed, duration in
-            Task { @MainActor [weak self] in
-                self?.completeDialogRequest(pending, allowed: allowed, duration: duration)
+            callbacks: self.callbacks,
+            onContentHeightChange: { [weak self] height in
+                guard let self, self.currentRequest?.id == pending.id, let panel = self.panel else { return }
+                AuthorizationPanelSizing.resize(panel, contentHeight: height)
+            },
+            onResult: { [weak self] allowed, duration in
+                Task { @MainActor [weak self] in
+                    self?.completeDialogRequest(pending, allowed: allowed, duration: duration)
+                }
             }
-        }
+        )
     }
 
     private func completeDialogRequest(
@@ -291,6 +309,7 @@ private extension SSHAuthWindowController {
         allowed: Bool,
         duration: RememberDuration
     ) {
+        guard currentRequest?.id == pending.id else { return }
         let sessionKey = SessionCacheKey(
             authorizationID: pending.persistentCacheId,
             fingerprint: pending.fingerprint

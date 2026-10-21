@@ -20,7 +20,8 @@ struct SettingsRoot: View {
             onWindowAvailable: { window in
                 appDelegate.settingsWindowCoordinator.observeSettingsWindow(window)
             },
-            autoFillAppAssociationsSettingsModel: autoFillAppAssociationsSettingsModel
+            autoFillAppAssociationsSettingsModel: autoFillAppAssociationsSettingsModel,
+            terminalHostStore: appDelegate.terminalHostStore
         )
             .onChange(of: appDelegate.databaseManager != nil) { _, databaseIsAvailable in
                 guard databaseIsAvailable,

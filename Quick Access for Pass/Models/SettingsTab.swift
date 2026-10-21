@@ -8,5 +8,6 @@ nonisolated enum SettingsTab: String, CaseIterable, Sendable {
     case passCLI
     case ssh
     case run
+    case integrations
     case about
 }

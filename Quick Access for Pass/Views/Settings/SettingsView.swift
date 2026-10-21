@@ -9,6 +9,7 @@ private let defaultShowLargeTypeModifiers = Int(NSEvent.ModifierFlags.shift.rawV
 struct SettingsView: View {
     let onWindowAvailable: @MainActor (NSWindow) -> Void
     let autoFillAppAssociationsSettingsModel: AutoFillAppAssociationsSettingsModel?
+    let terminalHostStore: TerminalHostStore
 
     @AppStorage(DefaultsKey.clipboardClearTimeout) var clipboardClearTimeout: Double = 30
     @AppStorage(DefaultsKey.concealFromClipboardManagers) var concealFromClipboardManagers: Bool = true
@@ -95,11 +96,14 @@ struct SettingsView: View {
             Tab("Run", systemImage: "play.circle", value: SettingsTab.run) {
                 RunSettingsTab(runProxyEnabled: $runProxyEnabled)
             }
+            Tab("Integrations", systemImage: "puzzlepiece.extension", value: SettingsTab.integrations) {
+                IntegrationsSettingsTab(store: terminalHostStore)
+            }
             Tab("About", systemImage: "info.circle", value: SettingsTab.about) {
                 AboutSettingsTab()
             }
         }
-        .frame(width: 480)
+        .frame(width: 560)
         .background {
             SettingsWindowObserver(onWindowAvailable: onWindowAvailable)
         }

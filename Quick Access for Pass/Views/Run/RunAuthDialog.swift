@@ -6,11 +6,13 @@ import AppKit
 nonisolated struct RunAuthRequest: Sendable {
     let appName: String
     let appBundleURL: URL?
+    var headerModel: RequesterHeaderModel?
     let profileName: String
     let command: String
     let scopeOptions: [RunAuthorizationScope]
     let keychainService: any BiometricAuthorizing
     let callbacks: AuthDialogHelper.Callbacks
+    var onContentHeightChange: (@MainActor (CGFloat) -> Void)?
     let onResult: @MainActor @Sendable (Bool, RememberDuration, RunAuthorizationIdentity?) -> Void
 }
 
@@ -41,29 +43,31 @@ struct RunAuthDialogView: View {
         case failed(AuthDialogHelper.FailurePresentation)
     }
 
-    private var appIcon: NSImage {
-        if let url = request.appBundleURL {
-            return NSWorkspace.shared.icon(forFile: url.path)
-        }
-        return NSImage(systemSymbolName: "questionmark.app", accessibilityDescription: nil)
-            ?? NSImage(named: NSImage.applicationIconName)!
-    }
-
     var body: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 12) {
-                Image(nsImage: appIcon)
-                    .resizable()
-                    .frame(width: 48, height: 48)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(request.appName)
-                        .font(.headline)
-                    Text("wants to use secrets from \(request.profileName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+        geometryContent
+            .task {
+                while !Task.isCancelled && timeRemaining > 0 {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    timeRemaining -= 1
+                }
+                if timeRemaining <= 0 {
+                    sendResult(allowed: false)
                 }
             }
+            .task {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                await authenticate()
+            }
+    }
+
+    /// Produces the dialog's measured content without starting its authentication/countdown lifecycle.
+    var geometryContent: some View {
+        VStack(spacing: 16) {
+            RequesterHeaderView(model: request.headerModel, fallbackName: request.appName,
+                                fallbackBundleURL: request.appBundleURL, subtitle: "wants to use secrets from \(request.profileName)",
+                                displayedCommand: request.command)
 
             HStack {
                 Image(systemName: "terminal")
@@ -185,20 +189,8 @@ struct RunAuthDialogView: View {
         }
         .padding(20)
         .frame(width: 380)
-        .task {
-            while !Task.isCancelled && timeRemaining > 0 {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
-                timeRemaining -= 1
-            }
-            if timeRemaining <= 0 {
-                sendResult(allowed: false)
-            }
-        }
-        .task {
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            await authenticate()
+        .onGeometryChange(for: CGFloat.self) { proxy in proxy.size.height } action: { height in
+            request.onContentHeightChange?(height)
         }
     }
 

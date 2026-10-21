@@ -81,13 +81,37 @@ struct ProcessIdentifierTests {
 
     @Test("parses host from Ghostty-style SSH command with multi-word -o values")
     func testParseHostGhosttyCommand() {
-        let command = "ssh -o SetEnv COLORTERM=truecolor -o SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION -o ControlMaster=yes -o ControlPath=/tmp/ghostty-ssh-git.iDg7gN/socket -o ControlPersist=60s git@github.com"
+        let command = "ssh -o SetEnv COLORTERM=truecolor -o SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION "
+            + "-o ControlMaster=yes -o ControlPath=/tmp/ghostty-ssh-git.iDg7gN/socket -o ControlPersist=60s git@github.com"
         #expect(ProcessIdentifier.parseHost(command) == "github.com")
     }
 
     @Test("returns nil when no destination is found")
     func testParseHostNoDestination() {
         #expect(ProcessIdentifier.parseHost("ssh -T -v TERM_PROGRAM") == nil)
+    }
+
+    // MARK: - Trigger Attribution
+
+    @Test("Direct SSH from a login shell retains the SSH destination",
+          arguments: ["zsh", "-zsh", "bash", "-bash", "fish", "-fish"])
+    func directSSHFromShell(parentCommand: String) {
+        #expect(ProcessIdentifier.triggerCommand(command: "ssh git@github.com", parentCommand: parentCommand)
+                == "ssh git@github.com")
+    }
+
+    @Test("Non-shell wrappers retain their triggering command")
+    func wrapperTriggerIsPreserved() {
+        #expect(ProcessIdentifier.triggerCommand(command: "ssh git@github.com", parentCommand: "git fetch --all")
+                == "git fetch --all")
+        #expect(ProcessIdentifier.triggerCommand(command: "ssh git@github.com", parentCommand: "-custom github.com")
+                == "-custom github.com")
+    }
+
+    @Test("Missing parent falls back to the cleaned SSH destination")
+    func missingParentTrigger() {
+        #expect(ProcessIdentifier.triggerCommand(command: "ssh -T git@github.com", parentCommand: nil)
+                == "ssh git@github.com")
     }
 
     // MARK: - Destination Parsing
@@ -104,7 +128,8 @@ struct ProcessIdentifierTests {
 
     @Test("parseDestination strips Ghostty-injected options")
     func testParseDestinationGhostty() {
-        let command = "ssh -o SetEnv COLORTERM=truecolor -o SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION -o ControlMaster=yes -o ControlPath=/tmp/ghostty-ssh-git.iDg7gN/socket -o ControlPersist=60s git@github.com"
+        let command = "ssh -o SetEnv COLORTERM=truecolor -o SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION "
+            + "-o ControlMaster=yes -o ControlPath=/tmp/ghostty-ssh-git.iDg7gN/socket -o ControlPersist=60s git@github.com"
         #expect(ProcessIdentifier.parseDestination(command) == "ssh git@github.com")
     }
 

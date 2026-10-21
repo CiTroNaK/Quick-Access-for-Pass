@@ -19,6 +19,8 @@ final class SSHProxyCoordinator {
     let healthStore: ProxyHealthStore
     private let keychainService: any BiometricAuthorizing
     let passCLIStatusStore: PassCLIStatusStore
+    private let terminalHostStore: TerminalHostStore?
+    private let paneDetailsProvider: any HerdrPaneDetailsProviding
     private let authCallbacks: AuthDialogHelper.Callbacks
     private weak var notificationRouter: UserNotificationRouter?
     let defaults: UserDefaults
@@ -46,6 +48,8 @@ final class SSHProxyCoordinator {
         keychainService: any BiometricAuthorizing,
         passCLIStatusStore: PassCLIStatusStore,
         defaults: UserDefaults = .standard,
+        terminalHostStore: TerminalHostStore? = nil,
+        paneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider(),
         authCallbacks: AuthDialogHelper.Callbacks = .noop,
         notificationRouter: UserNotificationRouter? = nil
     ) {
@@ -56,6 +60,8 @@ final class SSHProxyCoordinator {
         self.keychainService = keychainService
         self.passCLIStatusStore = passCLIStatusStore
         self.defaults = defaults
+        self.terminalHostStore = terminalHostStore
+        self.paneDetailsProvider = paneDetailsProvider
         self.authCallbacks = authCallbacks
         self.notificationRouter = notificationRouter
     }
@@ -66,7 +72,14 @@ final class SSHProxyCoordinator {
         // Cleanup expired decisions on launch
         try? databaseManager.cleanupExpiredDecisions()
 
-        authWindowController = SSHAuthWindowController(databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks)
+        authWindowController = SSHAuthWindowController(
+            databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks,
+            headerFactory: { [terminalHostStore, paneDetailsProvider] clientInfo in
+                guard let terminalHostStore else { return nil }
+                return RequesterHeaderModel(clientInfo: clientInfo, snapshot: clientInfo.requesterSnapshot,
+                                            store: terminalHostStore, detailsProvider: paneDetailsProvider)
+            }
+        )
 
         let notifier = SSHBatchModeNotifier(databaseManager: databaseManager, notificationRouter: notificationRouter)
         notifier.requestAuthorizationIfNeeded()
