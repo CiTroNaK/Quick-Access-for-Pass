@@ -9,13 +9,15 @@ struct AutoFillBrokerClientTests {
     @Test("verifies the host before sending the narrow request")
     func verifiesBeforeSending() async throws {
         let descriptorID = UUID()
-        let deadline = DispatchTime.now().uptimeNanoseconds + 2_000_000_000
+        let clock = UInt64(1_000_000_000)
+        let deadline = clock + 2_000_000_000
         let connection = FakeAutoFillClientConnection(responseValue: "fake-password")
         let opener = RecordingAutoFillHostOpener()
         let client = AutoFillBrokerClient(
             connectionFactory: { connection },
             hostOpener: opener,
-            retryDelay: .milliseconds(1)
+            retryDelay: .milliseconds(1),
+            now: { clock }
         )
 
         let value = try await client.resolve(
@@ -65,7 +67,8 @@ struct AutoFillBrokerClientTests {
 
     @Test("verified unauthorized wake response retries after delayed host registration")
     func delayedWakeRegistrationRetries() async throws {
-        let registry = AutoFillRequestRegistry()
+        let clock = UInt64(1_000_000_000)
+        let registry = AutoFillRequestRegistry(now: { clock })
         let firstConnectionID = UUID()
         let secondConnectionID = UUID()
         try await registry.bindConnection(firstConnectionID, peer: verifiedExtensionPeer())
@@ -90,7 +93,7 @@ struct AutoFillBrokerClientTests {
         let attempts = OSAllocatedUnfairLock(initialState: 0)
         let sleepCalls = OSAllocatedUnfairLock(initialState: 0)
         let opener = RecordingAutoFillHostOpener()
-        let deadline = DispatchTime.now().uptimeNanoseconds + 2_000_000_000
+        let deadline = clock + 2_000_000_000
         let client = AutoFillBrokerClient(
             connectionFactory: {
                 try attempts.withLock { count in
@@ -104,6 +107,7 @@ struct AutoFillBrokerClientTests {
             },
             hostOpener: opener,
             retryDelay: .milliseconds(1),
+            now: { clock },
             sleep: { _ in
                 let call = sleepCalls.withLock { count in
                     count += 1

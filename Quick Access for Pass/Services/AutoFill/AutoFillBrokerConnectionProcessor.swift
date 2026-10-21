@@ -10,6 +10,12 @@ nonisolated enum AutoFillBrokerConnectionProcessor {
         let verifier: @Sendable (Int32) throws -> VerifiedAutoFillPeer
         let requestHandler: AutoFillBrokerRequestHandler
         let candidateHandler: AutoFillBrokerCandidateHandler
+        /// Test-only completion seam. Production leaves this nil; it cannot
+        /// replace registry completion or bypass authenticated admission.
+        let completionGate: (@Sendable () async -> Void)?
+        /// Test-only observation point after typed partial-frame cleanup and
+        /// before the accepted-connection owner closes its descriptor.
+        let partialDeliveryGate: (@Sendable () async -> Void)?
     }
 
     struct Admission: Sendable {
@@ -74,6 +80,15 @@ nonisolated extension AutoFillBrokerConnectionProcessor {
                 let wakeHandle,
                 let appAssociationIntent
             ):
+                // The authenticated request has been read in full. This owned
+                // connection now enters its terminal response phase; no further
+                // blocking reads are needed. Keep the one-way mode change until
+                // the existing connection owner closes it. MSG_DONTWAIT alone
+                // does not prevent a Darwin AF_UNIX send from blocking.
+                let flags = fcntl(fd, F_GETFL, 0)
+                guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+                    throw AutoFillProtocolError.connectionClosed
+                }
                 let credentialAdmission = Admission(
                     connectionID: connectionID,
                     peer: peer,
@@ -191,21 +206,25 @@ nonisolated extension AutoFillBrokerConnectionProcessor {
         dependencies: Dependencies
     ) async {
         do {
-            let value = try await resolveWhileConnected(fd: fd, deadline: request.deadline) {
+            let delivery = try await resolveWhileConnected(fd: fd, deadline: request.deadline) {
                 try await dependencies.requestHandler(request, { state in
                     try await dependencies.registry.transition(requestID: request.requestID, to: state)
                 }, appAssociationIntent)
             }
-            if try await dependencies.registry.complete(
+            try await completeCredentialDelivery(
+                delivery, request: request, connectionID: connectionID, fd: fd, dependencies: dependencies
+            )
+        } catch AutoFillWireDeliveryError.partialFrame {
+            // Credential bytes are already on this stream. Do not append a
+            // failure frame; the accepted-connection owner closes its fd after
+            // this registry cleanup completes.
+            _ = try? await dependencies.registry.fail(
                 requestID: request.requestID,
-                connectionID: connectionID
-            ) {
-                try AutoFillWire.writeMessage(
-                    AutoFillBrokerResponse.credential(requestID: request.requestID, value: value),
-                    toFileDescriptor: fd
-                )
-            } else if await dependencies.registry.terminalResult(for: request.requestID) == .timedOut {
-                try? writeFailure(.expired, requestID: request.requestID, to: fd)
+                connectionID: connectionID,
+                failure: .unavailable
+            )
+            if let partialDeliveryGate = dependencies.partialDeliveryGate {
+                await partialDeliveryGate()
             }
         } catch AutoFillBrokerError.disconnected {
             _ = try? await dependencies.registry.fail(
@@ -232,6 +251,24 @@ nonisolated extension AutoFillBrokerConnectionProcessor {
             )) == true {
                 try? writeFailure(.resolutionFailed, requestID: request.requestID, to: fd)
             }
+        }
+    }
+
+    private static func completeCredentialDelivery(
+        _ delivery: AutoFillCredentialDelivery,
+        request: AutoFillRegisteredRequest,
+        connectionID: UUID,
+        fd: Int32,
+        dependencies: Dependencies
+    ) async throws {
+        if try await dependencies.registry.complete(
+            requestID: request.requestID,
+            connectionID: connectionID
+        ) {
+            if let completionGate = dependencies.completionGate { await completionGate() }
+            try await delivery.release.deliver(delivery.value, toFileDescriptor: fd)
+        } else if await dependencies.registry.terminalResult(for: request.requestID) == .timedOut {
+            try? writeFailure(.expired, requestID: request.requestID, to: fd)
         }
     }
 

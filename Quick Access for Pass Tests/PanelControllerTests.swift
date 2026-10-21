@@ -5,6 +5,10 @@ import AppKit
 @Suite("PanelController")
 @MainActor
 struct PanelControllerTests {
+    @Test func preparedLargeTypeIsOwnedBeforeSynchronousKeyNotification() throws {
+        try assertPreparedLargeTypeOwnershipBeforeKeyNotification()
+    }
+
     @Test func ownedAuxiliaryWindowCountsAsOwnWindow() {
         let controller = PanelController()
         let auxiliary = NSWindow(

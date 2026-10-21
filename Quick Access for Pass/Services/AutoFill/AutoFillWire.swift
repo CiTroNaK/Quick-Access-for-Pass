@@ -1,6 +1,13 @@
 import Darwin
 import Foundation
 
+/// Indicates that credential frame bytes reached the peer but the complete frame
+/// could not be delivered. The accepted-connection owner must close the socket;
+/// callers must not append a failure frame to this partial credential stream.
+nonisolated enum AutoFillWireDeliveryError: Error, Equatable, Sendable {
+    case partialFrame
+}
+
 /// Strict length-prefixed JSON framing for the dedicated AutoFill broker.
 /// The four-byte big-endian length is validated before allocating the body buffer.
 nonisolated enum AutoFillWire {
@@ -31,6 +38,29 @@ nonisolated enum AutoFillWire {
         var length = UInt32(payload.count).bigEndian
         try withUnsafeBytes(of: &length) { try writeAll($0, to: fd) }
         try payload.withUnsafeBytes { try writeAll($0, to: fd) }
+    }
+
+    /// Bounded fail-closed credential delivery used only inside the MainActor
+    /// final release turn. The connection owner must already have transitioned
+    /// its socket to O_NONBLOCK: Darwin AF_UNIX sends can block despite
+    /// MSG_DONTWAIT on a blocking descriptor. This helper neither changes flags
+    /// nor closes its borrowed descriptor. A partial frame gets no later frame.
+    static func writeMessageNonblocking<T: AutoFillWireMessage>(
+        _ message: T,
+        toFileDescriptor fd: Int32
+    ) throws {
+        let flags = fcntl(fd, F_GETFL, 0)
+        guard flags >= 0, flags & O_NONBLOCK != 0 else {
+            throw AutoFillProtocolError.connectionClosed
+        }
+        let payload = try encodeMessage(message)
+        guard payload.isEmpty == false, payload.count <= maximumMessageSize else {
+            throw AutoFillProtocolError.messageTooLarge
+        }
+        var length = UInt32(payload.count).bigEndian
+        var frame = Data(bytes: &length, count: MemoryLayout<UInt32>.size)
+        frame.append(payload)
+        try frame.withUnsafeBytes { try writeAllNonblocking($0, to: fd) }
     }
 
     static func encodeMessage<T: AutoFillWireMessage>(_ message: T) throws -> Data {
@@ -109,6 +139,28 @@ nonisolated enum AutoFillWire {
             } else if errno != EINTR {
                 throw AutoFillProtocolError.connectionClosed
             }
+        }
+    }
+
+    private static func writeAllNonblocking(_ buffer: UnsafeRawBufferPointer, to fd: Int32) throws {
+        guard let baseAddress = buffer.baseAddress else { return }
+        var offset = 0
+        var interrupted = 0
+        while offset < buffer.count {
+            let result = Darwin.send(fd, baseAddress.advanced(by: offset), buffer.count - offset, MSG_DONTWAIT | MSG_NOSIGNAL)
+            if result > 0 {
+                offset += result
+                continue
+            }
+            if result < 0, errno == EINTR, interrupted < 8 {
+                interrupted += 1
+                continue
+            }
+            // A partial credential frame cannot be followed by an error frame.
+            // The accepted-connection task remains the sole descriptor owner and
+            // closes it in its defer after processor cleanup completes.
+            if offset > 0 { throw AutoFillWireDeliveryError.partialFrame }
+            throw AutoFillProtocolError.connectionClosed
         }
     }
 }

@@ -4,6 +4,19 @@ import Testing
 
 @Suite("CLI item list lossy parser")
 struct CLIItemListLossyParserTests {
+    @Test("presence provenance is trusted vault scoped and never normalizes opaque IDs")
+    func presenceUncertaintyUsesParseVaultAndExactUsableIDs() throws {
+        let result = try CLIItemListLossyParser.parse(Data("""
+            {"items":[{"id":" item ","vault_id":"untrusted-vault","share_id":"untrusted-share","content":false},
+                      {"id":"","content":false},{"id":"   ","content":false},{"id":42,"content":false},false]}
+            """.utf8), vaultId: "trusted-vault", vaultName: "Trusted", shareId: "trusted-share")
+        #expect(result.items.isEmpty)
+        #expect(result.skippedItems.count == 5)
+        #expect(result.presenceUncertainty.vaultID == "trusted-vault")
+        #expect(result.presenceUncertainty.skippedItemIDs == [" item "])
+        #expect(result.presenceUncertainty.hasUnidentifiedSkippedItems)
+    }
+
 
     @Test("malformed item is skipped while valid neighbors decode")
     func skipsMalformedItemAndKeepsValidItems() throws {

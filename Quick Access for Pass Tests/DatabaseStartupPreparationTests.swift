@@ -113,7 +113,10 @@ struct DatabaseStartupPreparationTests {
             root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("DatabaseStartupPreparationTests-\(UUID().uuidString)")
             databaseURL = root.appendingPathComponent("Application Support/QuickAccessForPass/app.db")
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: databaseURL.deletingLastPathComponent().deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
         }
 
         var calls: [KeychainPassphraseQueryKind] {

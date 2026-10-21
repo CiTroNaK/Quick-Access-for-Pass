@@ -1,4 +1,6 @@
 import Foundation
+import GRDB
+import os
 import Testing
 @testable import Quick_Access_for_Pass
 
@@ -8,11 +10,16 @@ struct AutoFillAccessibilityTests {
     @Test("locked requests announce unlock before resolving")
     func unlockRequiredAnnouncement() async throws {
         let accessibility = RecordingAutoFillAccessibilityAdapter()
-        let coordinator = makeCoordinator(
-            accessibility: accessibility,
-            isLocked: true,
-            unlock: { _ in true },
-            resolve: { _, _ in "fake-value" }
+        let locked = OSAllocatedUnfairLock(initialState: true)
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: AccessibilityDescriptorStore(descriptor: descriptor),
+            secretResolver: AccessibilitySecretResolver(body: { _, _ in "fake-value" }),
+            isAppLocked: { locked.withLock { $0 } },
+            showLockedPanel: { _ in
+                locked.withLock { $0 = false }
+                return true
+            },
+            accessibility: accessibility
         )
 
         _ = try await coordinator.resolve(request: makeRequest(lifetime: ordinaryPathLifetime))
@@ -24,21 +31,35 @@ struct AutoFillAccessibilityTests {
     @Test("a request deadline announces a non-secret timeout")
     func timeoutAnnouncement() async {
         let accessibility = RecordingAutoFillAccessibilityAdapter()
-        let coordinator = makeCoordinator(
-            accessibility: accessibility,
-            isLocked: true,
-            unlock: { _ in
-                try? await Task.sleep(for: .seconds(1))
+        let request = makeRequest(lifetime: ordinaryPathLifetime)
+        let clock = OSAllocatedUnfairLock(initialState: request.deadline - UInt64(ordinaryPathLifetime * 1_000_000_000))
+        let unlockCalls = OSAllocatedUnfairLock(initialState: 0)
+        let resolverCalls = OSAllocatedUnfairLock(initialState: 0)
+        // Expire at unlock entry, rather than racing metadata admission against
+        // a short wall-clock budget. This test asserts announcement ordering.
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: AccessibilityDescriptorStore(descriptor: descriptor),
+            secretResolver: AccessibilitySecretResolver(body: { _, _ in
+                resolverCalls.withLock { $0 += 1 }
+                return "must-not-resolve"
+            }),
+            isAppLocked: { true },
+            showLockedPanel: { _ in
+                unlockCalls.withLock { $0 += 1 }
+                clock.withLock { $0 = request.deadline }
                 return true
             },
-            resolve: { _, _ in "must-not-resolve" }
+            accessibility: accessibility,
+            now: { clock.withLock { $0 } }
         )
 
         await #expect(throws: AutoFillBrokerCoordinator.Error.deadlineExpired) {
-            try await coordinator.resolve(request: makeRequest(lifetime: 0.2))
+            try await coordinator.resolve(request: request)
         }
 
         #expect(accessibility.events == [.unlockRequired, .requestTimedOut])
+        #expect(unlockCalls.withLock { $0 } == 1)
+        #expect(resolverCalls.withLock { $0 } == 0)
     }
 
     @Test("Pass CLI failures announce a fixed message without leaking error content")
@@ -61,6 +82,41 @@ struct AutoFillAccessibilityTests {
 
         #expect(accessibility.events == [.cliFailure])
         #expect(AutoFillAccessibilityEvent.cliFailure.announcement.contains("never-announce-this-value") == false)
+    }
+
+    @Test("authenticated decoder marker reaches only fixed AutoFill accessibility presentation")
+    func encryptedDecoderMarkerNeverReachesAnnouncement() async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
+        let item = try #require(fixture.items.first)
+        let codec = fixture.codec()
+        let service = OfflineModeService(repository: fixture.repository, codec: codec, cliService: OfflineFixtureViewer())
+        try await initializeOfflineFixtureService(service)
+        try await service.makeAvailableOffline(item: item, shareId: "share")
+        let key = OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: OfflineSnapshotLimits.schemaVersion)
+        let snapshot = try #require(try await fixture.repository.authorizedSnapshot(for: key))
+        let marker = "<<TASK7_DECODER_ACCESSIBILITY_MARKER>>"
+        let cipher = try OfflineSnapshotCipher(keyData: Data(repeating: 7, count: 32))
+        let payload = try cipher.seal(Data("malformed-\(marker)".utf8), for: snapshot.identity)
+        try await fixture.database.writer.write { db in
+            try db.execute(
+                sql: "UPDATE offlineSnapshots SET encryptedPayload = ? WHERE vaultId = ? AND itemId = ?",
+                arguments: [payload, "vault", "item"]
+            )
+        }
+        let accessibility = RecordingAutoFillAccessibilityAdapter()
+        let coordinator = AutoFillBrokerCoordinator(
+            descriptorStore: AccessibilityDescriptorStore(descriptor: descriptor),
+            secretResolver: OfflineAutoFillSecretResolver(resolver: OfflineSecretResolver(
+                live: AccessibilityOfflineLive(), repository: fixture.repository, codec: codec, readiness: service
+            )),
+            isAppLocked: { false }, showLockedPanel: { _ in false }, accessibility: accessibility
+        )
+
+        await #expect(throws: (any Error).self) {
+            _ = try await coordinator.resolve(request: makeRequest(lifetime: ordinaryPathLifetime))
+        }
+        #expect(accessibility.events == [.cliFailure])
+        #expect(AutoFillAccessibilityEvent.cliFailure.announcement.contains(marker) == false)
     }
 
     @Test("failed authentication asks owned unlock UI to recover accessibility focus")
@@ -219,8 +275,8 @@ struct AutoFillAccessibilityTests {
         )
     }
 
-    /// This ordinary-path assertion does not exercise expiry; the dedicated
-    /// timeout test below retains its short fixture lifetime.
+    /// Admission budget for ordinary paths; the timeout-announcement test
+    /// controls expiry through the coordinator's injected clock.
     private let ordinaryPathLifetime: TimeInterval = 30
 
     private func makeRequest(lifetime: TimeInterval = 1) -> AutoFillRegisteredRequest {
@@ -268,13 +324,21 @@ private struct AccessibilityDescriptorStore: AutoFillDescriptorStoring {
     }
 }
 
+private struct AccessibilityOfflineLive: OfflineSecretResolvingLive {
+    func viewItem(itemId: String, shareId: String) async throws -> CLIItem { throw CLIError.notLoggedIn }
+    func getTotp(itemId: String, shareId: String) async throws -> String { throw CLIError.notLoggedIn }
+    func viewItem(itemId: String, shareId: String, timeout: TimeInterval) async throws -> CLIItem { throw CLIError.notLoggedIn }
+    func getTotp(itemId: String, shareId: String, timeout: TimeInterval) async throws -> String { throw CLIError.notLoggedIn }
+}
+
 private struct AccessibilitySecretResolver: AutoFillSecretResolving {
     let body: @Sendable (AutoFillCredentialDescriptor, AutoFillValueKind) async throws -> String
 
     func resolve(
         descriptor: AutoFillCredentialDescriptor,
-        kind: AutoFillValueKind
-    ) async throws -> String {
-        try await body(descriptor, kind)
+        kind: AutoFillValueKind,
+        context: SecretResolutionContext
+    ) async throws -> ResolvedSecret<String> {
+        return ResolvedSecret(value: try await body(descriptor, kind), offlineCapability: nil)
     }
 }

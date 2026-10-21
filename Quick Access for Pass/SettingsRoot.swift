@@ -36,6 +36,7 @@ struct SettingsRoot: View {
             .environment(appDelegate.passCLIStatusStore)
             .environment(\.databaseManager, appDelegate.databaseManager)
             .environment(\.passCLIPATSettingsModel, appDelegate.passCLIPATSettingsModel)
+            .environment(\.offlineModeCoordinator, appDelegate.offlineModeCoordinator)
             .task { @MainActor in
                 await appDelegate.healthCoordinator?.refreshAll()
                 await appDelegate.passCLIPATSettingsModel?.refreshSavedTokenState()

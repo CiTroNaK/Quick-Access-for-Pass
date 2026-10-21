@@ -5,7 +5,6 @@ extension QuickAccessViewModel {
         onActivity()
         guard let item = items[safe: selectedIndex] else { return }
         detailItem = item
-        selectedRowIndex = 0
     }
 
     func hideDetail() {
@@ -14,30 +13,44 @@ extension QuickAccessViewModel {
         inFlightCopy = nil
         inFlightLargeType?.cancel()
         inFlightLargeType = nil
-        isActionLoading = false
+        inFlightOfflineOperation?.cancel()
+        inFlightOfflineOperation = nil
         copyGeneration += 1
         largeTypeGeneration += 1
+        offlineOperationGeneration += 1
         detailItem = nil
-        selectedRowIndex = 0
     }
 
     func moveRowSelection(by offset: Int) {
         onActivity()
-        guard let item = detailItem else { return }
+        guard offset != 0, let item = detailItem else { return }
         let rows = rows(for: item)
+        reconcileDetailSelection(for: item)
         guard !rows.isEmpty else { return }
+        let currentIndex = rows.firstIndex(where: { $0.id == detailSelectionState.selectedID }) ?? (offset > 0 ? -1 : rows.count)
+        let proposedIndex = max(0, min(rows.count - 1, currentIndex + offset))
+        let direction = offset > 0 ? 1 : -1
+        var index = proposedIndex
+        while rows.indices.contains(index) {
+            if isDetailRowSelectable(rows[index], for: item) {
+                selectDetailRow(at: index)
+                return
+            }
+            index += direction
+        }
+    }
 
-        let proposed = max(0, min(rows.count - 1, selectedRowIndex + offset))
-        let direction = offset >= 0 ? 1 : -1
-        var index = proposed
-        while index >= 0 && index < rows.count && !rows[index].isSelectable {
-            let next = index + direction
-            if next < 0 || next >= rows.count { break }
-            index = next
+    /// The offline row becomes ineligible while its mutation is running, even
+    /// if focus moves to another detail row before the operation completes.
+    func isDetailRowSelectable(_ row: DetailRow, for item: PassItem) -> Bool {
+        guard row.isSelectable else { return false }
+        if case .offlineAvailability = row {
+            return offlineModeCoordinator?.isOperating(on: item) != true
         }
-        if index >= 0 && index < rows.count && rows[index].isSelectable {
-            selectedRowIndex = index
+        if case .keepOfflineIndividually = row {
+            return offlineModeCoordinator?.canKeepOfflineIndividually(item.id) == true
         }
+        return true
     }
 
     func moveSelection(by offset: Int) {
@@ -53,6 +66,12 @@ extension QuickAccessViewModel {
     func rows(for item: PassItem) -> [DetailRow] {
         var rows: [DetailRow] = actionsForItem(item).map { tuple in
             .namedAction(action: tuple.action, label: tuple.label, shortcut: tuple.shortcut)
+        }
+        if let offlineModeCoordinator {
+            rows.append(.offlineAvailability(offlineModeCoordinator.availability(for: item)))
+            if offlineModeCoordinator.shouldOfferKeepOfflineIndividually(item.id) {
+                rows.append(.keepOfflineIndividually)
+            }
         }
         var sectionOrdinal = 0
         for key in item.fieldKeys {
@@ -103,7 +122,7 @@ extension QuickAccessViewModel {
                         if case .namedAction(let current, _, _) = $0 { return current == action }
                         return false
                     }) {
-                        selectedRowIndex = index
+                        selectDetailRow(at: index)
                     }
                 }
                 handleAction(action, for: item)

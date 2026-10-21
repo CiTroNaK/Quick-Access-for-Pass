@@ -16,7 +16,7 @@ private func makeViewModel(dismissTracker: DismissTracker = DismissTracker()) th
     let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
     let search = SearchService(databaseManager: db)
     let cli = PassCLIService()
-    let clipboard = ClipboardManager(autoClearSeconds: 0)
+    let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
     dismissTracker.called = false
     let vm = QuickAccessViewModel(
         searchService: search,
@@ -52,7 +52,7 @@ private func makeViewModelWithItems() throws -> (QuickAccessViewModel, DatabaseM
     let vm = QuickAccessViewModel(
         searchService: SearchService(databaseManager: db),
         cliService: PassCLIService(),
-        clipboardManager: ClipboardManager(autoClearSeconds: 0),
+        clipboardManager: ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName()),
         onDismiss: {}
     )
     vm.performSearch(query: "git")
@@ -100,7 +100,6 @@ struct QuickAccessViewModelSearchTests {
         vm.showDetail()
         vm.selectedRowIndex = 1
         vm.isLoading = true
-        vm.isActionLoading = true
         let oldCopyGeneration = vm.copyGeneration
         let oldLargeTypeGeneration = vm.largeTypeGeneration
 
@@ -110,7 +109,7 @@ struct QuickAccessViewModelSearchTests {
         #expect(vm.items.isEmpty)
         #expect(vm.selectedIndex == 0)
         #expect(vm.detailItem == nil)
-        #expect(vm.selectedRowIndex == 0)
+        #expect(vm.selectedRowIndex == -1)
         #expect(vm.errorMessage == nil)
         #expect(vm.isLoading == false)
         #expect(vm.isActionLoading == false)
@@ -163,7 +162,7 @@ struct QuickAccessViewModelNavigationTests {
         vm.selectedRowIndex = 2
         vm.hideDetail()
         #expect(vm.detailItem == nil)
-        #expect(vm.selectedRowIndex == 0)
+        #expect(vm.selectedRowIndex == -1)
     }
 
     @Test("moveRowSelection clamps to row count")
@@ -182,7 +181,7 @@ struct QuickAccessViewModelNavigationTests {
     @MainActor func moveRowSelectionNoDetail() throws {
         let (vm, _) = try makeViewModel()
         vm.moveRowSelection(by: 1)
-        #expect(vm.selectedRowIndex == 0)
+        #expect(vm.selectedRowIndex == -1)
     }
 }
 
@@ -238,7 +237,7 @@ struct QuickAccessViewModelActionTests {
         let dismissingVM = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: PassCLIService(),
-            clipboardManager: ClipboardManager(autoClearSeconds: 0),
+            clipboardManager: ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName()),
             onDismiss: { tracker.called = true }
         )
         dismissingVM.handleAction(.copyUsername, for: github)
@@ -250,7 +249,7 @@ struct QuickAccessViewModelActionTests {
         let runner = DelayedSecretActionRunner()
         let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
-        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
         var dismissed = false
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
@@ -283,7 +282,7 @@ struct QuickAccessViewModelActionTests {
         let runner = try AliasSecretActionRunner(aliasEmail: "  shopping@example.com  ")
         let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
-        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: cliService,
@@ -312,7 +311,7 @@ struct QuickAccessViewModelActionTests {
         let runner = try AliasSecretActionRunner(aliasEmail: aliasEmail)
         let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
-        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
         var dismissed = false
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
@@ -344,7 +343,7 @@ struct QuickAccessViewModelActionTests {
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: PassCLIService(),
-            clipboardManager: ClipboardManager(autoClearSeconds: 0),
+            clipboardManager: ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName()),
             onDismiss: { tracker.called = true }
         )
         let item = PassItem(
@@ -457,19 +456,19 @@ struct QuickAccessViewModelDetailRowTests {
     private func makeVM(
         fetcher: CLIItemFetcher? = nil,
         items: [PassItem] = [],
-        presentLargeType: LargeTypePresenter? = nil
+        largeTypePresentation: LargeTypePresentationActions? = nil
     ) throws -> (QuickAccessViewModel, ClipboardManager) {
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         try db.upsertVaults([PassVault(id: "s1", name: "Personal")])
         if !items.isEmpty { try db.upsertItems(items) }
-        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: PassCLIService(),
             clipboardManager: clipboard,
             onDismiss: {},
             fetchItem: fetcher,
-            presentLargeType: presentLargeType
+            largeTypePresentation: largeTypePresentation
         )
         return (vm, clipboard)
     }
@@ -708,7 +707,7 @@ struct QuickAccessViewModelDetailRowTests {
 
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         try db.upsertVaults([PassVault(id: "s1", name: "Personal")])
-        let clipboard = ClipboardManager(autoClearSeconds: 0)
+        let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
         let vm = QuickAccessViewModel(
             searchService: SearchService(databaseManager: db),
             cliService: PassCLIService(),
@@ -833,7 +832,7 @@ struct QuickAccessViewModelDetailRowTests {
         let cliItem = try JSONDecoder().decode(CLIItem.self, from: Data(json.utf8))
         let fetcher: CLIItemFetcher = { _, _ in cliItem }
         var presented: LargeTypeDisplay?
-        let (vm, _) = try makeVM(fetcher: fetcher, presentLargeType: { presented = $0 })
+        let (vm, _) = try makeVM(fetcher: fetcher, largeTypePresentation: headlessLargeTypeActions(onPresented: { presented = $0 }))
         vm.detailItem = item(fieldKeys: [.email])
         vm.selectedRowIndex = 1
 
@@ -864,7 +863,7 @@ struct QuickAccessViewModelDetailRowTests {
         }
 
         var presented: LargeTypeDisplay?
-        let (vm, _) = try makeVM(fetcher: fetcher, presentLargeType: { presented = $0 })
+        let (vm, _) = try makeVM(fetcher: fetcher, largeTypePresentation: headlessLargeTypeActions(onPresented: { presented = $0 }))
         vm.detailItem = item(fieldKeys: [.email])
         vm.selectedRowIndex = 1
 

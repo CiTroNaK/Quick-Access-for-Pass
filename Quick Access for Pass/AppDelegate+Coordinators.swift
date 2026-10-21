@@ -21,6 +21,9 @@ extension AppDelegate {
             identitySynchronizer: AutoFillIdentitySynchronizer(
                 adapter: ASCredentialIdentityStoreAdapter()
             ),
+            offlineModeService: offlineModeService,
+            maintenance: offlineStorageMaintenance,
+            onResetInitiated: { [weak self] in self?.revokeTransientSecretAccess() },
             onSyncIssueChanged: { [weak self] presentation in
                 self?.syncIssueDidChange(presentation)
             },
@@ -110,7 +113,8 @@ extension AppDelegate {
             credentialStore: patCredentialStore,
             cliService: cliService,
             healthRefresher: AppPassCLIHealthRefresher(appDelegate: self),
-            syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() }
+            syncTrigger: { [weak self] in self?.syncCoordinator?.refreshNow() },
+            revokeTransientSecretAccess: { [weak self] in self?.revokeTransientSecretAccess() }
         )
         passCLIPATLoginService = patLoginService
 
@@ -126,7 +130,13 @@ extension AppDelegate {
             isCurrentSessionPersonalAccessToken: { [weak self] in
                 self?.passCLIStatusStore.identity?.isPersonalAccessTokenSession == true
             },
-            logoutFromPassCLI: { try await cliService.logout() }
+            logoutFromPassCLI: { [weak self] in
+                guard let self else { return }
+                try await self.logoutFromPassCLI(
+                    cliService: cliService,
+                    offlineModeService: self.offlineModeService
+                )
+            }
         )
 
         passCLIPATAutoLoginCoordinator = PassCLIPATAutoLoginCoordinator(
@@ -149,6 +159,24 @@ extension AppDelegate {
                 loginCoordinator?.state != .idle
             }
         )
+    }
+
+    /// Revokes transient presentation before the logout process can suspend.
+    func logoutFromPassCLI(
+        cliService: PassCLIService,
+        offlineModeService: OfflineModeService?
+    ) async throws {
+        revokeTransientSecretAccess()
+        try await Self.logoutFromPassCLI(cliService: cliService, offlineModeService: offlineModeService)
+    }
+
+    /// Purges host-only offline data only after Pass CLI confirms logout.
+    static func logoutFromPassCLI(
+        cliService: PassCLIService,
+        offlineModeService: OfflineModeService?
+    ) async throws {
+        try await cliService.logout()
+        try await offlineModeService?.removeAllOfflineData()
     }
 
     func setupWakeObserver() {
@@ -190,9 +218,9 @@ extension AppDelegate {
     }
 
     func setupAutoFillBroker() {
-        guard let cliService,
-              let databaseManager,
+        guard let databaseManager,
               let keychainService,
+              let offlineSecretResolver,
               let databaseURL = autoFillDatabaseURL,
               let socketPath = autoFillSocketPath else {
             return
@@ -205,7 +233,8 @@ extension AppDelegate {
                 keychainService: keychainService
             ),
             associationStore: AutoFillAppAssociationStore(databaseManager: databaseManager),
-            secretResolver: PassCLIAutoFillSecretResolver(cliService: cliService),
+            secretResolver: OfflineAutoFillSecretResolver(resolver: offlineSecretResolver),
+            secretReleaseGuard: secretReleaseGuard,
             isAppLocked: { [weak self] in self?.isLocked ?? false },
             showLockedPanel: { [weak self] remainingSeconds in
                 await self?.showPanelAndWaitForUnlock(timeoutSeconds: remainingSeconds) ?? false
@@ -219,7 +248,7 @@ extension AppDelegate {
             registry: registry,
             launchGate: autoFillLaunchGate,
             requestHandler: { request, transition, appAssociationIntent in
-                try await coordinator.resolve(
+                try await coordinator.resolveDelivery(
                     request: request,
                     appAssociationIntent: appAssociationIntent,
                     transition: transition

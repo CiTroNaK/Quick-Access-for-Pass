@@ -22,7 +22,7 @@ extension AppDelegate {
     /// Starts the locked panel's single active LocalAuthentication request.
     /// Returns nil when another request already owns the authentication phase.
     func beginPanelUnlock() -> UUID? {
-        guard panelUnlockAttemptID == nil else { return nil }
+        guard !isTerminating, panelUnlockAttemptID == nil else { return nil }
         let attemptID = UUID()
         panelUnlockAttemptID = attemptID
         isUnlockInFlight = true
@@ -48,6 +48,7 @@ extension AppDelegate {
 
     /// Completes authentication initiated by the locked Quick Access panel.
     func completePanelUnlock() {
+        guard !isTerminating else { return }
         let shouldReclaimPanelFocus = panelController?.isVisible == true
             && !panelShownForLockWait
         resetAuthTimestamp()
@@ -58,6 +59,7 @@ extension AppDelegate {
     }
 
     func resetAuthTimestamp() {
+        guard !isTerminating else { return }
         let now = Date()
         lastAuthenticatedAt = now
         lastActivityAt = now
@@ -73,9 +75,10 @@ extension AppDelegate {
     /// real key window and receives focus. The post-delay re-checks
     /// defend against a hide-then-show racing the dispatch.
     func scheduleAutoUnlockIfNeeded() {
-        guard isLocked else { return }
+        guard !isTerminating, isLocked else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self,
+                  !self.isTerminating,
                   self.isLocked,
                   self.panelController?.isVisible == true
             else { return }
@@ -108,16 +111,20 @@ extension AppDelegate {
     }
 
     func forceLock() {
+        revokeTransientSecretAccess()
         isForceLocked = true
     }
 
     func handleSystemLockEvent() {
+        // OS lock always revokes transient secret delivery, independently of
+        // the optional app-lock preference. The preference controls only panel
+        // lock state and presentation behavior below.
+        revokeTransientSecretAccess()
         guard lockDefaults.bool(forKey: DefaultsKey.lockOnSystemLock) else { return }
-        forceLock()
+        isForceLocked = true
         resetPendingLockContext()
         panelController?.hide(ignoringBlock: true)
         viewModel?.clearForLock()
-        viewModel?.clipboardManager.clearIfOwned()
         autoUnlockToken = nil
         panelShownForLockWait = false
     }
@@ -143,7 +150,7 @@ extension AppDelegate {
     }
 
     func togglePanel() {
-        guard let panelController else { return }
+        guard !isTerminating, let panelController else { return }
         if panelController.isVisible {
             panelController.hide()
         } else {
@@ -186,6 +193,7 @@ extension AppDelegate {
     /// `timeoutSeconds` defaults to 30 s; tests pass a smaller value
     /// for the timeout branch.
     func showPanelAndWaitForUnlock(timeoutSeconds: TimeInterval = 30) async -> Bool {
+        guard !isTerminating else { return false }
         let token = UUID()
         panelPresentationNonce = token
         if panelController?.isVisible == true {
