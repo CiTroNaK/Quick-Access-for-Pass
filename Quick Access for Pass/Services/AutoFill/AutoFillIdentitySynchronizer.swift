@@ -45,6 +45,7 @@ nonisolated struct AutoFillOneTimeCodeIdentity: Sendable, Hashable {
 
 /// Testable boundary around password and one-time-code identity-store operations.
 nonisolated protocol AutoFillCredentialIdentityStoreAdapting: Sendable {
+    func isEnabled() async -> Bool
     func passwordIdentities() async throws -> [AutoFillPasswordIdentity]
     func oneTimeCodeIdentities() async throws -> [AutoFillOneTimeCodeIdentity]
     func savePasswordIdentities(_ identities: [AutoFillPasswordIdentity]) async throws
@@ -81,6 +82,27 @@ actor AutoFillIdentitySynchronizer: AutoFillIdentitySynchronizing {
         await acquireReconciliation()
         defer { releaseReconciliation() }
         try requireCurrent(isCurrent)
+        let isEnabled = await adapter.isEnabled()
+        try requireCurrent(isCurrent)
+        guard isEnabled else { return }
+
+        do {
+            try await reconcileEnabledStore(descriptors: descriptors, isCurrent: isCurrent)
+        } catch {
+            // AutoFill is optional and may be disabled after the state check.
+            // Never turn stale or cancelled work into successful reconciliation.
+            try requireCurrent(isCurrent)
+            let storeError = error as NSError
+            guard storeError.domain == ASCredentialIdentityStoreErrorDomain,
+                  storeError.code == ASCredentialIdentityStoreError.Code.storeDisabled.rawValue else {
+                throw error
+            }
+        }
+    }
+
+    private func reconcileEnabledStore(
+        descriptors: [AutoFillCredentialDescriptor], isCurrent: @escaping @Sendable () -> Bool
+    ) async throws {
         let desiredPasswords = descriptors.map(AutoFillPasswordIdentity.init(descriptor:))
         let desiredOneTimeCodes = descriptors
             .filter(\.hasTOTP)
@@ -166,6 +188,10 @@ actor AutoFillIdentitySynchronizer: AutoFillIdentitySynchronizing {
 
 /// Production adapter for the system credential identity store.
 actor ASCredentialIdentityStoreAdapter: AutoFillCredentialIdentityStoreAdapting {
+    func isEnabled() async -> Bool {
+        await ASCredentialIdentityStore.shared.state().isEnabled
+    }
+
     func passwordIdentities() async throws -> [AutoFillPasswordIdentity] {
         let identities = await ASCredentialIdentityStore.shared.credentialIdentities(
             credentialIdentityTypes: .password
