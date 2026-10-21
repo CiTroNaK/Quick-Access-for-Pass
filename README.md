@@ -73,6 +73,11 @@ All shortcuts can be changed in **Settings → Shortcuts**.
   </tr>
 </table>
 
+<p align="center">
+  <img src="docs/images/offline.png" alt="Item detail showing a cached offline copy with Remove offline copy and Keep offline individually actions" width="640"><br>
+  <sub>Offline items: remove a cached copy or keep a vault-cached item individually</sub>
+</p>
+
 ## Why trust it?
 
 Quick Access is built around a few security constraints:
@@ -115,9 +120,12 @@ Useful for Git, Terminal, and GUI Git clients that use SSH keys stored in Proton
 
 Read the setup guide: [SSH Agent Proxy](docs/ssh-agent-proxy.md)
 
-<p align="center">
-  <img src="docs/images/ssh-auth-terminal.png" alt="SSH authorization from a terminal running git fetch" width="340">
-</p>
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/ssh-auth-terminal.png" alt="SSH authorization from a terminal running git fetch" width="340"><br><sub>SSH authorization from a terminal</sub></td>
+    <td align="center"><img src="docs/images/herdr.png" alt="SSH authorization showing Herdr workspace, pane, and working-directory context" width="340"><br><sub>Herdr: requesting pane context in the authorization prompt</sub></td>
+  </tr>
+</table>
 
 ### Run Proxy
 
@@ -135,11 +143,11 @@ Read the setup guide: [Run Proxy and qa-run](docs/run-proxy.md)
 
 Right-click the menu-bar icon and choose **Settings…** to open Settings without opening Quick Access first. You can also press **⌘,** in Quick Access. Left-clicking the icon still toggles Quick Access.
 
-**Settings → Integrations** configures supported-app presentation and custom terminal mappings shared by SSH and Run authorization prompts. Herdr is currently the only supported app with pane-details integration; it is detected automatically and enabled on first detection; you can rename or disable it, turn off **Show Herdr pane details**, or add a custom mapping. The editor accepts a pasted absolute or `~`-relative executable path, including paths with spaces, and also offers an optional file picker. Recording a path does not execute the file. Explicit opt-out and edits survive rediscovery and restart. Existing identified macOS apps keep their names and icons.
+**Settings → Integrations** configures supported-app presentation and custom terminal mappings shared by SSH and Run authorization prompts. Herdr is currently the only supported app with pane-details integration; it is detected automatically and enabled on first detection; you can rename or disable it, turn off **Show workspace, pane title and directory**, or add a custom mapping. The editor accepts a pasted absolute or `~`-relative executable path, including paths with spaces, and also offers an optional file picker. Recording a path does not execute the file. Explicit opt-out and edits survive rediscovery and restart. Existing identified macOS apps keep their names and icons.
 
 For Herdr, prompts may show the requesting pane's workspace/tab, a distinct title, and working directory. Empty titles and titles that are whitespace-equivalent to the displayed command are omitted using case-sensitive equality (not substring or prefix matching); this comparison does not alter either source value. This best-effort, untrusted context is display-only: it never changes authorization scopes or remembered decisions and does not establish ownership or permission evidence. No pane output, transcripts, or agent session files are read; unavailable or ambiguous metadata leaves the base prompt usable.
 
-Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI source/version, security preferences, and optional SSH/Run proxy settings.
+Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI source/version, security preferences, Offline Mode, terminal-host integrations, and optional SSH/Run proxy settings.
 
 <table>
   <tr>
@@ -147,12 +155,16 @@ Most behavior is configurable in Settings: launch at login, global hotkey, short
     <td align="center"><img src="docs/images/settings-shortcuts.png" alt="Shortcuts settings with configurable keyboard shortcuts for item actions" width="340"><br><sub>Shortcuts: customize copy and Large Type shortcuts</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, and auto-lock options" width="340"><br><sub>Security: clipboard handling, search clearing, auto-lock</sub></td>
-    <td align="center"><img src="docs/images/settings-cli.png" alt="Pass CLI settings with refresh interval, sync status, and CLI source/version" width="340"><br><sub>Pass CLI: sync cadence, status, and source/version</sub></td>
+    <td align="center"><img src="docs/images/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, auto-lock, and AutoFill app associations" width="340"><br><sub>Security: clipboard handling, auto-lock, AutoFill app associations</sub></td>
+    <td align="center"><img src="docs/images/settings-offline.png" alt="Offline settings with vault selection, selected-item counts, item management, and removal of all offline data" width="340"><br><sub>Offline: select vaults, manage cached items, remove offline data</sub></td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/images/settings-cli.png" alt="Pass CLI settings with sync cadence, CLI source/version, and saved personal access token controls" width="340"><br><sub>Pass CLI: sync cadence, source/version, saved token controls</sub></td>
     <td align="center"><img src="docs/images/settings-ssh.png" alt="SSH settings with proxy enablement, socket paths, and filtering options" width="340"><br><sub>SSH: proxy enablement, socket paths, filtering, remembered decisions</sub></td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/images/settings-run.png" alt="Run settings with run proxy enablement and profiles" width="340"><br><sub>Run: proxy enablement and secret-injection profiles</sub></td>
+    <td align="center"><img src="docs/images/settings-integrations.png" alt="Integrations settings with automatic Herdr detection, pane-details controls, and custom terminal-host mappings" width="340"><br><sub>Integrations: Herdr pane details and custom terminal-host mappings</sub></td>
   </tr>
 </table>
 
