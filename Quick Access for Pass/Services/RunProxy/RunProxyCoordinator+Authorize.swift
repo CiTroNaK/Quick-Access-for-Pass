@@ -8,6 +8,10 @@ extension RunProxyCoordinator {
         connection: VerifiedConnection,
         authController: RunAuthWindowController
     ) async -> RunProxyResponse {
+        if authController.hasCachedDenial(for: request, connection: connection) {
+            return RunProxyResponse(decision: .deny, env: nil)
+        }
+
         var lockToken: UUID?
         defer {
             if let token = lockToken {

@@ -9,29 +9,27 @@ struct RunAuthDecisionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Remembered run decisions")
+            Text("Remembered run decisions (\(decisions.count))")
                 .foregroundStyle(.secondary)
-
-            ForEach(decisions, id: \.compositeKey) { decision in
-                RunDecisionRow(
-                    presentation: RunAuthDecisionRowPresentation(
-                        decision: decision,
-                        profileName: profileNames[decision.profileSlug] ?? decision.profileSlug
-                    )
-                ) {
-                    try? databaseManager.removeRunAuthDecision(
-                        appIdentifier: decision.appIdentifier,
-                        subcommand: decision.subcommand,
-                        profileSlug: decision.profileSlug
-                    )
-                    loadDecisions()
-                }
-            }
 
             if decisions.isEmpty {
                 Text("No remembered decisions.")
                     .font(.caption)
                     .foregroundStyle(.quaternary)
+            } else {
+                RememberedDecisionList(accessibilityLabel: String(localized: "Remembered run decisions")) {
+                    ForEach(decisions) { decision in
+                        RunDecisionRow(
+                            presentation: RunAuthDecisionRowPresentation(
+                                decision: decision,
+                                profileName: profileNames[decision.profileSlug] ?? decision.profileSlug
+                            )
+                        ) {
+                            try? databaseManager.removeRunAuthDecision(id: decision.id)
+                            loadDecisions()
+                        }
+                    }
+                }
             }
         }
         .onAppear { loadDecisions() }
@@ -52,10 +50,23 @@ nonisolated struct RunAuthDecisionRowPresentation: Sendable {
     let profileName: String
 
     var bundleID: String { decision.appIdentifier }
-    var primaryText: String { decision.subcommand }
+    var primaryText: String { decision.commandText }
+    var scopeHelpText: String { decision.commandText }
+
+    var scopeTypeText: String {
+        switch decision.matchType {
+        case RunAuthorizationMatchType.exactArgumentsV1.rawValue:
+            return String(localized: "Exact command")
+        case RunAuthorizationMatchType.commandPrefixV1.rawValue:
+            return String(localized: "Command prefix")
+        default:
+            return String(localized: "Unknown matching type")
+        }
+    }
 
     func secondaryText(relativeExpiration: String) -> String {
-        "\(profileName) · \(relativeExpiration)"
+        let outcome = decision.allowed ? String(localized: "Allowed") : String(localized: "Denied")
+        return "\(scopeTypeText) · \(outcome) · \(profileName) · \(relativeExpiration)"
     }
 
     var removeHelpText: String {
@@ -69,6 +80,7 @@ private struct RunDecisionRow: View {
 
     var body: some View {
         RememberedDecisionRow(config: rowConfig, onDelete: onDelete)
+            .help(presentation.scopeHelpText)
     }
 
     private var rowConfig: RememberedDecisionRowConfig {
@@ -76,6 +88,7 @@ private struct RunDecisionRow: View {
             bundleID: presentation.bundleID,
             primaryText: presentation.primaryText,
             secondaryText: presentation.secondaryText(relativeExpiration: relativeExpiration),
+            allowed: presentation.decision.allowed,
             removeHelpText: presentation.removeHelpText
         )
     }

@@ -24,6 +24,12 @@ extension RunAuthWindowController {
         return tokens
     }
 
+    /// Offers exact argv identity first, followed by the existing explicit broader prefixes.
+    nonisolated static func authorizationScopes(from command: [String]) -> [RunAuthorizationScope] {
+        guard let exact = RunAuthorizationScope.exact(command: command) else { return [] }
+        return [exact] + scopeOptions(from: command).map { RunAuthorizationScope.prefix($0) }
+    }
+
     nonisolated static func scopeOptions(from command: [String]) -> [String] {
         let tokens = extractIdentifierTokens(from: command)
         // Bare-command edge case: user literally invoked a single-token command.

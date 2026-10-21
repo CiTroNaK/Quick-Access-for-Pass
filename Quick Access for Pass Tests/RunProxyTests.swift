@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Darwin
+import GRDB
 @testable import Quick_Access_for_Pass
 
 // MARK: - Run Profile & Env Mapping CRUD
@@ -130,77 +131,92 @@ struct RunAuthDecisionTests {
         try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
     }
 
-    @Test("no decision by default")
-    func noDecision() throws {
-        let db = try makeTestDB()
-        let d = try db.findValidRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli")
-        #expect(d == nil)
-    }
+    private func scope(_ value: String) -> RunAuthorizationScope { .prefix(value) }
+    private func identity(_ value: String) -> RunAuthorizationIdentity { RunAuthorizationIdentity(prefix: value) }
 
-    @Test("saves and retrieves decision")
-    func saveAndFind() throws {
+    @Test("typed decisions preserve identity, boundaries, expiration and outcome")
+    func typedCRUD() throws {
         let db = try makeTestDB()
+        let prefix = scope("gh pr list")
         let expiry = Date().addingTimeInterval(300)
-        try db.saveRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli", expiresAt: expiry)
-
-        let d = try db.findValidRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli")
-        #expect(d != nil)
-        #expect(d?.subcommand == "gh pr list")
+        try db.saveRunDecision(appIdentifier: "com.test", scope: prefix, profileSlug: "github-cli", expiresAt: expiry, allowed: true)
+        let foundValue = try db.findValidRunDecision(appIdentifier: "com.test", identity: identity("gh pr list"), profileSlug: "github-cli")
+        let found = try #require(foundValue)
+        #expect(found.matchType == RunAuthorizationMatchType.commandPrefixV1.rawValue)
+        #expect(found.matchValue == "gh pr list")
+        #expect(found.commandText == "gh pr list")
+        #expect(found.allowed)
+        let id = found.id
+        let newExpiry = Date().addingTimeInterval(3600)
+        try db.saveRunDecision(appIdentifier: "com.test", scope: prefix, profileSlug: "github-cli", expiresAt: newExpiry, allowed: false)
+        let updatedValue = try db.findValidRunDecision(appIdentifier: "com.test", identity: identity("gh pr list"), profileSlug: "github-cli")
+        let updated = try #require(updatedValue)
+        #expect(updated.id == id)
+        #expect(updated.allowed == false)
+        #expect(abs((updated.expiresAt?.timeIntervalSince(newExpiry) ?? .infinity)) < 1)
+        #expect(try db.findValidRunDecision(appIdentifier: "com.test", identity: identity("gh pr create"), profileSlug: "github-cli") == nil)
+        #expect(try db.findValidRunDecision(appIdentifier: "com.test", identity: identity("gh pr list"), profileSlug: "other-profile") == nil)
     }
 
-    @Test("expired decision not returned")
-    func expired() throws {
-        let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli", expiresAt: Date().addingTimeInterval(-10))
-        #expect(try db.findValidRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli") == nil)
-    }
-
-    @Test("different subcommands are separate")
-    func subcommandsSeparate() throws {
-        let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli", expiresAt: Date().addingTimeInterval(300))
-        #expect(try db.findValidRunDecision(appIdentifier: "com.test", subcommand: "gh pr create", profileSlug: "github-cli") == nil)
-        #expect(try db.findValidRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli") != nil)
-    }
-
-    @Test("different profiles are separate")
-    func profilesSeparate() throws {
-        let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "github-cli", expiresAt: Date().addingTimeInterval(300))
-        #expect(try db.findValidRunDecision(appIdentifier: "com.test", subcommand: "gh pr list", profileSlug: "other-profile") == nil)
-    }
-
-    @Test("cleanup removes expired decisions")
+    @Test("expired decisions are not returned and cleanup removes them")
     func cleanup() throws {
         let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "app1", subcommand: "cmd1", profileSlug: "p1", expiresAt: Date().addingTimeInterval(-100))
-        try db.saveRunDecision(appIdentifier: "app2", subcommand: "cmd2", profileSlug: "p2", expiresAt: Date().addingTimeInterval(300))
+        try db.saveRunDecision(appIdentifier: "app1", scope: scope("cmd1"), profileSlug: "p1", expiresAt: Date().addingTimeInterval(-100), allowed: true)
+        try db.saveRunDecision(appIdentifier: "app2", scope: scope("cmd2"), profileSlug: "p2", expiresAt: Date().addingTimeInterval(300), allowed: false)
+        #expect(try db.findValidRunDecision(appIdentifier: "app1", identity: identity("cmd1"), profileSlug: "p1") == nil)
         try db.cleanupExpiredRunDecisions()
-        let all = try db.allRunAuthDecisions()
-        #expect(all.count == 1)
-        #expect(all[0].appIdentifier == "app2")
+        #expect(try db.allRunAuthDecisions().map(\.appIdentifier) == ["app2"])
     }
 
-    @Test("remove specific decision")
+    @Test("removal selects only the given ID and stale IDs cannot remove a later row")
     func remove() throws {
         let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "app1", subcommand: "cmd1", profileSlug: "p1", expiresAt: Date().addingTimeInterval(300))
-        try db.saveRunDecision(appIdentifier: "app2", subcommand: "cmd2", profileSlug: "p2", expiresAt: Date().addingTimeInterval(300))
-        try db.removeRunAuthDecision(appIdentifier: "app1", subcommand: "cmd1", profileSlug: "p1")
-        let all = try db.allRunAuthDecisions()
-        #expect(all.count == 1)
-        #expect(all[0].appIdentifier == "app2")
+        try db.saveRunDecision(appIdentifier: "app1", scope: scope("cmd1"), profileSlug: "p1", expiresAt: Date().addingTimeInterval(300), allowed: true)
+        try db.saveRunDecision(appIdentifier: "app2", scope: scope("cmd2"), profileSlug: "p2", expiresAt: Date().addingTimeInterval(300), allowed: true)
+        let first = try #require(db.allRunAuthDecisions().first)
+        try db.removeRunAuthDecision(id: first.id)
+        #expect(try db.allRunAuthDecisions().map(\.appIdentifier) == ["app2"])
+
+        try db.removeRunAuthDecision(id: try #require(db.allRunAuthDecisions().first?.id))
+        try db.saveRunDecision(appIdentifier: "app3", scope: scope("cmd3"), profileSlug: "p3", expiresAt: nil, allowed: false)
+        let replacement = try #require(db.allRunAuthDecisions().first)
+        #expect(replacement.id > first.id)
+        try db.removeRunAuthDecision(id: first.id)
+        #expect(try db.allRunAuthDecisions().map(\.appIdentifier) == ["app3"])
     }
 
-    @Test("upsert overwrites existing decision")
-    func upsert() throws {
+    @Test("identity matching is independent of editable display text and unknown rows remain readable")
+    func displayTextDoesNotParticipateInMatching() throws {
         let db = try makeTestDB()
-        try db.saveRunDecision(appIdentifier: "app1", subcommand: "cmd1", profileSlug: "p1", expiresAt: Date().addingTimeInterval(60))
-        let newExpiry = Date().addingTimeInterval(3600)
-        try db.saveRunDecision(appIdentifier: "app1", subcommand: "cmd1", profileSlug: "p1", expiresAt: newExpiry)
-        let d = try db.findValidRunDecision(appIdentifier: "app1", subcommand: "cmd1", profileSlug: "p1")
-        #expect(d != nil)
-        #expect(abs((d?.expiresAt?.timeIntervalSinceReferenceDate ?? 0) - newExpiry.timeIntervalSinceReferenceDate) < 1.0)
+        let rule = scope("gh pr")
+        try db.saveRunDecision(appIdentifier: "app", scope: rule, profileSlug: "p", expiresAt: nil, allowed: true)
+        try db.writer.write { try $0.execute(sql: "UPDATE runAuthDecisions SET commandText = 'edited display label' WHERE appIdentifier = 'app'") }
+        let foundValue = try db.findValidRunDecision(appIdentifier: "app", identity: rule.identity, profileSlug: "p")
+        let found = try #require(foundValue)
+        #expect(found.commandText == "edited display label")
+
+        try db.writer.write {
+            try $0.execute(
+                sql: """
+                    INSERT INTO runAuthDecisions
+                        (matchType, matchValue, commandText, appIdentifier, profileSlug, allowed)
+                    VALUES ('future-v9', 'future-value', 'edited display label', 'future-app', 'p', 1)
+                    """
+            )
+        }
+        let unknownValue = try db.allRunAuthDecisions().first { $0.matchType == "future-v9" }
+        let unknown = try #require(unknownValue)
+        #expect(unknown.commandText == "edited display label")
+        let firstPresentation = RunAuthDecisionRowPresentation(decision: found, profileName: "Profile")
+        let secondPresentation = RunAuthDecisionRowPresentation(decision: unknown, profileName: "Profile")
+        #expect(firstPresentation.primaryText == secondPresentation.primaryText)
+        #expect(found.matchType != unknown.matchType)
+        #expect(found.matchValue != unknown.matchValue)
+        #expect(found.id != unknown.id)
+        let unknownMatch = try db.findValidRunDecision(appIdentifier: "future-app", identity: identity("future-value"), profileSlug: "p")
+        #expect(unknownMatch == nil)
+        try db.removeRunAuthDecision(id: unknown.id)
+        #expect(try db.allRunAuthDecisions().contains { $0.appIdentifier == "future-app" } == false)
     }
 }
 

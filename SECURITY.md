@@ -34,7 +34,7 @@ This policy covers the Quick Access for Pass application, including:
 
 Quick Access for Pass is designed around a few core invariants:
 
-- **Ordinary database tables are metadata-only** — the primary GRDB/SQLCipher database persists search metadata, not secret values outside the dedicated snapshot table
+- **Ordinary database tables do not store fetched Pass item content** — the primary GRDB/SQLCipher database persists search metadata, not retrieved secret values outside the dedicated snapshot table. A separate, narrow exception stores caller-supplied Run command text in the encrypted authorization table for readable remembered decisions; arguments may themselves contain credentials (see Run Proxy Authorization Boundary).
 - **Offline persistence is opt-in and single-database** — a user may select an individual item or explicitly select a whole vault, including future items after successful sync. Removing an item under a selected vault excludes it from automatic caching until selected again; turning off a vault preserves individually selected items, and **Keep offline individually** promotes a vault-only copy without refetching. Only selected full snapshots are persisted in `offlineSnapshots`, encrypted before SQLite receives them; there is no second offline database, legacy import, or compatibility reader. On v11 upgrade, prior explicit item copies remain selected individually, while old permission-only vault rows do not become whole-vault consent.
 - **Offline snapshot keys are device-bound** — the distinct snapshot-cipher key is stored in the data-protection Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; snapshots are additionally authenticated with their vault, item, revision, and key fingerprint. Snapshot cipher/key use is operation-scoped, SQLCipher passphrase use is connection-lifetime, and row purge deliberately retains keys rather than racing Keychain deletion/rotation
 - **Authorized usable cache comes first** — selected snapshots are preferred for supported secret actions, without a live request or connectivity probe. Sync refreshes cached values; without a usable cached copy, Quick Access uses Pass CLI. Settings can list and remove selected items, show stale cache state, or purge all offline data. The snapshot can serve ordinary host copy/Large Type or the existing verified host-broker AutoFill password/TOTP request, never SSH or Run proxy resolution
@@ -47,6 +47,54 @@ Quick Access for Pass is designed around a few core invariants:
 - **Authorization is contextual** — remembered decisions are scoped to app identity and command/profile context rather than globally
 - **Clipboard exposure is reduced** — copied secrets are marked with `org.nspasteboard.ConcealedType` and auto-cleared on a timer
 
+## Run Proxy Authorization Boundary
+
+Run Proxy authorization defaults to exact-command scope, matching the complete
+ordered argument vector received from `qa-run`, including the executable string,
+flags, values, empty arguments, and argument boundaries. Changed values, order,
+or grouping do not match that exact decision. App identity and profile remain
+separate authorization boundaries. Exact scope does not bind the working directory,
+environment, or executable contents, and version commands are not automatically
+approved. Peer verification and biometric authorization are unchanged.
+
+Users may explicitly choose broader command-prefix scopes where offered. Existing
+legacy broad approvals and denials are retained without migration or reset; these
+can still match changed commands. Matching checks exact then narrow-to-broad
+prefixes across session and persistent decisions; session takes precedence only
+within the same scope. Both approval and denial support the existing durations,
+including Forever. Do Not Remember still uses the existing 10-second in-memory
+burst cache, but writes no persistent decision.
+
+Exact matching uses the versioned `exact-argv-v1` type and unchanged full SHA256
+digest over the ordered literal argv. Fingerprinting is not encryption or a
+confidentiality guarantee. For readable remembered decisions, the encrypted Run
+authorization table also stores full command text. Caller-supplied arguments may
+contain tokens or passwords; this narrowly authorized persistence is not
+redacted or guaranteed secret-free. Resolved profile environment variables,
+fetched Pass secrets, and Offline Mode snapshots are never command text. Full
+command text is not publicly logged or written to FTS, UserDefaults, App Group
+storage, or an unencrypted sidecar. Explicit broader prefixes keep their literal
+matching values.
+
+Settings shows the stored command text and a localized **Exact command**,
+**Command prefix**, or **Unknown matching type** description. Display labels do
+not authorize: matching and uniqueness use typed identity, and Settings selection
+and removal use stable persisted row IDs. The v14 upgrade removes only strictly
+valid old exact-v1 fingerprint-only rows once, because their command text cannot
+be reconstructed; it preserves old broad rules and malformed/literal keys as
+prefix decisions. Removing an old exact rule does not guarantee an unconditional
+prompt if another broad rule or live burst cache still applies. **Settings → Run →
+Manage Run decisions… → Remove** removes the selected row; a still-live burst
+cache or another applicable broad decision may continue to apply.
+
+An initially matching denial prevents secret resolution. A queued request is
+rechecked before showing its prompt; a newly matching queued denial prevents
+release of environment variables, rather than undoing resolution that may already
+have occurred. Already released values cannot be recalled. The profile's
+in-memory secret-resolution cache is separate from authorization decisions;
+Offline Mode snapshots remain excluded from Run Proxy resolution. See
+[Run Proxy documentation](docs/run-proxy.md) for usage and decision management.
+
 ## System AutoFill Boundary
 
 System AutoFill is available only on macOS 27 and later. The credential-provider extension advertises passwords and one-time codes only; it does not register, retrieve, or sign passkeys. Proton Pass can remain enabled as the passkey provider while Quick Access supplies passwords and current TOTP codes in Safari and compatible native apps.
@@ -55,7 +103,7 @@ The main app is the only component that invokes Pass CLI. The extension sends an
 
 The provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the AutoFill broker socket directory and socket. The directory is owner-only (`0700`) and the socket is owner-only (`0600`). The extension has no database or Keychain Sharing entitlement: it sends only the system identity's opaque descriptor ID and fixed value kind over the verified broker. The host alone opens the local SQLCipher metadata database and accesses its `H23TXL6LPT.codes.petr.quick-access-for-pass` Keychain Sharing group with the data-protection Keychain and `WhenUnlockedThisDeviceOnly` accessibility.
 
-Passwords, TOTP seeds, and generated TOTP codes are not persisted in ordinary metadata tables, the system identity store, App Group files, logs, or launch URLs. The sole exception is an explicitly selected encrypted `offlineSnapshots` record in the host-owned unified database. It is never exposed to the extension and is excluded from SSH and Run proxy resolution. For the existing host-only, verified AutoFill broker boundary, a selected snapshot is preferred for only the requested password or TOTP value when authorized and usable. Without a usable cached copy, the host uses Pass CLI; failures remain generic without cache diagnostics. Values returned to the verified extension are returned once and discarded.
+Retrieved passwords, TOTP seeds, and generated TOTP codes are not persisted in ordinary metadata tables, the system identity store, App Group files, logs, or launch URLs. The sole exception for retrieved AutoFill values is an explicitly selected encrypted `offlineSnapshots` record in the host-owned unified database. It is never exposed to the extension and is excluded from SSH and Run proxy resolution. For the existing host-only, verified AutoFill broker boundary, a selected snapshot is preferred for only the requested password or TOTP value when authorized and usable. Without a usable cached copy, the host uses Pass CLI; failures remain generic without cache diagnostics. Values returned to the verified extension are returned once and discarded.
 
 ## Offline Storage Lifecycle and Limits
 

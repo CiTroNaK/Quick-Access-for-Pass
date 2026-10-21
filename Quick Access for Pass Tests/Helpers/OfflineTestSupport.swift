@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension SecretItemResolving {
@@ -242,7 +243,7 @@ func offlineTestCLIItem(
     )
 }
 
-/// A finite native command emits test bytes only from its armed TERM trap.
+/// A finite native command exceeds its output limit only from its armed TERM trap.
 /// Markers and hooks carry lifecycle metadata, never output or process handles.
 nonisolated struct NativeTimeoutOverflowFixture: Sendable {
     private struct State: Sendable {
@@ -255,6 +256,7 @@ nonisolated struct NativeTimeoutOverflowFixture: Sendable {
     private let notificationGate = OfflineTestGate()
     private let readyMarker = FileManager.default.temporaryDirectory.appendingPathComponent("qa-overflow-ready-\(UUID().uuidString)")
     private let termMarker = FileManager.default.temporaryDirectory.appendingPathComponent("qa-overflow-term-\(UUID().uuidString)")
+    private let waitFIFO = FileManager.default.temporaryDirectory.appendingPathComponent("qa-overflow-wait-\(UUID().uuidString)")
     private let stderr: Bool
     private let delayedNotification: Bool
 
@@ -279,13 +281,24 @@ nonisolated struct NativeTimeoutOverflowFixture: Sendable {
     }
 
     private func run(budget: Budget, maximumOutputBytes: Int) async throws -> Data {
-        // The head child is finite and waited by the shell trap. The shell's
-        // otherwise finite builtin loop avoids deferred traps while waiting
-        // for sleep or leaving an inherited writer behind.
-        let byteCount = stderr ? 256 * 1024 + 4096 : maximumOutputBytes + 4096
+        // A timed builtin read blocks without consuming a CPU core or leaving
+        // an inherited writer. TERM interrupts the read, and builtin printf
+        // emits the overflow without launching a child inside the 250 ms grace.
+        guard mkfifo(waitFIFO.path, mode_t(0o600)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        // Fill exactly to the accepted cap before readiness. Only the small
+        // TERM burst crosses it; a 256 KiB stderr transfer must not depend on
+        // fitting entirely inside the original 250 ms termination grace.
+        let limit = stderr ? 256 * 1024 : maximumOutputBytes
         let redirect = stderr ? " >&2" : ""
-        let script = "trap '/usr/bin/head -c \(byteCount) /dev/zero\(redirect); printf term > \"\(termMarker.path)\"; exit 0' TERM; " +
-            "printf ready > '\(readyMarker.path)'; i=0; while [ $i -lt 10000000 ]; do i=$((i+1)); done"
+        let remainder = String(repeating: "x", count: limit % 1024)
+        let script = "payload='\(String(repeating: "x", count: 1024))'; " +
+            "trap 'i=0; while [ $i -lt 5 ]; do printf %s \"$payload\"\(redirect); i=$((i+1)); done; " +
+            "printf term > \"\(termMarker.path)\"; exit 0' TERM; " +
+            "exec 3<> '\(waitFIFO.path)'; i=0; while [ $i -lt \(limit / 1024) ]; " +
+            "do printf %s \"$payload\"\(redirect); i=$((i+1)); done; printf %s '\(remainder)'\(redirect); " +
+            "printf ready > '\(readyMarker.path)'; read -r -t 8 unused <&3; exit 93"
         let lifecycle = CLIRunner.LifecycleTesting(
             marker: { event in self.state.withLock { $0.events.append(event) } },
             suspension: { point in
@@ -294,42 +307,37 @@ nonisolated struct NativeTimeoutOverflowFixture: Sendable {
                 if self.delayedNotification { try? await self.notificationGate.wait() }
             }
         )
-        let result: Result<Data, any Error>
-        do {
-            switch budget {
-            case .relative(let timeout):
-                result = .success(try await CLIRunner.run(
-                    executablePath: "/bin/sh", arguments: ["-c", script], timeout: timeout,
-                    maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
-                ))
-            case .absolute(let deadline):
-                let forwarded = deadline
-                state.withLock { $0.forwardedDeadlines.append(forwarded) }
-                result = .success(try await CLIRunner.run(
-                    executablePath: "/bin/sh", arguments: ["-c", script], deadline: forwarded,
-                    maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
-                ))
-            }
-        } catch {
-            result = .failure(error)
+        // Propagate the native result before observing diagnostics: an outer
+        // resolver still has to check this operation's original deadline.
+        switch budget {
+        case .relative(let timeout):
+            return try await CLIRunner.run(
+                executablePath: "/bin/sh", arguments: ["-c", script], timeout: timeout,
+                maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
+            )
+        case .absolute(let deadline):
+            state.withLock { $0.forwardedDeadlines.append(deadline) }
+            return try await CLIRunner.run(
+                executablePath: "/bin/sh", arguments: ["-c", script], deadline: deadline,
+                maximumOutputBytes: maximumOutputBytes, lifecycleTesting: lifecycle
+            )
         }
-        // Release the gate and observe the completion event even if the caller
-        // was cancelled. This joins only our bounded observer task, not the
-        // production notification task whose handle is owned by CLIRunner.
-        let notificationObservation = Task {
-            await notificationGate.open()
-            for _ in 0..<100 {
-                if state.withLock({ $0.events.contains(.outputLimitNotificationCompleted) }) { break }
-                try? await Task.sleep(for: .milliseconds(10))
-            }
-        }
-        await notificationObservation.value
-        #expect(state.withLock { $0.notificationEntered })
-        #expect(state.withLock { $0.events.filter { $0 == .outputLimitNotificationCompleted }.count } == 1)
-        return try result.get()
     }
 
-    func expectTimeoutTrapAndSingleCompletion() {
+    var completedOutputLimitNotifications: Int {
+        state.withLock { $0.events.filter { $0 == .outputLimitNotificationCompleted }.count }
+    }
+
+    func expectTimeoutTrapAndSingleCompletion() async {
+        // Diagnostic settlement belongs after the deadline-bound caller has
+        // received the native error, not on the fixture runner's result path.
+        await notificationGate.open()
+        for _ in 0..<100 {
+            if completedOutputLimitNotifications == 1 { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(state.withLock { $0.notificationEntered })
+        #expect(completedOutputLimitNotifications == 1)
         #expect(FileManager.default.fileExists(atPath: readyMarker.path))
         #expect(FileManager.default.fileExists(atPath: termMarker.path))
         let events = state.withLock { $0.events }
@@ -347,6 +355,7 @@ nonisolated struct NativeTimeoutOverflowFixture: Sendable {
     func removeMarkers() {
         try? FileManager.default.removeItem(at: readyMarker)
         try? FileManager.default.removeItem(at: termMarker)
+        try? FileManager.default.removeItem(at: waitFIFO)
     }
 }
 

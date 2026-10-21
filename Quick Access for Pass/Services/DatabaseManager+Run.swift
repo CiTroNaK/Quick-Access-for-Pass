@@ -75,27 +75,47 @@ nonisolated extension DatabaseManager {
 // MARK: - Run Auth Decisions
 
 nonisolated extension DatabaseManager {
-    func findValidRunDecision(appIdentifier: String, subcommand: String, profileSlug: String) throws -> RunAuthDecision? {
+    func findValidRunDecision(
+        appIdentifier: String,
+        identity: RunAuthorizationIdentity,
+        profileSlug: String
+    ) throws -> RunAuthDecision? {
         try reader.read { db in
             try RunAuthDecision
                 .filter(Column("appIdentifier") == appIdentifier)
-                .filter(Column("subcommand") == subcommand)
                 .filter(Column("profileSlug") == profileSlug)
+                .filter(Column("matchType") == identity.matchType.rawValue)
+                .filter(Column("matchValue") == identity.matchValue)
                 .filter(Column("expiresAt") == nil || Column("expiresAt") > Date())
                 .fetchOne(db)
         }
     }
 
-    func saveRunDecision(appIdentifier: String, subcommand: String, profileSlug: String, expiresAt: Date?, appTeamID: String? = nil) throws {
+    func saveRunDecision(
+        appIdentifier: String,
+        scope: RunAuthorizationScope,
+        profileSlug: String,
+        expiresAt: Date?,
+        allowed: Bool,
+        appTeamID: String? = nil
+    ) throws {
         try writer.write { db in
-            let decision = RunAuthDecision(
-                appIdentifier: appIdentifier,
-                subcommand: subcommand,
-                profileSlug: profileSlug,
-                expiresAt: expiresAt,
-                appTeamID: appTeamID
+            try db.execute(
+                sql: """
+                    INSERT INTO runAuthDecisions
+                        (matchType, matchValue, commandText, appIdentifier, profileSlug, expiresAt, allowed, appTeamID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(appIdentifier, profileSlug, matchType, matchValue) DO UPDATE SET
+                        commandText = excluded.commandText,
+                        expiresAt = excluded.expiresAt,
+                        allowed = excluded.allowed,
+                        appTeamID = excluded.appTeamID
+                    """,
+                arguments: [
+                    scope.identity.matchType.rawValue, scope.identity.matchValue, scope.label,
+                    appIdentifier, profileSlug, expiresAt, allowed, appTeamID
+                ]
             )
-            try decision.save(db, onConflict: .replace)
         }
     }
 
@@ -108,13 +128,9 @@ nonisolated extension DatabaseManager {
         }
     }
 
-    func removeRunAuthDecision(appIdentifier: String, subcommand: String, profileSlug: String) throws {
+    func removeRunAuthDecision(id: Int64) throws {
         _ = try writer.write { db in
-            try RunAuthDecision
-                .filter(Column("appIdentifier") == appIdentifier)
-                .filter(Column("subcommand") == subcommand)
-                .filter(Column("profileSlug") == profileSlug)
-                .deleteAll(db)
+            try RunAuthDecision.deleteOne(db, key: id)
         }
     }
 

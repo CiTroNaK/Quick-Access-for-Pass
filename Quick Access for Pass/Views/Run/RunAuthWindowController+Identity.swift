@@ -35,7 +35,7 @@ extension RunAuthWindowController {
             logDecision(
                 appIdentifier: "unverified.\(connection.pid)",
                 profile: profile,
-                command: "",
+                matchType: "none",
                 allowed: false,
                 source: "rejected"
             )

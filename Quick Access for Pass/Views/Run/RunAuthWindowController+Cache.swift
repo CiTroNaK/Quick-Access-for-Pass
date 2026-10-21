@@ -1,78 +1,52 @@
 import Foundation
 
 extension RunAuthWindowController {
+    /// Matches typed identities in exact-first order, preferring session only within the same identity.
     func anyCachedMatch(
         appIdentifier: String,
         profileSlug: String,
-        scopeOptions: [String]
-    ) -> String? {
-        sessionCachedScope(
-            appIdentifier: appIdentifier,
-            profileSlug: profileSlug,
-            scopeOptions: scopeOptions
-        ) ?? persistedScopeMatch(
-            appIdentifier: appIdentifier,
-            profileSlug: profileSlug,
-            scopeOptions: scopeOptions
-        )
-    }
-
-    private func persistedScopeMatch(
-        appIdentifier: String,
-        profileSlug: String,
-        scopeOptions: [String]
-    ) -> String? {
-        for scope in scopeOptions {
-            let decision = try? databaseManager.findValidRunDecision(
-                appIdentifier: appIdentifier,
-                subcommand: scope,
-                profileSlug: profileSlug
-            )
-            if decision != nil {
-                return scope
-            }
-        }
-        return nil
-    }
-
-    private func sessionCachedScope(
-        appIdentifier: String,
-        profileSlug: String,
-        scopeOptions: [String]
-    ) -> String? {
+        scopeOptions: [RunAuthorizationIdentity]
+    ) -> AuthorizationMatch? {
         let now = Date()
-        for scope in scopeOptions {
-            let key = Self.sessionKey(
+        for identity in scopeOptions {
+            let key = SessionCacheKey(
                 appIdentifier: appIdentifier,
                 profileSlug: profileSlug,
-                scope: scope
+                scope: identity
             )
-            if let expiry = sessionCache[key], expiry > now {
-                return scope
+            if let decision = sessionCache[key], decision.expiresAt > now {
+                return AuthorizationMatch(identity: identity, allowed: decision.allowed)
+            }
+            if let decision = try? databaseManager.findValidRunDecision(
+                appIdentifier: appIdentifier,
+                identity: identity,
+                profileSlug: profileSlug
+            ) {
+                return AuthorizationMatch(identity: identity, allowed: decision.allowed)
             }
         }
         return nil
     }
 
-    func storeSessionCache(appIdentifier: String, profileSlug: String, scope: String) {
-        let key = Self.sessionKey(
+    func storeSessionCache(
+        appIdentifier: String,
+        profileSlug: String,
+        scope: RunAuthorizationIdentity,
+        allowed: Bool
+    ) {
+        let key = SessionCacheKey(
             appIdentifier: appIdentifier,
             profileSlug: profileSlug,
             scope: scope
         )
-        sessionCache[key] = Date().addingTimeInterval(sessionCacheDuration)
+        sessionCache[key] = (
+            allowed: allowed,
+            expiresAt: Date().addingTimeInterval(sessionCacheDuration)
+        )
     }
 
     func pruneSessionCache() {
         let now = Date()
-        sessionCache = sessionCache.filter { $0.value > now }
-    }
-
-    private static func sessionKey(
-        appIdentifier: String,
-        profileSlug: String,
-        scope: String
-    ) -> String {
-        "\(appIdentifier)|\(profileSlug)|\(scope)"
+        sessionCache = sessionCache.filter { $0.value.expiresAt > now }
     }
 }

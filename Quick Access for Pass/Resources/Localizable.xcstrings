@@ -15,6 +15,78 @@
         }
       }
     },
+    "Broader scope: %@" : {
+      "comment" : "Explicit command-prefix permission. Placeholder is the unchanged command prefix, not the exact argument vector.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Širší rozsah: %@"
+          }
+        }
+      }
+    },
+    "Command prefix" : {
+      "comment" : "Scope type shown for a remembered explicit command-prefix authorization.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Předpona příkazu"
+          }
+        }
+      }
+    },
+    "Exact command" : {
+      "comment" : "Scope type shown for a remembered exact argv authorization.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz"
+          }
+        }
+      }
+    },
+    "Unknown matching type" : {
+      "comment" : "Fallback scope type for a remembered authorization created by a newer app version.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neznámý typ shody"
+          }
+        }
+      }
+    },
+    "Exact command: %@" : {
+      "comment" : "Exact argv scope option. Placeholder is natural full command text; do not translate the command.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz: %@"
+          }
+        }
+      }
+    },
+    "Exact matches every argument. Broader scopes also match commands with different arguments." : {
+      "comment" : "Explains exact argv matching versus explicit broader prefix permissions in the Run authorization prompt.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Přesný příkaz porovnává všechny argumenty. Širší rozsahy zahrnují i příkazy s jinými argumenty."
+          }
+        }
+      }
+    },
     "·" : {
       "shouldTranslate" : false
     },

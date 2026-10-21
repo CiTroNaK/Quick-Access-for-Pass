@@ -2,6 +2,18 @@ import Testing
 import Foundation
 @testable import Quick_Access_for_Pass
 
+private actor SecretResolutionRecorder {
+    private var count = 0
+
+    func record() {
+        count += 1
+    }
+
+    func countValue() -> Int {
+        count
+    }
+}
+
 @Suite("Run coordinator locked-path behavior")
 @MainActor
 struct RunProxyCoordinatorLockTests {
@@ -14,7 +26,8 @@ struct RunProxyCoordinatorLockTests {
 
     private func makeFixture(
         isLocked: Bool,
-        panelResult: Bool
+        panelResult: Bool,
+        secretResolver: @escaping @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String] = { _, _ in [:] }
     ) throws -> (RunProxyCoordinator, Recorder, DatabaseManager) {
         let recorder = Recorder()
         let database = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
@@ -37,7 +50,8 @@ struct RunProxyCoordinatorLockTests {
             healthStore: ProxyHealthStore(),
             passCLIStatusStore: PassCLIStatusStore(),
             keychainService: FakeBiometricAuthorizer(outcome: .success(())),
-            authCallbacks: .noop
+            authCallbacks: .noop,
+            secretResolver: secretResolver
         )
         coordinator.isAppLocked = { isLocked }
         coordinator.showLockedPanel = {
@@ -73,7 +87,8 @@ struct RunProxyCoordinatorLockTests {
         let controller = RunAuthWindowController(
             databaseManager: database,
             keychainService: FakeBiometricAuthorizer(outcome: .success(())),
-            callbacks: .noop
+            callbacks: .noop,
+            dialogPresenter: { $0.onResult(false, .doNotRemember, $0.scopeOptions.first?.identity) }
         )
 
         let request = RunProxyRequest(
@@ -82,25 +97,81 @@ struct RunProxyCoordinatorLockTests {
             pid: Int32(ProcessInfo.processInfo.processIdentifier)
         )
 
-        // The authController.authorize path drives a real NSWindow, so we
-        // don't run it to completion. Detach the Task so it doesn't keep
-        // the test waiting at scope end, yield so the non-locked branch
-        // runs past the point where lock-context calls would happen, then
-        // cancel.
-        let task = Task {
-            _ = await coordinator.authorizeRunRequest(
-                request,
-                connection: stubConnection(),
-                authController: controller
-            )
-        }
-        for _ in 0..<10 { await Task.yield() }
+        let response = await coordinator.authorizeRunRequest(
+            request, connection: stubConnection(), authController: controller
+        )
+        #expect(response.decision == .deny)
+        #expect(response.env == nil)
 
         #expect(recorder.events.contains("set") == false)
         #expect(recorder.events.contains("showPanel") == false)
 
-        task.cancel()
-        controller.cancelAll()
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func cachedDenialSkipsLockUiAndSecretResolution(broaderSessionApproval: Bool, exactDenial: Bool) async throws {
+        let resolutionRecorder = SecretResolutionRecorder()
+        let (coordinator, recorder, database) = try makeFixture(
+            isLocked: true,
+            panelResult: true,
+            secretResolver: { _, _ in
+                await resolutionRecorder.record()
+                return ["TOKEN": "test"]
+            }
+        )
+        let controller = RunAuthWindowController(
+            databaseManager: database,
+            keychainService: FakeBiometricAuthorizer(outcome: .success(())),
+            callbacks: .noop
+        )
+        let profile = try #require(try database.findRunProfile(slug: "test-profile"))
+        _ = try database.saveRunProfile(
+            profile,
+            mappings: [
+                RunProfileEnvMapping(
+                    id: nil,
+                    profileId: profile.id ?? 0,
+                    envVariable: "TOKEN",
+                    secretReference: "pass://vault/item/field"
+                ),
+            ]
+        )
+        let connection = stubConnection()
+        let identity = try #require(controller.resolveIdentity(for: connection, profile: "test-profile"))
+        let decisionScope = exactDenial
+            ? try #require(RunAuthorizationScope.exact(command: ["gh", "pr", "list"]))
+            : RunAuthorizationScope.prefix("gh pr list")
+        try database.saveRunDecision(
+            appIdentifier: identity.appIdentifier,
+            scope: decisionScope,
+            profileSlug: "test-profile",
+            expiresAt: Date().addingTimeInterval(300),
+            allowed: false
+        )
+        if broaderSessionApproval {
+            controller.storeSessionCache(
+                appIdentifier: identity.appIdentifier,
+                profileSlug: "test-profile",
+                scope: RunAuthorizationIdentity(prefix: "gh pr"),
+                allowed: true
+            )
+        }
+        let request = RunProxyRequest(
+            profile: "test-profile",
+            command: ["gh", "pr", "list"],
+            pid: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+
+        let response = await coordinator.authorizeRunRequest(
+            request,
+            connection: connection,
+            authController: controller
+        )
+
+        #expect(response.decision == .deny)
+        #expect(response.env == nil)
+        #expect(recorder.events.isEmpty)
+        #expect(await resolutionRecorder.countValue() == 0)
     }
 
     @Test func lockedAndPanelDeniesReturnsDenyAndClearsContext() async throws {

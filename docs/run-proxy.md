@@ -101,9 +101,23 @@ When `qa-run --profile github-cli -- gh auth status` runs, Quick Access resolves
 
 ## Remembered decisions
 
-Run Proxy authorization decisions are context-aware. They can include the requesting app, subcommand, and profile, so a decision for one command profile does not automatically authorize unrelated commands.
+Run Proxy can remember either an approval or a denial for the selected duration, bounded by the requesting app identity and profile. The authorization prompt defaults to **Exact command**: the complete ordered argument vector received from `qa-run`, including the executable string, flags, values, empty arguments, and argument boundaries. Matching uses literal UTF-8 bytes without normalization or shell parsing. Changing an argument, its order, or its grouping produces a different exact identity. For example, `gh api "user repos"` is not the same as `gh api user repos`. The natural exact-command text is presentation only, not a shell command or matching key; arguments that need boundary-preserving display remain quoted and escaped.
 
-Remembered decisions can be reviewed and cleared from **Settings → Run**.
+Where available, **Broader scope** choices retain the existing command-prefix behavior and must be selected explicitly. They can match commands with different arguments. Existing legacy broad decisions are retained without migration or reset and can still apply to a changed command. Exact scope does not bind the working directory, environment, or executable contents; the same executable string can refer to a changed binary. Version commands such as `gh --version` are not automatically approved.
+
+Matching checks exact scope first, then existing prefixes from narrowest to broadest, across both session and persistent decisions. A broader session approval cannot override a more specific remembered denial. Within the same scope, a current session decision takes precedence. **Do Not Remember** avoids a persistent decision but still uses the existing **10-second** in-memory burst cache for approvals and denials. Other remember durations, including Forever, are unchanged. This authorization cache is separate from the profile's resolved-secret cache.
+
+A denial already matching at the initial check prevents secret resolution. A request waiting in the authorization queue is checked again when it reaches the front: a newly applicable queued denial prevents release of environment variables to the helper, but does not undo secret resolution that may already have happened. It cannot recall values already released.
+
+### Stored command text and managing decisions
+
+Exact authorization identity remains `exact-argv-v1` plus the unchanged full SHA256 digest over the ordered received argv; the digest is not encryption and is never shown in Settings. To make remembered decisions readable, the encrypted Run authorization table now also stores the full received command text. This is a narrow policy change: caller-supplied arguments can themselves contain tokens or passwords, so stored command text is not guaranteed redacted or secret-free. Do not put resolved profile environment variables, fetched Pass secrets, or Offline Mode snapshots into this field. Full command text is not written to public logs, FTS, UserDefaults, App Group storage, or an unencrypted sidecar. Explicit broader prefixes retain their literal matching value and are identified as command prefixes in Settings.
+
+Open **Settings → Run → Manage Run decisions…** to review remembered approvals and denials. Rows show the full stored command text in the primary label and help, plus a localized **Exact command**, **Command prefix**, or **Unknown matching type** description with outcome, profile, and expiration. Display text never participates in matching, uniqueness, selection, or removal; persistent rows have stable IDs and matching still uses typed app/profile/type/value identity.
+
+On the v14 upgrade, only strictly valid old exact-v1 fingerprint-only decisions are removed once because their original command text cannot be recovered. Malformed exact-looking values, literal prefixes, and other rows remain as command-prefix rules. Removing an old exact entry does not promise an unconditional prompt: another remembered broad rule or a live burst-cache decision may still apply.
+
+Each decision retains its app, profile, outcome, expiration, and **Remove** action. Remove a remembered decision to require authorization again once any applicable brief session cache expires (another explicit broad decision may still match). Use **Done** or Escape to close the sheet. Run profiles remain in the main Run settings.
 
 ## Secret cache duration
 
@@ -139,6 +153,7 @@ If a command does not receive an expected variable, review the profile mapping a
   only approved environment variables through a private FIFO channel; it does
   not print resolved secrets to stdout/stderr or persist them to disk.
 - Optional profile cache duration is in memory only.
+- Full caller-received command text for remembered decisions is stored only in the encrypted authorization table and may itself contain credentials; it is not redacted or secret-free by guarantee.
 
 ## Related docs
 

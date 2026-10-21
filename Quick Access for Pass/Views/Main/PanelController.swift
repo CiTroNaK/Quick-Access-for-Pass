@@ -105,6 +105,8 @@ final class PanelController {
     private var previousApp: NSRunningApplication?
     private let frontmostApplication: () -> NSRunningApplication?
     private let activateApplication: (NSRunningApplication) -> Void
+    /// Installs outside-click callbacks; returned tokens are removed using `NSEvent.removeMonitor`.
+    private let monitorOutsideClicks: (@escaping @MainActor () -> Void) -> Any?
     private var ownedAuxiliaryWindows: [ObjectIdentifier: WeakWindowBox] = [:]
     /// Brief guard to ignore spurious `didBecomeKeyNotification` during `show()`.
     private(set) var isShowingTransition = false
@@ -133,11 +135,17 @@ final class PanelController {
         },
         activateApplication: @escaping (NSRunningApplication) -> Void = { application in
             application.activate()
+        },
+        monitorOutsideClicks: @escaping (@escaping @MainActor () -> Void) -> Any? = { onClick in
+            NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
+                Task { @MainActor in onClick() }
+            }
         }
     ) {
         self.panel = QuickAccessPanel()
         self.frontmostApplication = frontmostApplication
         self.activateApplication = activateApplication
+        self.monitorOutsideClicks = monitorOutsideClicks
     }
 
     func registerOwnedWindow(_ window: NSWindow) {
@@ -177,10 +185,8 @@ final class PanelController {
         }
 
         // Monitor for clicks outside the panel to dismiss
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in
-                self?.hide()
-            }
+        eventMonitor = monitorOutsideClicks { [weak self] in
+            self?.hide()
         }
 
         // Local key monitor for configurable shortcuts. Only modifier-bearing

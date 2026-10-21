@@ -434,6 +434,9 @@ struct CLIRunnerTimeoutTests {
 
     @Test(.timeLimit(.minutes(1)))
     func cancellationWinsActualTimeoutTerminationRaceForNormalAndEnvironmentRuns() async throws {
+        // Exercise native commit ordering, not shell startup within 350 ms.
+        // This real fixture deadline still precedes the finite 3-second child.
+        let timeout: TimeInterval = 2
         for environmentAware in [false, true] {
             let trace = CLIRunnerFailureTrace()
             let gate = OfflineTestGate()
@@ -448,10 +451,10 @@ struct CLIRunnerTimeoutTests {
                     let arguments = ["-c", "trap '' TERM; printf ready > '\(child.path)'; /bin/sleep 3"]
                     if environmentAware {
                         return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
-                            environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: 0.6, maximumOutputBytes: 1024, lifecycleTesting: lifecycle)
+                            environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: timeout, maximumOutputBytes: 1024, lifecycleTesting: lifecycle)
                     }
                     return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
-                        timeout: 0.6, maximumOutputBytes: nil, lifecycleTesting: lifecycle)
+                        timeout: timeout, maximumOutputBytes: nil, lifecycleTesting: lifecycle)
                 }
             }
             do {
@@ -476,6 +479,8 @@ struct CLIRunnerTimeoutTests {
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func cancellationAfterCommittedTimeoutCannotRewriteResult(environmentAware: Bool) async throws {
+        // Keep the same native fixture budget as the before-commit race.
+        let timeout: TimeInterval = 2
         let trace = CLIRunnerFailureTrace()
         let committed = OfflineTestGate()
         let child = temporaryFixtureMarker()
@@ -489,10 +494,10 @@ struct CLIRunnerTimeoutTests {
                 let arguments = ["-c", "trap '' TERM; printf ready > '\(child.path)'; /bin/sleep 3"]
                 if environmentAware {
                     return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
-                        environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: 0.6, maximumOutputBytes: 1024, lifecycleTesting: lifecycle)
+                        environmentOverrides: ["QA_RUNNER_VALUE": "unused"], timeout: timeout, maximumOutputBytes: 1024, lifecycleTesting: lifecycle)
                 }
                 return try await CLIRunner.run(executablePath: "/bin/sh", arguments: arguments,
-                    timeout: 0.6, maximumOutputBytes: nil, lifecycleTesting: lifecycle)
+                    timeout: timeout, maximumOutputBytes: nil, lifecycleTesting: lifecycle)
             }
         }
         do {
@@ -577,7 +582,11 @@ extension CLIRunnerTimeoutTests {
             guard let typed = error as? CLIError, case .outputLimitExceeded = typed else { return false }
             return true
         }
-        fixture.expectTimeoutTrapAndSingleCompletion()
+        if delayedNotification {
+            #expect(fixture.completedOutputLimitNotifications == 0,
+                    "Native error propagation must not wait for diagnostic notification delivery")
+        }
+        await fixture.expectTimeoutTrapAndSingleCompletion()
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -631,6 +640,7 @@ extension CLIRunnerTimeoutTests {
 private struct CLIRunnerFailureTrace: Sendable {
     private struct State: Sendable {
         var phases: [String] = []
+        var phaseTimes: [UInt64] = []
         var callStarted: UInt64?
         var callCompleted: UInt64?
     }
@@ -639,7 +649,12 @@ private struct CLIRunnerFailureTrace: Sendable {
 
     func expectChildReady(_ marker: URL) {
         let ready = FileManager.default.fileExists(atPath: marker.path)
-        #expect(ready)
+        let timeline = state.withLock { state in
+            zip(state.phases, state.phaseTimes).map { phase, instant in
+                "\(phase): \((Int64(instant) - Int64(state.callStarted ?? instant)) / 1_000_000)ms"
+            }.joined(separator: ", ")
+        }
+        #expect(ready, "Missing child readiness; native timeline: \(timeline)")
     }
     func expectEvents(_ events: [CLIRunner.LifecycleTesting.Event]) {
         let names = state.withLock { $0.phases }
@@ -695,6 +710,7 @@ private struct CLIRunnerFailureTrace: Sendable {
         state.withLock { state in
             guard state.phases.count < 64 else { return }
             state.phases.append(phase)
+            state.phaseTimes.append(DispatchTime.now().uptimeNanoseconds)
         }
     }
 }
@@ -727,20 +743,6 @@ private enum CLIRunnerTestTaskFactory {
         operation: @escaping @Sendable () async throws -> Value
     ) -> Task<Value, Error> {
         Task(executorPreference: executor, operation: operation)
-    }
-}
-
-private final class CLIRunnerTestTaskExecutor: TaskExecutor, Sendable {
-    private let queue = DispatchQueue(label: "CLIRunnerTimeoutTests.executor")
-
-    func enqueue(_ job: UnownedJob) {
-        queue.async { [self, job] in
-            job.runSynchronously(on: asUnownedTaskExecutor())
-        }
-    }
-
-    func asUnownedTaskExecutor() -> UnownedTaskExecutor {
-        UnownedTaskExecutor(ordinary: self)
     }
 }
 
