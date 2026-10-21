@@ -15,4 +15,13 @@ nonisolated struct OfflineRequestToken: Sendable {
     let metadataModifyTime: Date
     let itemType: ItemType
     let selectionGeneration: UUID
+    let metadataGeneration: UUID
+    let requestGeneration: UUID
+}
+
+/// Codec identity validation only; this value grants no pending-request or selection ownership.
+nonisolated struct OfflineSnapshotPreparationIdentity: Sendable {
+    let key: OfflineSnapshotKey
+    let shareID: String
+    let itemType: ItemType
 }

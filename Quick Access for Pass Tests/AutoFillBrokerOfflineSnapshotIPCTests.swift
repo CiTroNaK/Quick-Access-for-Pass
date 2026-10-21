@@ -247,7 +247,7 @@ private actor GenericIPCDecodeTrace: OfflineSnapshotCoding {
 
     init(codec: any OfflineSnapshotCoding) { self.codec = codec }
 
-    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+    func prepareSnapshot(from item: CLIItem, for request: OfflineSnapshotPreparationIdentity) async throws -> PreparedOfflineSnapshot {
         try await codec.prepareSnapshot(from: item, for: request)
     }
 

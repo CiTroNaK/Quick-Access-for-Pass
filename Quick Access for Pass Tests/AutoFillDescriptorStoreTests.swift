@@ -43,6 +43,29 @@ struct AutoFillDescriptorStoreTests {
         #expect(try tableNames(at: fixture.databaseURL) == fixture.tableNamesBefore)
     }
 
+    @Test("opaque store lookup survives no-op sync and same-identity metadata updates")
+    func opaqueLookupSurvivesIncrementalSynchronization() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("incremental-descriptor-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("test.sqlite")
+        let database = try DatabaseManager(path: url.path, passphrase: passphrase)
+        let vaults = [PassVault(id: "vault", name: "Vault", shareId: "share")]
+        let initial = try database.syncMetadata(vaults: vaults, items: [incrementalMetadata()], descriptors: [incrementalDescriptor()])
+        let id = try #require(initial.first?.id)
+        let store = AutoFillDescriptorStore(databaseURL: url, keychainService: fakeKeychain(result: .success(passphrase)))
+        let before = try await store.descriptor(id: id)
+        _ = try await database.synchronizeMetadata(vaults: vaults, items: [incrementalMetadata()],
+                                                   descriptors: [incrementalDescriptor()], operation: database.beginSyncOperation())
+        #expect(try await store.descriptor(id: id) == before)
+        _ = try await database.synchronizeMetadata(
+            vaults: vaults, items: [incrementalMetadata(title: "Changed")], descriptors: [incrementalDescriptor(title: "Changed")],
+            operation: database.beginSyncOperation()
+        )
+        let updated = try #require(try await store.descriptor(id: id))
+        #expect(updated.id == id)
+        #expect(updated.title == "Changed")
+    }
+
     @Test("store exposes descriptor lookup only and does not write other metadata")
     func cannotWriteOtherMetadata() async throws {
         let fixture = try makeFixture()

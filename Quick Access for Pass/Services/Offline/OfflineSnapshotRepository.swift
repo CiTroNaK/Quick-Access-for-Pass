@@ -20,10 +20,16 @@ nonisolated struct OfflineRequestExpectations: Sendable {
 /// Atomic lifecycle and authorization boundary for encrypted offline snapshots.
 nonisolated protocol OfflineSnapshotPersisting: Sendable {
     var releaseAuthority: OfflineReleaseAuthority { get }
+    func beginSyncCapture(operation: SyncOperationToken, lifecycleGeneration: UUID) async throws -> OfflineSyncCapture
+    func syncWork(capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
+                  sourceTimes: [String: Date], allowMembershipExpansion: Bool) async throws -> [OfflineSyncWork]
+    func endSyncCapture(_ capture: OfflineSyncCapture) async throws
+    func publishSyncBatch(_ publications: [OfflineSyncPublication], capture: OfflineSyncCapture) async throws -> Set<OfflineSnapshotKey>
+    func finishSyncFailures(_ work: [OfflineSyncWork], capture: OfflineSyncCapture) async throws
     func releaseProof(for snapshot: EncryptedOfflineSnapshot) async throws -> OfflineReleaseProof?
     func beginRequest(itemID: String, vaultID: String, shareID: String, kind: OfflineRequestKind,
                       expectations: OfflineRequestExpectations) async throws -> OfflineRequestToken?
-    func publish(_ snapshot: EncryptedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool
+    func publish(_ snapshot: PreparedOfflineSnapshot, for request: OfflineRequestToken, refreshedAt: Date) async throws -> Bool
     func finishRequest(_ request: OfflineRequestToken, failed: Bool) async throws
     func setVaultSelected(_ selected: Bool, vaultID: String) async throws -> OfflineVaultSelection?
     func selectItemManually(itemID: String, vaultID: String, shareID: String) async throws -> UUID
@@ -77,6 +83,13 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
         self.afterPublication = afterPublication
         self.maintenance = maintenance
     }
+    /// Metadata-only ordering hooks shared with explicit publication, without exposing the stored closures.
+    func prepareSyncPublicationSubmission() async {
+        await beforePublication()
+        publicationSubmissionMarker()
+    }
+    func observeSyncPublicationCommit() async { await afterPublication() }
+
     func beginRequest(
         itemID: String,
         vaultID: String,
@@ -118,23 +131,25 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                 guard let selectionGeneration = try Self.reserveSelection(
                     for: key, kind: kind, expectedGeneration: expectations.selectionGeneration, in: db
                 ) else { return OfflineMutationUpdate(value: nil, manualPromotions: []) }
+                guard let metadataGeneration = try String.fetchOne(
+                    db, sql: "SELECT metadataGeneration FROM offlineItems WHERE itemId = ? AND vaultId = ?",
+                    arguments: [itemID, vaultID]
+                ).flatMap({ UUID(uuidString: $0) }) else { throw OfflinePersistenceError.persistenceFailed }
                 let requestID = UUID()
+                let requestGeneration = UUID()
                 try db.execute(
-                    sql: "UPDATE offlineItems SET pendingRequestId = ? WHERE itemId = ? AND vaultId = ?",
-                    arguments: [requestID.uuidString, itemID, vaultID]
+                    sql: "UPDATE offlineItems SET pendingRequestId = ?, requestGeneration = ? WHERE itemId = ? AND vaultId = ?",
+                    arguments: [requestID.uuidString, requestGeneration.uuidString, itemID, vaultID]
                 )
-                guard let modifyTime: Date = item["modifyTime"],
-                      let rawItemType: String = item["itemType"],
-                      let itemType = ItemType(rawValue: rawItemType) else {
-                    throw OfflinePersistenceError.persistenceFailed
-                }
                 return OfflineMutationUpdate(value: OfflineRequestToken(
                     id: requestID,
                     key: OfflineSnapshotKey(vaultId: vaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
                     shareID: shareID,
                     metadataModifyTime: modifyTime,
                     itemType: itemType,
-                    selectionGeneration: selectionGeneration
+                    selectionGeneration: selectionGeneration,
+                    metadataGeneration: metadataGeneration,
+                    requestGeneration: requestGeneration
                 ), manualPromotions: [])
             }
         } catch let error as OfflinePersistenceError {
@@ -145,10 +160,11 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
     }
     // swiftlint:disable:next function_body_length
     func publish(
-        _ snapshot: EncryptedOfflineSnapshot,
+        _ prepared: PreparedOfflineSnapshot,
         for request: OfflineRequestToken,
         refreshedAt: Date
     ) async throws -> Bool {
+        let snapshot = prepared.snapshot
         try validate(snapshot: snapshot, matches: request)
         do {
             let published = try await database.writeOfflineMutation(submissionScope: .keys([request.key]), beforeWrite: {
@@ -162,8 +178,8 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                     JOIN items i ON i.id = o.itemId AND i.vaultId = o.vaultId
                     JOIN vaults v ON v.id = o.vaultId
                     WHERE o.itemId = ? AND o.vaultId = ? AND o.pendingRequestId = ?
-                      AND o.selectionGeneration = ? AND i.state = 'Active'
-                      AND i.modifyTime = ? AND i.itemType = ? AND v.shareId = ?
+                      AND o.selectionGeneration = ? AND o.metadataGeneration = ? AND o.requestGeneration = ?
+                      AND i.state = 'Active' AND i.modifyTime = ? AND i.itemType = ? AND v.shareId = ?
                       AND \(OfflineSelectionSQL.effectiveSelection)
                     """,
                     arguments: [
@@ -171,6 +187,8 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                         request.key.vaultId,
                         request.id.uuidString,
                         request.selectionGeneration.uuidString,
+                        request.metadataGeneration.uuidString,
+                        request.requestGeneration.uuidString,
                         request.metadataModifyTime,
                         request.itemType.rawValue,
                         request.shareID
@@ -195,13 +213,15 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                 try db.execute(
                     sql: """
                     INSERT INTO offlineSnapshots
-                    (vaultId, itemId, schemaVersion, snapshotRevision, keyFingerprint, encryptedPayload)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (vaultId, itemId, schemaVersion, snapshotRevision, keyFingerprint, encryptedPayload, sourceModifyTime, metadataGeneration)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(vaultId, itemId) DO UPDATE SET
                         schemaVersion = excluded.schemaVersion,
                         snapshotRevision = excluded.snapshotRevision,
                         keyFingerprint = excluded.keyFingerprint,
-                        encryptedPayload = excluded.encryptedPayload
+                        encryptedPayload = excluded.encryptedPayload,
+                        sourceModifyTime = excluded.sourceModifyTime,
+                        metadataGeneration = excluded.metadataGeneration
                     """,
                     arguments: [
                         request.key.vaultId,
@@ -209,7 +229,10 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                         snapshot.identity.key.schemaVersion,
                         snapshot.identity.revision.uuidString,
                         snapshot.identity.keyFingerprint,
-                        snapshot.payload
+                        snapshot.payload,
+                        // Numeric epoch preserves the actual source marker's submillisecond precision.
+                        prepared.sourceModifyTime?.timeIntervalSince1970,
+                        request.metadataGeneration.uuidString
                     ]
                 )
                 try db.execute(
@@ -244,8 +267,12 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
             try await database.writeOfflineMutation(submissionScope: .none) { db in
                 guard try Bool.fetchOne(
                     db,
-                    sql: "SELECT EXISTS(SELECT 1 FROM offlineItems WHERE itemId = ? AND vaultId = ? AND pendingRequestId = ?)",
-                    arguments: [request.key.itemId, request.key.vaultId, request.id.uuidString]
+                    sql: """
+                        SELECT EXISTS(SELECT 1 FROM offlineItems WHERE itemId = ? AND vaultId = ? AND pendingRequestId = ?
+                            AND selectionGeneration = ? AND requestGeneration = ?)
+                        """,
+                    arguments: [request.key.itemId, request.key.vaultId, request.id.uuidString,
+                                request.selectionGeneration.uuidString, request.requestGeneration.uuidString]
                 ) == true else { return OfflineMutationUpdate(value: (), manualPromotions: []) }
                 let hasPayload = try Bool.fetchOne(
                     db,
@@ -335,6 +362,7 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
     func purge() async throws {
         do {
             let didDeleteOfflineData = try await database.writeOfflineMutation(submissionScope: .all) { db in
+                try db.execute(sql: "DELETE FROM offlineSyncCaptures")
                 let itemCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineItems") ?? 0
                 let vaultCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineVaults") ?? 0
                 let exclusionCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineItemExclusions") ?? 0
@@ -353,6 +381,7 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
         // The structural predicate is the authorized-read predicate: only already-unusable rows become unavailable.
         do {
             try await database.writeOfflineMutation(submissionScope: .none) { db in
+                try db.execute(sql: "DELETE FROM offlineSyncCaptures")
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT o.itemId, o.vaultId, o.cacheStatus,
                            s.schemaVersion, s.snapshotRevision, s.keyFingerprint,
@@ -648,10 +677,12 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
             try db.execute(
                 sql: """
                     INSERT INTO offlineItems
-                    (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected, selectionGeneration)
-                    VALUES (?, ?, ?, NULL, ?, NULL, 1, ?)
+                    (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected,
+                     selectionGeneration, metadataGeneration, requestGeneration)
+                    VALUES (?, ?, ?, NULL, ?, NULL, 1, ?, ?, ?)
                     """,
-                arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, selectionGeneration.uuidString]
+                arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, selectionGeneration.uuidString,
+                            UUID().uuidString, UUID().uuidString]
             )
         } else {
             try db.execute(sql: "UPDATE offlineItems SET isManuallySelected = 1 WHERE itemId = ? AND vaultId = ?", arguments: [itemID, vaultID])
@@ -666,10 +697,12 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
             try db.execute(
                 sql: """
                     INSERT INTO offlineItems
-                    (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected, selectionGeneration)
-                    VALUES (?, ?, ?, NULL, ?, NULL, 0, ?)
+                    (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected,
+                     selectionGeneration, metadataGeneration, requestGeneration)
+                    VALUES (?, ?, ?, NULL, ?, NULL, 0, ?, ?, ?)
                     """,
-                arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, selectionGeneration.uuidString]
+                arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, selectionGeneration.uuidString,
+                            UUID().uuidString, UUID().uuidString]
             )
         }
     }

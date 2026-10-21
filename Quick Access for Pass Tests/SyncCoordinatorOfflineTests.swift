@@ -6,17 +6,31 @@ import Testing
 @Suite("SyncCoordinator offline lifecycle", .timeLimit(.minutes(1)))
 @MainActor
 struct SyncCoordinatorOfflineTests {
-    @Test("sync refreshes seeded encrypted snapshots via explicit item view")
-    func syncRefreshesSelectedItemsViaViewRatherThanListPayload() async throws {
+    @Test("sync reuses complete list content without an item view")
+    func syncReusesCompleteListPayloadForSelectedItem() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item"])
         let previousRefresh = try #require(harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt)
         harness.coordinator.refreshNow()
-        #expect(await waitUntil {
-            guard let selection = try? harness.database.offlineItemSelection(itemId: "item") else { return false }
-            return selection.cacheStatus == .cached && selection.lastRefreshedAt != previousRefresh
-        })
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(try harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt != previousRefresh)
         #expect(try await harness.repository.hasPersistedSnapshots())
+        #expect(await harness.runner.viewRequests().isEmpty)
+    }
+
+    @Test("explicit Retry then matching coordinator sync adds zero item views")
+    func matchingSyncAfterRetryAddsZeroViews() async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor"])
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(await harness.runner.viewRequests().isEmpty)
+        #expect(try await harness.service.retryOfflineItem(itemID: "item", vaultID: "vault") == .submitted)
+        await harness.service.waitUntilIdle()
         #expect(await harness.runner.viewRequests() == ["pass://share/item"])
+        let before = try #require(try await OfflinePersistedTestState.capture(database: harness.database, itemID: "item"))
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(await harness.runner.viewRequests() == ["pass://share/item"])
+        #expect(try await OfflinePersistedTestState.capture(database: harness.database, itemID: "item") == before)
     }
 
     @Test("item-scoped retry remains limited to its selected sync identity")
@@ -31,13 +45,13 @@ struct SyncCoordinatorOfflineTests {
         #expect(try await harness.repository.offlineItemSelection(itemId: "neighbor")?.cacheStatus == .cached)
     }
 
-    @Test("metadata sync finishes while future vault-item preparation remains queued")
-    func successfulSyncQueuesFutureVaultItemsWithoutWaitingForPreparation() async throws {
+    @Test("loading and native sync completion await future-item preparation")
+    func successfulSyncAwaitsFutureVaultItemPreparation() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item"])
         try await harness.service.selectWholeVault(true, vaultID: "vault")
         await harness.service.waitUntilIdle()
-        let preparationGate = OfflineTestGate()
-        await harness.runner.setViewGate(preparationGate)
+        let preparationGate = IncrementalSyncGate()
+        await harness.codec.setGate(preparationGate, itemIDs: ["new"])
         await harness.runner.setSyncedItemIDs(["item", "new"])
         let completion = OfflineSyncCompletionSignal()
         let coordinator = SyncCoordinator(
@@ -45,24 +59,19 @@ struct SyncCoordinatorOfflineTests {
             offlineModeService: harness.service,
             onSyncIssueChanged: { issue in if issue == nil { completion.complete() } }
         )
-
         coordinator.refreshNow()
-        await completion.wait()
-        try await preparationGate.waitUntilEntered()
-
-        #expect(harness.viewModel.isLoading == false)
-        let committedItemIDs = Set(try harness.database.allActiveItems().map(\.id))
-        let selectedVaultIDs = try await harness.repository.offlineVaultIds()
-        #expect(committedItemIDs.contains("new"), "The new decoded row must have committed before completion.")
-        #expect(selectedVaultIDs.contains("vault"), "The vault policy must be committed before membership expansion.")
-        let statusWhileHeld = try harness.database.offlineItemSelection(itemId: "new")?.cacheStatus
-        #expect(statusWhileHeld != .cached, "Held preparation must not publish before release; status=\(String(describing: statusWhileHeld)), items=\(committedItemIDs), vaults=\(selectedVaultIDs).")
+        await preparationGate.waitUntilEntered()
+        #expect(harness.viewModel.isLoading)
+        #expect(completion.didComplete == false)
+        #expect(try harness.database.allActiveItems().contains { $0.id == "new" })
+        #expect(try harness.database.offlineItemSelection(itemId: "new")?.cacheStatus != .cached)
         await preparationGate.open()
+        await coordinator.currentSyncCompletion?.value
         await harness.service.waitUntilIdle()
-        let finalStatus = try harness.database.offlineItemSelection(itemId: "new")?.cacheStatus
-        let viewRequests = await harness.runner.viewRequests()
-        #expect(finalStatus == .cached, "Released preparation should publish; status=\(String(describing: finalStatus)), requests=\(viewRequests)")
-        #expect(viewRequests.contains("pass://share/new"))
+        await completion.wait()
+        #expect(harness.viewModel.isLoading == false)
+        #expect(try harness.database.offlineItemSelection(itemId: "new")?.cacheStatus == .cached)
+        #expect(await harness.runner.viewRequests().isEmpty)
     }
 
     @Test("retry selected copies retries a failed cached refresh without changing selection origin")
@@ -93,7 +102,7 @@ struct SyncCoordinatorOfflineTests {
 
     @Test("one selected-item refresh failure does not cancel healthy refreshes")
     func oneSelectedItemRefreshFailureDoesNotCancelOtherRefreshes() async throws {
-        let harness = try await makeHarness(selectedItemIDs: ["failing", "healthy"], failingItemIDs: ["failing"])
+        let harness = try await makeHarness(selectedItemIDs: ["failing", "healthy"], failingItemIDs: ["failing"], cliVersion: "2.4.1")
         let healthyPreviousRefresh = try #require(harness.database.offlineItemSelection(itemId: "healthy")?.lastRefreshedAt)
         let failingPreviousRefresh = try #require(harness.database.offlineItemSelection(itemId: "failing")?.lastRefreshedAt)
         let failingKey = OfflineSnapshotKey(vaultId: "vault", itemId: "failing", schemaVersion: OfflineSnapshotLimits.schemaVersion)
@@ -180,6 +189,9 @@ struct SyncCoordinatorOfflineTests {
         #expect(await waitUntil { (try? harness.database.offlineItemSelection(itemId: "item")) == nil })
     }
 
+}
+
+extension SyncCoordinatorOfflineTests {
     @Test("committed missing-item sync deletion requests maintenance after its cascade")
     func committedMissingItemSyncDeletionRequestsMaintenance() async throws {
         let checkpointer = SyncCheckpointRecorder()
@@ -272,6 +284,8 @@ struct SyncCoordinatorOfflineTests {
     func cancellingBlockedRefreshDoesNotPublishSyncFailure() async throws {
         let gate = OfflineTestGate()
         let harness = try await makeHarness(selectedItemIDs: ["item"])
+        let before = try #require(try await harness.repository.authorizedSnapshot(
+            for: OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: OfflineSnapshotLimits.schemaVersion)))
         await harness.runner.holdNextSync(gate)
         let issueRecorder = OfflineSyncIssueRecorder()
         let coordinator = SyncCoordinator(
@@ -281,12 +295,16 @@ struct SyncCoordinatorOfflineTests {
         coordinator.refreshNow()
         do {
             try await gate.waitUntilEntered()
+            let oldCompletion = coordinator.currentSyncCompletion
             coordinator.refreshNow()
             await gate.open()
+            await coordinator.currentSyncCompletion?.value
+            await oldCompletion?.value
             #expect(await waitUntil { await issueRecorder.hasNoFailure() })
-            await harness.service.waitUntilIdle()
-            let viewRequests = await harness.runner.viewRequests()
-            #expect(viewRequests.count >= 1, "At least one completed eligible sync should view an item; requests=\(viewRequests)")
+            #expect(await harness.runner.viewRequests().isEmpty)
+            let after = try #require(try await harness.repository.authorizedSnapshot(for: before.identity.key))
+            #expect(after.identity.revision != before.identity.revision)
+            #expect(try await harness.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM offlineSyncCaptures") } == 0)
             #expect(harness.viewModel.syncError == nil)
         } catch {
             // The coordinator owns its task; releasing the gate lets its
@@ -438,7 +456,8 @@ struct SyncCoordinatorOfflineTests {
         selectedItemIDs: [String],
         failingItemIDs: Set<String> = [],
         publicationGate: OfflineTestGate? = nil,
-        maintenance: OfflineStorageMaintenance? = nil
+        maintenance: OfflineStorageMaintenance? = nil,
+        cliVersion: String = "2.4.2"
     ) async throws -> OfflineLifecycleHarness {
         let database = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         let itemIDs = Array(Set(selectedItemIDs).union(failingItemIDs)).sorted()
@@ -449,9 +468,9 @@ struct SyncCoordinatorOfflineTests {
         let repository = OfflineSnapshotRepository(database: database, beforePublication: {
             await publicationControl.waitIfEnabled()
         }, maintenance: maintenance)
-        let runner = OfflineLifecycleRunner(itemIDs: itemIDs, failingItemIDs: failingItemIDs)
+        let runner = OfflineLifecycleRunner(itemIDs: itemIDs, failingItemIDs: failingItemIDs, cliVersion: cliVersion)
         let cliService = PassCLIService(cliPath: "/usr/bin/pass", runner: runner)
-        let codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { try await repository.hasPersistedSnapshots() })
+        let codec = IncrementalSyncCodec(base: OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { try await repository.hasPersistedSnapshots() }))
         let service = OfflineModeService(repository: repository, codec: codec, cliService: cliService)
         try await initializeOfflineFixtureService(service)
         for item in items where selectedItemIDs.contains(item.id) { try await service.makeAvailableOffline(item: item, shareId: "share") }
@@ -466,7 +485,8 @@ struct SyncCoordinatorOfflineTests {
             cliService: cliService, databaseManager: database, viewModel: viewModel,
             offlineModeService: service, maintenance: maintenance
         )
-        return OfflineLifecycleHarness(database: database, repository: repository, cliService: cliService, service: service, runner: runner, viewModel: viewModel, coordinator: coordinator)
+        return OfflineLifecycleHarness(database: database, repository: repository, cliService: cliService, service: service,
+                                       runner: runner, codec: codec, viewModel: viewModel, coordinator: coordinator)
     }
 }
 
@@ -500,12 +520,106 @@ extension SyncCoordinatorOfflineTests {
     }
 }
 
+extension SyncCoordinatorOfflineTests {
+    @Test("readiness recovered during fetch cannot admit its already-started operation", arguments: [false, true])
+    func readinessDuringFetchCannotGainAdmission(initiallyUninitialized: Bool) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"])
+        let key = OfflineSnapshotKey(vaultId: "vault", itemId: "item", schemaVersion: OfflineSnapshotLimits.schemaVersion)
+        let before = try #require(try await harness.repository.authorizedSnapshot(for: key))
+        let service: OfflineModeService
+        if initiallyUninitialized {
+            service = OfflineModeService(repository: harness.repository, codec: harness.codec, cliService: harness.cliService)
+        } else {
+            service = harness.service
+            await service.updateSelectionObservation(generation: offlineFixtureObservationGeneration, status: .failed)
+        }
+        let gate = OfflineNonCancellableGate()
+        await harness.runner.holdNextList(gate)
+        let coordinator = SyncCoordinator(cliService: harness.cliService, databaseManager: harness.database,
+                                          viewModel: harness.viewModel, offlineModeService: service)
+        coordinator.refreshNow()
+        await gate.waitUntilEntered()
+        if initiallyUninitialized { try await initializeOfflineFixtureService(service) }
+        else { await service.updateSelectionObservation(generation: offlineFixtureObservationGeneration, status: .fresh) }
+        await gate.open()
+        await coordinator.currentSyncCompletion?.value
+        #expect(try harness.database.allActiveItems().first?.title == "item")
+        #expect(try await harness.repository.authorizedSnapshot(for: key) == before)
+        #expect(await harness.runner.viewRequests().isEmpty)
+        #expect(harness.viewModel.syncError == nil)
+        #expect(try await harness.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM offlineSyncCaptures") } == 0)
+    }
+
+    @Test("fetch failures join capture cleanup without changing a selected snapshot", arguments: [
+        CLIError.notInstalled, .notLoggedIn, .timeout, .parseError("synthetic parse failure"),
+        .commandFailed("synthetic fetch failure"), .commandFailed("Error decrypting local session: synthetic")
+    ])
+    func fetchErrorsAlwaysJoinCaptureCleanup(error: CLIError) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"])
+        let before = try #require(try await OfflinePersistedTestState.capture(database: harness.database, itemID: "item"))
+        await harness.runner.setSyncFailure(error)
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(try await OfflinePersistedTestState.capture(database: harness.database, itemID: "item") == before)
+        #expect(try await harness.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM offlineSyncCaptures") } == 0)
+        #expect(harness.viewModel.isLoading == false)
+        if error.isNotInstalled { #expect(harness.viewModel.errorMessage != nil) }
+        else { #expect(harness.viewModel.syncError != nil) }
+        #expect(await harness.runner.viewRequests().isEmpty)
+    }
+
+    @Test("reset purges before joining bulk preparation and clears metadata only after its frame joins")
+    func resetJoinsBulkPreparationBeforeMetadataClear() async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"])
+        let preparation = IncrementalSyncGate()
+        await harness.codec.setGate(preparation)
+        harness.coordinator.refreshNow()
+        await preparation.waitUntilEntered()
+        let oldCompletion = harness.coordinator.currentSyncCompletion
+        let resetFetch = OfflineTestGate()
+        await harness.runner.holdNextSync(resetFetch)
+        harness.coordinator.resetAndSync()
+        #expect(await waitUntil { (try? harness.database.offlineItemSelection(itemId: "item")) == nil })
+        #expect(try harness.database.allActiveItems().contains { $0.id == "item" }, "Purge must commit before join; metadata clear must wait for the owned bulk frame.")
+        await preparation.open()
+        await oldCompletion?.value
+        try await resetFetch.waitUntilEntered()
+        #expect(try harness.database.allActiveItems().isEmpty)
+        #expect(try await harness.repository.hasPersistedSnapshots() == false)
+        await resetFetch.open()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(try harness.database.offlineItemSelection(itemId: "item") == nil)
+    }
+
+    @Test("removal and purge commit while non-cancellable list fetch is held", arguments: [false, true])
+    func revocationWhileListFetchIsHeldCannotResurrect(purge: Bool) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item", "other"])
+        let gate = OfflineNonCancellableGate()
+        await harness.runner.holdNextList(gate)
+        harness.coordinator.refreshNow()
+        await gate.waitUntilEntered()
+        #expect(try await harness.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM offlineSyncCaptures") } == 1)
+        if purge { try await harness.service.removeAllOfflineData() }
+        else { try await harness.service.removeOfflineItem(itemId: "item") }
+        #expect(try harness.database.offlineItemSelection(itemId: "item") == nil)
+        await gate.open()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(try harness.database.offlineItemSelection(itemId: "item") == nil)
+        let other = try harness.database.offlineItemSelection(itemId: "other")
+        if purge { #expect(other == nil) }
+        else { #expect(other?.cacheStatus == .cached) }
+        #expect(await harness.runner.viewRequests().isEmpty)
+        #expect(harness.viewModel.syncError == nil)
+    }
+}
+
 private struct OfflineLifecycleHarness {
     let database: DatabaseManager
     let repository: OfflineSnapshotRepository
     let cliService: PassCLIService
     let service: OfflineModeService
     let runner: OfflineLifecycleRunner
+    let codec: IncrementalSyncCodec
     let viewModel: QuickAccessViewModel
     let coordinator: SyncCoordinator
 }
@@ -540,23 +654,32 @@ private actor OfflineNonCancellableGate {
 
 private actor OfflineLifecycleRunner: CLIRunning {
     private var itemIDs: [String]
+    private let cliVersion: String
     private var failingItemIDs: Set<String>
     private var includesVault = true
     private var requests: [String] = []
     private var isRefreshing = false
     private var malformedEntry: (json: String, itemID: String)?
     private var syncVaults: String?
+    private var syncFailure: CLIError?
     private var syncLists: [String: String] = [:]
     private var nextSyncGate: OfflineTestGate?
+    private var nextListGate: OfflineNonCancellableGate?
     private var viewGate: OfflineTestGate?
     private var nonCancellableViewGate: OfflineNonCancellableGate?
-    init(itemIDs: [String], failingItemIDs: Set<String>) { self.itemIDs = itemIDs; self.failingItemIDs = failingItemIDs }
+    init(itemIDs: [String], failingItemIDs: Set<String>, cliVersion: String) {
+        self.itemIDs = itemIDs
+        self.failingItemIDs = failingItemIDs
+        self.cliVersion = cliVersion
+    }
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
+        if arguments == ["--version"] { return Data("pass-cli \(cliVersion)".utf8) }
         if arguments == ["vault", "list", "--output", "json"] {
             if let gate = nextSyncGate {
                 nextSyncGate = nil
                 try? await gate.wait()
             }
+            if let syncFailure { throw syncFailure }
             if let syncVaults { return Data(syncVaults.utf8) }
             return Data((includesVault
                 ? "{\"vaults\":[{\"name\":\"Vault\",\"vault_id\":\"vault\",\"share_id\":\"share\"}]}"
@@ -567,7 +690,9 @@ private actor OfflineLifecycleRunner: CLIRunning {
                 return Data(list.utf8)
             }
             let entries = itemIDs.map { id in malformedEntry?.itemID == id ? malformedEntry!.json : itemJSON(id) }
-            return Data("{\"items\":[\(entries.joined(separator: ","))]}".utf8)
+            let result = Data("{\"items\":[\(entries.joined(separator: ","))]}".utf8)
+            if let gate = nextListGate { nextListGate = nil; await gate.wait() }
+            return result
         }
         if arguments.starts(with: ["item", "view"]), let uri = arguments.last {
             requests.append(uri)
@@ -581,7 +706,9 @@ private actor OfflineLifecycleRunner: CLIRunning {
     }
     func beginRefresh() { isRefreshing = true; requests.removeAll() }
     func setFailingItemIDs(_ itemIDs: Set<String>) { failingItemIDs = itemIDs }
+    func setSyncFailure(_ error: CLIError?) { syncFailure = error }
     func holdNextSync(_ gate: OfflineTestGate) { nextSyncGate = gate }
+    func holdNextList(_ gate: OfflineNonCancellableGate) { nextListGate = gate }
     func setViewGate(_ gate: OfflineTestGate?) { viewGate = gate }
     func setNonCancellableViewGate(_ gate: OfflineNonCancellableGate?) { nonCancellableViewGate = gate }
     func setMalformedListEntry(_ json: String, replacing itemID: String) { malformedEntry = (json, itemID) }
@@ -590,9 +717,9 @@ private actor OfflineLifecycleRunner: CLIRunning {
     func setIncludesVault(_ value: Bool) { includesVault = value }
     func viewRequests() -> [String] { requests }
     private nonisolated func itemJSON(_ id: String) -> String {
-        "{\"id\":\"\(id)\",\"share_id\":\"share\",\"vault_id\":\"vault\",\"state\":\"Active\",\"flags\":[]," +
-        "\"create_time\":\"\",\"modify_time\":\"\",\"content\":{\"title\":\"\(id)\",\"note\":\"\",\"item_uuid\":\"content-\(id)\",\"content\":" +
-        "{\"Login\":{\"username\":\"user\",\"password\":\"fake-password\",\"urls\":[]}}}}"
+        guard let item = try? incrementalSyncCLIItem(id: id, password: "fake-password", title: id),
+              let data = try? JSONEncoder().encode(item) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
@@ -602,7 +729,7 @@ private actor OfflineLifecycleRunner: CLIRunning {
 }
 
 @MainActor private final class OfflineSyncCompletionSignal {
-    private var didComplete = false
+    private(set) var didComplete = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func complete() {

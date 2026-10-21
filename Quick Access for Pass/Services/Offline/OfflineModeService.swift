@@ -42,6 +42,10 @@ actor OfflineModeService: OfflineModeServicing {
     private let maintenance: OfflineStorageMaintenance?
     /// Test-only marker for proving a caller joins an already-owned recovery task.
     private let initializationJoinMarker: @Sendable () -> Void
+    /// Non-secret ordering marker, analogous to initializationJoinMarker, for lifecycle race tests.
+    let stopAdmissionMarker: @Sendable () -> Void
+    var syncOperations: [UUID: OfflineSyncOperationRegistration] = [:]
+    var syncOperationDrainWaiters: [CheckedContinuation<Void, Never>] = []
     var ready = false
     var observationGeneration: UUID?
     var observationIsFresh = false
@@ -64,13 +68,15 @@ actor OfflineModeService: OfflineModeServicing {
         codec: any OfflineSnapshotCoding,
         cliService: any OfflineItemViewing,
         maintenance: OfflineStorageMaintenance? = nil,
-        initializationJoinMarker: @escaping @Sendable () -> Void = {}
+        initializationJoinMarker: @escaping @Sendable () -> Void = {},
+        stopAdmissionMarker: @escaping @Sendable () -> Void = {}
     ) {
         self.repository = repository
         self.codec = codec
         self.cliService = cliService
         self.maintenance = maintenance
         self.initializationJoinMarker = initializationJoinMarker
+        self.stopAdmissionMarker = stopAdmissionMarker
     }
 
     /// Coalesces recovery. A failed attempt keeps only a non-secret retry state;
@@ -146,7 +152,7 @@ actor OfflineModeService: OfflineModeServicing {
     }
 
     /// Fetches and encrypts outside the repository transaction so decoded values never span publication.
-    private func preparedSnapshot(for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+    private func preparedSnapshot(for request: OfflineRequestToken) async throws -> PreparedOfflineSnapshot {
         let item = try await cliService.viewItem(itemId: request.key.itemId, shareId: request.shareID)
         try Task.checkCancellation()
         return try await codec.prepareSnapshot(from: item, for: request)

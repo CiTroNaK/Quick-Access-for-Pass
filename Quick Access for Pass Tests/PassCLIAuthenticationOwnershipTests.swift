@@ -27,7 +27,7 @@ actor OwnershipPause {
     }
 }
 
-actor OwnershipCredentials: PassCLIPATCredentialStoring {
+actor OwnershipCredentials {
     private var token: String? = "synthetic-saved-pat"
     private let lookupPause: OwnershipPause?
     private let presencePause: OwnershipPause?
@@ -52,7 +52,11 @@ actor OwnershipCredentials: PassCLIPATCredentialStoring {
     func deleteToken() async throws { token = nil }
 }
 
-actor OwnershipNativeRunner: CLIRunning, CLIEnvironmentRunning {
+// Separate conformances avoid the compiler inferring nonisolated on these actors
+// during multi-file test compilation. State and protocol witnesses remain actor-isolated.
+extension OwnershipCredentials: PassCLIPATCredentialStoring {}
+
+actor OwnershipNativeRunner {
     struct Invocation: Sendable {
         let path: String
         let arguments: [String]
@@ -72,6 +76,8 @@ actor OwnershipNativeRunner: CLIRunning, CLIEnvironmentRunning {
         return Data()
     }
 }
+
+extension OwnershipNativeRunner: CLIRunning, CLIEnvironmentRunning {}
 
 nonisolated struct OwnershipBrowserRunner: CLIStreaming {
     func start(executablePath: String, arguments: [String], capturePolicy: CLIOutputCapturePolicy) throws -> CLIStreamingProcess {

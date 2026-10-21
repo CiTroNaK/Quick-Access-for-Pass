@@ -55,24 +55,40 @@ nonisolated protocol AutoFillCredentialIdentityStoreAdapting: Sendable {
 
 /// Reconciles persisted descriptors with the two supported system identity types.
 nonisolated protocol AutoFillIdentitySynchronizing: Sendable {
-    func reconcile(descriptors: [AutoFillCredentialDescriptor]) async throws
+    func reconcile(descriptors: [AutoFillCredentialDescriptor], isCurrent: @escaping @Sendable () -> Bool) async throws
+}
+
+nonisolated extension AutoFillIdentitySynchronizing {
+    func reconcile(descriptors: [AutoFillCredentialDescriptor]) async throws {
+        try await reconcile(descriptors: descriptors, isCurrent: { true })
+    }
 }
 
 /// Actor that independently reconciles password and one-time-code identities.
 actor AutoFillIdentitySynchronizer: AutoFillIdentitySynchronizing {
     private let adapter: any AutoFillCredentialIdentityStoreAdapting
+    /// Metadata-only ordering probe; nil in production.
+    private let onReconciliationQueued: (@Sendable () -> Void)?
+    private var isReconciling = false
+    private var reconciliationWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(adapter: any AutoFillCredentialIdentityStoreAdapting) {
+    init(adapter: any AutoFillCredentialIdentityStoreAdapting, onReconciliationQueued: (@Sendable () -> Void)? = nil) {
         self.adapter = adapter
+        self.onReconciliationQueued = onReconciliationQueued
     }
 
-    func reconcile(descriptors: [AutoFillCredentialDescriptor]) async throws {
+    func reconcile(descriptors: [AutoFillCredentialDescriptor], isCurrent: @escaping @Sendable () -> Bool) async throws {
+        await acquireReconciliation()
+        defer { releaseReconciliation() }
+        try requireCurrent(isCurrent)
         let desiredPasswords = descriptors.map(AutoFillPasswordIdentity.init(descriptor:))
         let desiredOneTimeCodes = descriptors
             .filter(\.hasTOTP)
             .map(AutoFillOneTimeCodeIdentity.init(descriptor:))
         let currentPasswords = try await adapter.passwordIdentities()
+        try requireCurrent(isCurrent)
         let currentOneTimeCodes = try await adapter.oneTimeCodeIdentities()
+        try requireCurrent(isCurrent)
 
         let passwordChanges = changes(current: currentPasswords, desired: desiredPasswords, id: \.descriptorID)
         let oneTimeCodeChanges = changes(
@@ -82,16 +98,50 @@ actor AutoFillIdentitySynchronizer: AutoFillIdentitySynchronizing {
         )
 
         if !passwordChanges.toSave.isEmpty {
+            try requireCurrent(isCurrent)
             try await adapter.savePasswordIdentities(passwordChanges.toSave)
+            try requireCurrent(isCurrent)
         }
         if !passwordChanges.toRemove.isEmpty {
+            try requireCurrent(isCurrent)
             try await adapter.removePasswordIdentities(passwordChanges.toRemove)
+            try requireCurrent(isCurrent)
         }
         if !oneTimeCodeChanges.toSave.isEmpty {
+            try requireCurrent(isCurrent)
             try await adapter.saveOneTimeCodeIdentities(oneTimeCodeChanges.toSave)
+            try requireCurrent(isCurrent)
         }
         if !oneTimeCodeChanges.toRemove.isEmpty {
+            try requireCurrent(isCurrent)
             try await adapter.removeOneTimeCodeIdentities(oneTimeCodeChanges.toRemove)
+            try requireCurrent(isCurrent)
+        }
+    }
+
+    private func requireCurrent(_ isCurrent: @Sendable () -> Bool) throws {
+        try Task.checkCancellation()
+        guard isCurrent() else { throw CancellationError() }
+    }
+
+    private func acquireReconciliation() async {
+        guard isReconciling else {
+            isReconciling = true
+            return
+        }
+        // Cancellation does not release another operation's native mutation.
+        // A cancelled waiter takes its slot, rejects freshness, then hands it on.
+        await withCheckedContinuation { continuation in
+            reconciliationWaiters.append(continuation)
+            onReconciliationQueued?()
+        }
+    }
+
+    private func releaseReconciliation() {
+        if reconciliationWaiters.isEmpty {
+            isReconciling = false
+        } else {
+            reconciliationWaiters.removeFirst().resume()
         }
     }
 
@@ -199,5 +249,7 @@ actor ASCredentialIdentityStoreAdapter: AutoFillCredentialIdentityStoreAdapting 
 
 /// Default used by isolated coordinator tests that do not exercise successful sync.
 nonisolated struct DisabledAutoFillIdentitySynchronizer: AutoFillIdentitySynchronizing {
-    func reconcile(descriptors: [AutoFillCredentialDescriptor]) async throws {}
+    func reconcile(descriptors: [AutoFillCredentialDescriptor], isCurrent: @escaping @Sendable () -> Bool) async throws {
+        guard isCurrent() else { throw CancellationError() }
+    }
 }

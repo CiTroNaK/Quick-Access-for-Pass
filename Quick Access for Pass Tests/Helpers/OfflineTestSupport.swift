@@ -121,7 +121,7 @@ actor OfflineFixtureViewer: OfflineItemViewing {
     }
 }
 
-actor OfflineFixtureKeys: OfflineSnapshotKeyProviding {
+actor OfflineFixtureKeys {
     private var material: Data?
     private var creates = 0
     private var existingLookups = 0
@@ -146,6 +146,8 @@ actor OfflineFixtureKeys: OfflineSnapshotKeyProviding {
     func createCount() -> Int { creates }
     func existingLookupCount() -> Int { existingLookups }
 }
+
+extension OfflineFixtureKeys: OfflineSnapshotKeyProviding {}
 
 struct OfflineLifecycleFixture {
     let database: DatabaseManager
@@ -210,7 +212,8 @@ func offlineTestCLIItem(
     username: String = "person@example.test",
     totp: String = "",
     email: String = "",
-    note: String = ""
+    note: String = "",
+    modifyTime: String = ""
 ) throws -> CLIItem {
     let object: [String: Any] = [
         "id": id,
@@ -235,7 +238,7 @@ func offlineTestCLIItem(
         "state": "Active",
         "flags": [],
         "create_time": "",
-        "modify_time": ""
+        "modify_time": modifyTime
     ]
     return try JSONDecoder().decode(
         CLIItem.self,

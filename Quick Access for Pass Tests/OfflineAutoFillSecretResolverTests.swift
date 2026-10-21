@@ -292,7 +292,7 @@ private actor CountingAutoFillCodec: OfflineSnapshotCoding {
     private var decodes = 0
 
     init(codec: OfflineSnapshotCodec) { self.codec = codec }
-    func prepareSnapshot(from item: CLIItem, for request: OfflineRequestToken) async throws -> EncryptedOfflineSnapshot {
+    func prepareSnapshot(from item: CLIItem, for request: OfflineSnapshotPreparationIdentity) async throws -> PreparedOfflineSnapshot {
         try await codec.prepareSnapshot(from: item, for: request)
     }
     func decodeSnapshot(_ snapshot: EncryptedOfflineSnapshot) async throws -> CLIItem {

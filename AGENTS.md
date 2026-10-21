@@ -141,7 +141,7 @@ Views follow VoiceOver and Voice Control patterns throughout:
 
 These are core constraints, not implementation details:
 
-- **Ordinary database tables do not store fetched Pass item content** — sync may temporarily load full item content from `pass-cli` to derive metadata, and ordinary selected actions fetch current values on demand. The narrow separate exception is caller-supplied Run command text in the encrypted authorization table for readable remembered decisions; such arguments may contain credentials, as documented in `SECURITY.md`.
+- **Ordinary database tables do not store fetched Pass item content** — sync may temporarily load full item content from `pass-cli` to derive metadata, and live ordinary actions fetch current values on demand; authorized Offline Mode actions prefer selected usable snapshots without a live probe. The narrow separate exception is caller-supplied Run command text in the encrypted authorization table for readable remembered decisions; such arguments may contain credentials, as documented in `SECURITY.md`.
 - **Offline Mode is the only approved persisted-secret exception for fetched Pass item content** — users may explicitly select an individual item or a whole vault (including future items after successful sync); item exclusions and manual selections are retained according to policy. Full snapshots may be stored only in the unified database's encrypted `offlineSnapshots` table, after operation-scoped encryption. Do not write offline secrets to ordinary tables, UserDefaults, logs, diagnostics, UI state, FTS, App Group files, or proxy paths; do not create a second offline database or legacy reader
 - **Offline snapshot key material is device-bound** — its distinct snapshot cipher key uses `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; the cipher/key is operation-scoped while the SQLCipher connection passphrase is connection-lifetime. Purge/removal retains keys; maintenance never reads or deletes them. Offline snapshots must stay excluded from SSH and Run proxies and may serve only ordinary host copy/Large Type actions or the existing verified host-broker System AutoFill password/TOTP request
 - **Database encryption** uses GRDB/SQLCipher with a 256-bit passphrase from Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`). The unified file and known sidecars are owner-only and backup-excluded, including local Run profiles and remembered decisions; backup exclusion is guidance, not a portable backup/restore or secure-erasure guarantee
@@ -169,9 +169,44 @@ accepted host-compromise, backup, memory-clearing, and already-released-value
 risks. No legacy cache import, compatibility reader, transfer, or automatic
 file/Keychain cleanup is permitted.
 
+Offline catalog presentation uses a set-based item-metadata projection and an
+explicit constant observation region so production `DatabasePool` refreshes can
+run off the writer queue. Keep all six catalog dependencies covered (items,
+vaults, offline selections, whole-vault policies, exclusions, and snapshot
+usability metadata), including when observation starts empty. Never reintroduce
+per-item reads, fetch snapshot payload bytes into presentation, or use displayed
+state as release authority. Test pool scheduling with a temporary encrypted pool;
+in-memory queue tests cannot verify that optimization.
+
+Incremental ordinary sync obtains optional metadata-only capture authority before
+fetching full list content; absent/not-ready admission must not fail metadata sync
+or be acquired retroactively. Only invocation-bound exact 2.4.2 complete JSON may
+be bulk-reused; unknown/incomplete/ambiguous content uses sequential needed-copy
+item reads. Keep fetched items in the caller-owned awaited frame, never in service
+lifecycle registrations or queued work. Capture registries retain metadata only.
+Close admission/revoke persisted captures before joining shutdown frames; reset
+purges before that join and clears ordinary metadata only after it. Removal/purge
+must not wait for fetch/preparation, subject to existing writer contention.
+
+Writer admission owns sync commit freshness and ordered awaited AutoFill side
+effects. Preserve original committed metadata/share proofs, selection/policy and
+durable request generations, including completed newer Retry ownership. Publish
+sequentially prepared output in batches of at most 32 items / 8 MiB ciphertext,
+with one batch plus at most one in-flight prepared result; these limits do not
+bound the full fetched list. Earlier commits survive later failure/cancellation.
+A usable equal-source snapshot with matching metadata generation skips crypto,
+key access and added item views; short-lived capture records still have writes.
+Never manufacture a source baseline from catalog dates or secret-body hashes.
+Durable item/share/descriptor metadata changes force refresh even at equal source
+time, while usage/vault display renames do not. A secret-only same-time change
+with unchanged metadata can remain undetected until explicit Retry, which bypasses
+unchanged detection. Unchanged copies retain their last successful refresh time;
+live fallback stores the actual fetched time. Additive v15 changes no Keychain
+policy and performs no offline-content conversion or ordinary-data wipe.
+
 ## Database Schema
 
-`DatabaseManager` currently defines **14 migrations**:
+`DatabaseManager` currently defines **15 migrations**:
 
 - **v1**
   - `vaults`
@@ -212,6 +247,11 @@ file/Keychain cleanup is permitted.
   - replaces Run's legacy text key with typed match identity, natural command text, and stable autoincrement row IDs
   - removes only strictly valid old exact-v1 fingerprint-only Run entries; retains broad and malformed literal entries as command-prefix rules
   - persists full received command text in the encrypted decision table; this caller-controlled text may itself contain credentials
+- **v15**
+  - adds non-secret metadata and durable request generations to `offlineItems`; every explicit reservation advances the request generation, which remains after completion
+  - adds nullable actual-payload source time and matching metadata generation to `offlineSnapshots`; publication commits these with ciphertext/status/timestamp, never using a catalog fallback date as the payload baseline
+  - adds metadata-only `offlineSyncCaptures`, `offlineSyncCaptureVaults`, and `offlineSyncCaptureItems`; child rows cascade with their capture, not catalog rows, so removal cannot erase prior-admission evidence
+  - changes no ordinary metadata/profile/decision rows and does not read snapshot payloads or keys; performs no offline-content conversion
 
 ### Offline Mode Documentation Verification Checklist
 

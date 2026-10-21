@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import Quick_Access_for_Pass
 
@@ -92,6 +93,92 @@ struct AutoFillIdentitySynchronizerTests {
         #expect(operations.removedOneTimeCodes == [AutoFillOneTimeCodeIdentity(descriptor: staleDescriptor)])
     }
 
+    @Test("replacement or reset waits for actual native save completion", arguments: [false, true], [false, true])
+    func joinsNativeSaveBeforeReplacement(cancelOlder: Bool, resetDesired: Bool) async throws {
+        let nativeSave = OwnershipPause()
+        let queuedOrFinished = SyncOrderingSignal()
+        let adapter = OrderedCredentialIdentityStore(firstSavePause: nativeSave, secondSaveFinished: queuedOrFinished)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter, onReconciliationQueued: { queuedOrFinished.signal() })
+        let authority = SyncOperationAuthority()
+        let older = authority.beginOperation()
+        let id = UUID()
+        let before = makeDescriptor(id: id, username: "older", service: "synthetic.example", hasTOTP: false)
+        let after = makeDescriptor(id: id, username: "newer", service: "synthetic.example", hasTOTP: false)
+        let oldTask = Task {
+            try await synchronizer.reconcile(descriptors: [before], isCurrent: { older.isCurrent })
+        }
+        await nativeSave.waitUntilEntered()
+        let newer = authority.beginOperation()
+        if cancelOlder { oldTask.cancel() }
+        let desired = resetDesired ? [] : [after]
+        let newTask = Task {
+            defer { queuedOrFinished.signal() }
+            try await synchronizer.reconcile(descriptors: desired, isCurrent: { newer.isCurrent })
+        }
+        // With serialization, the queue probe fires. Without it, newer completion
+        // fires this signal instead. Either case is deterministic, without sleeps.
+        await queuedOrFinished.wait()
+        #expect(await adapter.passwordReadCount() == 1)
+        await nativeSave.finish()
+        await #expect(throws: CancellationError.self) { try await oldTask.value }
+        try await newTask.value
+        #expect(try await adapter.passwordIdentities() == desired.map(AutoFillPasswordIdentity.init(descriptor:)))
+    }
+
+    @Test("a cancelled queued caller cannot release an older native save or block its successor")
+    func cancelledWaiterRetainsNativeQueueOwnership() async throws {
+        let nativeSave = OwnershipPause()
+        let firstQueued = SyncOrderingSignal()
+        let secondQueued = SyncOrderingSignal()
+        let queued = Mutex(0)
+        let adapter = OrderedCredentialIdentityStore(firstSavePause: nativeSave)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter, onReconciliationQueued: {
+            let count = queued.withLock { count in
+                count += 1
+                return count
+            }
+            if count == 1 { firstQueued.signal() }
+            if count == 2 { secondQueued.signal() }
+        })
+        let authority = SyncOperationAuthority()
+        let older = authority.beginOperation()
+        let descriptor = makeDescriptor(id: UUID(), service: "synthetic.example", hasTOTP: false)
+        let oldTask = Task { try await synchronizer.reconcile(descriptors: [descriptor], isCurrent: { older.isCurrent }) }
+        await nativeSave.waitUntilEntered()
+        let middle = authority.beginOperation()
+        let middleTask = Task { try await synchronizer.reconcile(descriptors: [], isCurrent: { middle.isCurrent }) }
+        await firstQueued.wait()
+        middleTask.cancel()
+        let newer = authority.beginOperation()
+        let newTask = Task { try await synchronizer.reconcile(descriptors: [], isCurrent: { newer.isCurrent }) }
+        await secondQueued.wait()
+        #expect(await adapter.passwordReadCount() == 1)
+        await nativeSave.finish()
+        await #expect(throws: CancellationError.self) { try await oldTask.value }
+        await #expect(throws: CancellationError.self) { try await middleTask.value }
+        try await newTask.value
+        #expect(await adapter.passwordReadCount() == 2)
+        #expect(try await adapter.passwordIdentities().isEmpty)
+    }
+
+    @Test("supersession during a native read prevents subsequent mutation")
+    func rechecksFreshnessAfterNativeRead() async throws {
+        let nativeRead = OwnershipPause()
+        let adapter = OrderedCredentialIdentityStore(passwordReadPause: nativeRead)
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+        let authority = SyncOperationAuthority()
+        let operation = authority.beginOperation()
+        let descriptor = makeDescriptor(id: UUID(), service: "synthetic.example", hasTOTP: true)
+        let task = Task {
+            try await synchronizer.reconcile(descriptors: [descriptor], isCurrent: { operation.isCurrent })
+        }
+        await nativeRead.waitUntilEntered()
+        authority.invalidate()
+        await nativeRead.finish()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await adapter.passwordSaveCount() == 0)
+    }
+
     private func makeDescriptor(
         id: UUID,
         title: String = "Example",
@@ -110,6 +197,44 @@ struct AutoFillIdentitySynchronizerTests {
             hasTOTP: hasTOTP
         )
     }
+}
+
+private actor OrderedCredentialIdentityStore: AutoFillCredentialIdentityStoreAdapting {
+    private var passwords: [AutoFillPasswordIdentity] = []
+    private var reads = 0
+    private var saves = 0
+    private let firstSavePause: OwnershipPause?
+    private let secondSaveFinished: SyncOrderingSignal?
+    private let passwordReadPause: OwnershipPause?
+
+    init(firstSavePause: OwnershipPause? = nil, secondSaveFinished: SyncOrderingSignal? = nil,
+         passwordReadPause: OwnershipPause? = nil) {
+        self.firstSavePause = firstSavePause
+        self.secondSaveFinished = secondSaveFinished
+        self.passwordReadPause = passwordReadPause
+    }
+
+    func passwordReadCount() -> Int { reads }
+    func passwordSaveCount() -> Int { saves }
+    func passwordIdentities() async throws -> [AutoFillPasswordIdentity] {
+        reads += 1
+        await passwordReadPause?.suspend()
+        return passwords
+    }
+    func oneTimeCodeIdentities() async throws -> [AutoFillOneTimeCodeIdentity] { [] }
+    func savePasswordIdentities(_ identities: [AutoFillPasswordIdentity]) async throws {
+        saves += 1
+        let call = saves
+        if call == 1 { await firstSavePause?.suspend() }
+        passwords = identities
+        if call == 2 { secondSaveFinished?.signal() }
+    }
+    func removePasswordIdentities(_ identities: [AutoFillPasswordIdentity]) async throws {
+        let removed = Set(identities)
+        passwords.removeAll { removed.contains($0) }
+    }
+    func saveOneTimeCodeIdentities(_ identities: [AutoFillOneTimeCodeIdentity]) async throws {}
+    func removeOneTimeCodeIdentities(_ identities: [AutoFillOneTimeCodeIdentity]) async throws {}
 }
 
 private actor FakeCredentialIdentityStoreAdapter: AutoFillCredentialIdentityStoreAdapting {

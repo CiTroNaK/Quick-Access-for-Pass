@@ -123,7 +123,7 @@ Offline Mode uses one host-only SQLCipher database, outside App Group storage.
 Migration v11 adds the dedicated `offlineSnapshots` table and request ownership;
 migration v12 adds whole-vault policy generations, manual item-selection state, and
 per-item exclusions. It clears legacy permission-only vault rows while preserving
-existing individually selected rows and ciphertext; v1–v11 remain intact. Its payloads receive an additional
+existing individually selected rows and ciphertext; v1–v11 remain intact. The unified schema now has 15 migrations. Additive v15 adds non-secret metadata/request generations, nullable actual-payload source time and matching snapshot metadata generation, and metadata-only sync capture tables. It does not convert offline content, read snapshot payloads/keys, wipe ordinary catalog/profile/decision data, or change Keychain policy. Snapshot payloads receive an additional
 AES-256-GCM layer with authenticated domain, vault/item, schema, revision, and
 key-fingerprint identity. Ordinary tables, FTS, presentation models, diagnostics,
 UserDefaults, and proxy paths never persist offline plaintext. Clipboard and
@@ -137,7 +137,7 @@ Enclave requirement, or authorization-reuse window. A compromised trusted host
 process on an unlocked Mac may still read keys or plaintext. Best-effort temporary
 buffer clearing is not guaranteed Swift/compiler/OS memory zeroization.
 
-Manual item selection, whole-vault selection, and refresh reserve metadata-only request tokens. Publication checks
+Offline access is explicitly opt-in by individual item or whole vault, including future items after successful sync; item exclusions persist until re-selection. Explicit item/vault materialization and Retry reserve metadata-only request tokens before secret-facing fetches. Ordinary sync instead obtains optional metadata-only capture authority before its full-list fetch, as described below. Publication checks
 current ownership and identity and atomically commits ciphertext, status, and the
 last successful refresh time. Ordinary refresh failure preserves the previous
 complete snapshot and timestamp, marked stale. Cancellation before commit can
@@ -148,9 +148,21 @@ Corruption cleanup is conditional on the captured revision, so it cannot remove
 a newer replacement. Missing, locked, invalid, or mismatched keys and unsupported
 formats are non-destructive failures, not permission to reset storage or rekey.
 
+### Incremental sync admission and freshness
+
+Ordinary sync may reuse full list content only after optional pre-fetch admission while Offline Mode is ready with fresh observation. Absent/unavailable admission does not fail ordinary metadata sync. Becoming ready after the fetch starts cannot retroactively authorize that plaintext. A terminal observation failure blocks new admission, but does not revoke an already admitted operation; every publication still revalidates persisted original identity/share, selection, policy and request generations. Display state never supplies authority.
+
+The sync writer admits only the current operation. Its committed metadata transaction produces the original publication proofs and advances each affected selected item's durable metadata generation once across item/share/descriptor changes. Usage and vault display renames do not dirty snapshots. Explicit Retry advances a durable request generation that remains after completion, preventing older captures from regaining ownership when a pending token disappears. Metadata reconciliation and AutoFill side effects remain ordered through their awaited native work. Writer admission decides commit order; later cancellation cannot reverse an actual commit.
+
+A usable snapshot is unchanged only when its actual successful payload modification time equals a valid incoming source time and its published metadata generation matches the current selection. Missing, invalid, older or unequal source times and dirty metadata refresh conservatively. Unchanged copies cause no item-view fetch, snapshot key lookup, decrypt/encode/encrypt, ciphertext write or last-successful-refresh-time update; short-lived capture records still have database writes. No secret-body comparison or content hash is persisted. Consequently, a secret-only upstream change with an unchanged timestamp and unchanged ordinary metadata/descriptor inputs can remain undetected until explicit **Retry**, which bypasses unchanged detection. Durable metadata evidence survives failed/cancelled publication and service recreation. A live fallback records the actual fetched payload's time, never substitutes the listing/catalog time.
+
+Bulk reuse is limited to invocation-bound, recognized complete JSON output; unknown versions, incomplete/ambiguous content and identity mismatches use sequential needed-copy item reads instead. See [CLI contract and fallback](docs/pass-cli.md#incremental-offline-sync-contract). Preparation is sequential, and each writer batch is capped at 32 items and 8 MiB of ciphertext, with at most that batch plus one in-flight prepared result. These are prepared-output bounds, not a bound on the owning sync's full fetched list or a hard real-time writer bound. The full result remains in the caller-owned awaited frame, not a secret-bearing service lifecycle registration. A failed batch retains earlier committed batches; still-owned failures preserve older ciphertext, source baseline and successful timestamp. Failed new vault members do not create provisional item rows or resurrect removed selections.
+
+Removal/purge can invalidate authority without waiting for full-list fetch or crypto preparation; writer contention and active transactions still apply. Stop closes admission and attempts persisted capture revocation before joining active frames. Store-unavailable metadata cleanup is best effort; startup recovery abandons orphan capture rows, and in-memory lifecycle checks block new submissions while stop joins existing frames. Reset commits purge, joins those frames, then clears ordinary metadata. Scoped removal preserves unrelated admitted work. Shutdown/error/cancellation cleanup is explicitly awaited and metadata-only; older cleanup cannot consume a newer owner. None of this permits offline snapshots in SSH/Run or weakens existing final secret-release guards.
+
 Startup recovers abandoned provisional requests before offline readiness. Recovery
 failure disables fallback and new selections until explicit retry succeeds;
-live operations, removal, and purge remain usable. Settings/detail state observes
+live operations, removal, and purge remain usable. **Settings → Offline** lists selected copies, supports individual removal and Retry, and can purge all offline data. Settings/detail state observes
 non-secret committed projections, showing selected/usable counts, available,
 stale, or unavailable status and last successful refresh timestamps. These are
 metadata eligibility indicators, not promises that later key access/decryption
@@ -188,7 +200,7 @@ receives only the requested final password/TOTP value, never storage access,
 selection state, or fallback diagnostics. SSH and Run never use snapshots.
 AutoFill preserves its original broker deadline and peer verification. The absolute
 deadline includes queue time and applies across every native CLI command in one
-AutoFill request. An authorized usable selected snapshot resolves without native
+AutoFill request. An authorized usable selected snapshot is preferred without a live request or connectivity probe and resolves without native
 CLI work; live/no-cache requests keep the original remaining budget, with no
 cache-fallback reserve. Invalidation cannot recall a value
 already released to the verified caller. Cancellation, deadline expiry, identity mismatch, and admitted cache authorization

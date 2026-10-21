@@ -14,7 +14,12 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let pump = Task {
                 do {
-                    let observation = ValueObservation.tracking { db in
+                    // Cover every dependency even when no items are selected. A constant
+                    // region lets pool readers coalesce refetches off the writer queue.
+                    let observation = ValueObservation.tracking(regions: [
+                        Table("items"), Table("vaults"), Table("offlineItems"),
+                        Table("offlineVaults"), Table("offlineItemExclusions"), Table("offlineSnapshots")
+                    ]) { db in
                         try Self.presentation(in: db)
                     }
                     for try await value in observation.values(
@@ -42,7 +47,7 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
         let vaultMetadata = try Row.fetchAll(db, sql: "SELECT id, name FROM vaults")
         let rows = try Self.catalogRows(in: db)
 
-        let projection = try Self.projectItems(rows, in: db)
+        let projection = try Self.projectItems(rows)
         let itemRows = projection.rows
         let policyByItemID = projection.policies
         let availabilityByItemID = projection.availability
@@ -91,7 +96,7 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
         var availability: [String: OfflineItemAvailability] = [:]
     }
 
-    private static func projectItems(_ rows: [Row], in db: Database) throws -> ItemProjection {
+    private static func projectItems(_ rows: [Row]) throws -> ItemProjection {
         var itemRows: [(row: OfflineItemSettingsRow, isProvisional: Bool)] = []
         var availabilityByItemID: [String: OfflineItemAvailability] = [:]
         var policyByItemID: [String: OfflineItemPolicy] = [:]
@@ -105,7 +110,7 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
                   let status = OfflineCacheStatus(rawValue: statusRaw) else {
                 continue
             }
-            guard let item = try PassItem.fetchOne(db, key: itemID) else { continue }
+            let item = try PassItem(row: row)
             let refreshedAt: Date? = row["lastRefreshedAt"]
             let pendingRequestID: String? = row["pendingRequestId"]
             let isManuallySelected: Bool = row["isManuallySelected"]
@@ -165,8 +170,9 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
         return try Row.fetchAll(
             db,
             sql: """
-            SELECT o.itemId, o.vaultId, i.title, i.itemType, o.cacheStatus,
-                   o.lastRefreshedAt, o.pendingRequestId, o.isManuallySelected,
+            SELECT i.id, i.vaultId, i.title, i.itemType, i.subtitle, i.url, i.hasTOTP, i.state,
+                   i.createTime, i.modifyTime, i.useCount, i.lastUsedAt, i.fieldKeysJSON,
+                   o.itemId, o.cacheStatus, o.lastRefreshedAt, o.pendingRequestId, o.isManuallySelected,
                    o.selectionGeneration, vsel.policyGeneration,
                    EXISTS(SELECT 1 FROM offlineItemExclusions x WHERE x.itemId = o.itemId AND x.vaultId = o.vaultId) AS isExcluded,
                    EXISTS(

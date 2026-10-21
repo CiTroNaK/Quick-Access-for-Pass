@@ -232,7 +232,7 @@ struct OfflineSnapshotRepositoryTests {
         await gate.open()
 
         #expect(try await task.value)
-        #expect(try await repository.authorizedSnapshot(for: request.key) == snapshot)
+        #expect(try await repository.authorizedSnapshot(for: request.key) == snapshot.snapshot)
     }
 
     @Test func corruptCleanupCannotDeleteReplacement() async throws {
@@ -249,9 +249,9 @@ struct OfflineSnapshotRepositoryTests {
         let replacement = try fixture.snapshot(for: refresh, password: "new")
         #expect(try await fixture.repository.publish(replacement, for: refresh, refreshedAt: .now))
 
-        try await fixture.repository.discardCorruptSnapshot(corrupt)
+        try await fixture.repository.discardCorruptSnapshot(corrupt.snapshot)
 
-        #expect(try await fixture.repository.authorizedSnapshot(for: refresh.key) == replacement)
+        #expect(try await fixture.repository.authorizedSnapshot(for: refresh.key) == replacement.snapshot)
     }
 
     @Test func unsupportedVersionIsNotDeletedDuringCorruptionCleanup() async throws {
@@ -314,7 +314,7 @@ struct OfflineSnapshotRepositoryTests {
             _ = try await fixture.repository.publish(replacement, for: refresh, refreshedAt: .now)
         }
 
-        #expect(try await fixture.repository.authorizedSnapshot(for: refresh.key) == initialSnapshot)
+        #expect(try await fixture.repository.authorizedSnapshot(for: refresh.key) == initialSnapshot.snapshot)
         let selection = try #require(try fixture.database.offlineItemSelection(itemId: "item"))
         #expect(selection.cacheStatus == .cached)
         #expect(selection.lastRefreshedAt == initialRefreshedAt)
@@ -324,7 +324,7 @@ struct OfflineSnapshotRepositoryTests {
             try db.execute(sql: "DROP TRIGGER rejectOfflineSelectionStatus")
         }
         #expect(try await fixture.repository.publish(replacement, for: refresh, refreshedAt: .now))
-        #expect(try await fixture.repository.authorizedSnapshot(for: refresh.key) == replacement)
+        #expect(try await fixture.repository.authorizedSnapshot(for: refresh.key) == replacement.snapshot)
     }
 }
 
@@ -667,7 +667,7 @@ private struct OfflineRepositoryFixture {
         }
     }
 
-    func snapshot(for request: OfflineRequestToken, password: String) throws -> EncryptedOfflineSnapshot {
+    func snapshot(for request: OfflineRequestToken, password: String) throws -> PreparedOfflineSnapshot {
         let cipher = try OfflineSnapshotCipher(keyData: keyData)
         let identity = OfflineSnapshotIdentity(
             key: request.key,
@@ -680,9 +680,9 @@ private struct OfflineRepositoryFixture {
             shareID: request.shareID,
             password: password
         )
-        return EncryptedOfflineSnapshot(
-            identity: identity,
-            payload: try cipher.seal(JSONEncoder().encode(item), for: identity)
+        return PreparedOfflineSnapshot(
+            snapshot: EncryptedOfflineSnapshot(identity: identity, payload: try cipher.seal(JSONEncoder().encode(item), for: identity)),
+            sourceModifyTime: OfflineSourceModificationTime.parse(item.modifyTime)
         )
     }
 }

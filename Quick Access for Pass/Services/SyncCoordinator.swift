@@ -13,8 +13,11 @@ final class SyncCoordinator {
     private weak var viewModel: QuickAccessViewModel?
     private let onSyncIssueChanged: @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void
     private let onAuthenticationRequired: (@MainActor @Sendable (PassCLIHealth) async -> Void)?
+    private let defaults: UserDefaults
 
     private var syncTask: Task<Void, Never>?
+    /// Snapshot of actual completion for metadata-only lifecycle coordination.
+    var currentSyncCompletion: Task<Void, Never>? { syncTask }
     private var resetTask: Task<Void, Never>?
     private var syncTimer: Timer?
     private var currentSyncInterval: TimeInterval = 0
@@ -28,8 +31,10 @@ final class SyncCoordinator {
         maintenance: OfflineStorageMaintenance? = nil,
         onResetInitiated: @escaping @MainActor @Sendable () -> Void = {},
         onSyncIssueChanged: @escaping @MainActor @Sendable (QuickAccessSyncIssuePresentation?) -> Void = { _ in },
-        onAuthenticationRequired: (@MainActor @Sendable (PassCLIHealth) async -> Void)? = nil
+        onAuthenticationRequired: (@MainActor @Sendable (PassCLIHealth) async -> Void)? = nil,
+        defaults: UserDefaults = .standard
     ) {
+        self.defaults = defaults
         self.cliService = cliService
         self.databaseManager = databaseManager
         self.identitySynchronizer = identitySynchronizer
@@ -51,64 +56,84 @@ final class SyncCoordinator {
     func refreshNow() {
         guard resetTask == nil, let viewModel else { return }
 
+        let operation = databaseManager.beginSyncOperation()
         syncTask?.cancel()
         syncTask = Task {
+            guard operation.isCurrent, !Task.isCancelled else { return }
             viewModel.isLoading = true
-            defer { viewModel.isLoading = false }
-            var skippedItemsForDiagnostics: [SkippedSyncItem] = []
-            var skippedDiagnosticFileURL: URL?
-
-            do {
-                let fetchResult = try await cliService.fetchAllItems { progress in
-                    await MainActor.run {
-                        viewModel.syncProgress = progress
-                    }
-                }
-                let skippedItems = fetchResult.skippedItems
-                skippedItemsForDiagnostics = skippedItems
-                if !skippedItems.isEmpty {
-                    AppLogger.sync.warning("sync completed with \(skippedItems.count, privacy: .public) skipped item(s)")
-                    skippedDiagnosticFileURL = Self.writeSkippedItemDiagnostics(skippedItems)
-                    for skipped in skippedItems.prefix(20) {
-                        AppLogger.sync.warning("skipped sync item: \(skipped.diagnosticSummary, privacy: .private(mask: .hash))")
-                    }
-                }
-                try await synchronizeFetchedMetadata(fetchResult)
-
-                finishSuccessfulSync(
-                    skippedItems: skippedItems,
-                    diagnosticFileURL: skippedDiagnosticFileURL,
-                    viewModel: viewModel
-                )
-            } catch is CancellationError {
-                return
-            } catch let error as CLIError where error.isNotInstalled {
-                viewModel.syncProgress = nil
-                viewModel.syncError = nil
-                viewModel.skippedSyncItems = nil
-                viewModel.isShowingSkippedSyncItems = false
-                viewModel.errorMessage = String(localized: "pass-cli not found. Install: brew install protonpass/tap/pass-cli")
-                onSyncIssueChanged(nil)
-            } catch let error as CLIError where error.isAuthError {
-                await handleAuthSyncError(error, viewModel: viewModel)
-            } catch {
-                viewModel.errorMessage = nil
-                viewModel.syncProgress = nil
-                viewModel.isShowingSkippedSyncItems = false
-                let presentation = Self.syncErrorPresentation(
-                    for: error,
-                    cliSelection: cliService.cliSelection,
-                    skippedItems: skippedItemsForDiagnostics,
-                    diagnosticFileURL: skippedDiagnosticFileURL
-                )
-                viewModel.syncError = presentation
-                onSyncIssueChanged(.syncError(presentation))
+            defer {
+                if operation.isCurrent { viewModel.isLoading = false }
             }
+            await performSync(operation: operation, viewModel: viewModel)
         }
     }
 
-    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel) async {
-        guard !Task.isCancelled else { return }
+    private func performSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel) async {
+        let capture = await offlineModeService?.captureForSync(operation: operation)
+        if operation.isCurrent, !Task.isCancelled {
+            await performCapturedSync(operation: operation, viewModel: viewModel, capture: capture)
+        }
+        // Explicitly joined on every return/error path, including cancelled native work.
+        if let capture { await offlineModeService?.finishSyncCapture(capture) }
+    }
+
+    private func performCapturedSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel, capture: OfflineSyncCapture?) async {
+        var skippedItemsForDiagnostics: [SkippedSyncItem] = []
+        var skippedDiagnosticFileURL: URL?
+        do {
+            let fetchResult = try await cliService.fetchAllItems { progress in
+                await MainActor.run {
+                    guard operation.isCurrent else { return }
+                    viewModel.syncProgress = progress
+                }
+            }
+            try requireCurrentSync(operation)
+            let skippedItems = fetchResult.skippedItems
+            skippedItemsForDiagnostics = skippedItems
+            if !skippedItems.isEmpty {
+                AppLogger.sync.warning("sync completed with \(skippedItems.count, privacy: .public) skipped item(s)")
+                skippedDiagnosticFileURL = Self.writeSkippedItemDiagnostics(skippedItems)
+                for skipped in skippedItems.prefix(20) {
+                    AppLogger.sync.warning("skipped sync item: \(skipped.diagnosticSummary, privacy: .private(mask: .hash))")
+                }
+            }
+            try await synchronizeFetchedMetadata(fetchResult, operation: operation, capture: capture)
+            try requireCurrentSync(operation)
+            finishSuccessfulSync(
+                skippedItems: skippedItems,
+                diagnosticFileURL: skippedDiagnosticFileURL,
+                viewModel: viewModel, operation: operation
+            )
+        } catch is CancellationError {
+            return
+        } catch let error as CLIError where error.isNotInstalled {
+            guard operation.isCurrent, !Task.isCancelled else { return }
+            viewModel.syncProgress = nil
+            viewModel.syncError = nil
+            viewModel.skippedSyncItems = nil
+            viewModel.isShowingSkippedSyncItems = false
+            viewModel.errorMessage = String(localized: "pass-cli not found. Install: brew install protonpass/tap/pass-cli")
+            onSyncIssueChanged(nil)
+        } catch let error as CLIError where error.isAuthError {
+            await handleAuthSyncError(error, viewModel: viewModel, operation: operation)
+        } catch {
+            guard operation.isCurrent, !Task.isCancelled else { return }
+            viewModel.errorMessage = nil
+            viewModel.syncProgress = nil
+            viewModel.isShowingSkippedSyncItems = false
+            let presentation = Self.syncErrorPresentation(
+                for: error,
+                cliSelection: cliService.cliSelection,
+                skippedItems: skippedItemsForDiagnostics,
+                diagnosticFileURL: skippedDiagnosticFileURL
+            )
+            viewModel.syncError = presentation
+            onSyncIssueChanged(.syncError(presentation))
+        }
+    }
+
+    private func handleAuthSyncError(_ error: CLIError, viewModel: QuickAccessViewModel, operation: SyncOperationToken) async {
+        guard operation.isCurrent, !Task.isCancelled else { return }
         viewModel.errorMessage = nil
         viewModel.isShowingSkippedSyncItems = false
         if let onAuthenticationRequired {
@@ -125,6 +150,7 @@ final class SyncCoordinator {
                 viewModel.syncError = Self.syncErrorPresentation(for: error, cliSelection: cliService.cliSelection)
             }
         }
+        guard operation.isCurrent, !Task.isCancelled else { return }
         onSyncIssueChanged(nil)
     }
 
@@ -138,63 +164,41 @@ final class SyncCoordinator {
     func resetAndSync() {
         // Keep one reset owner so stale task cleanup cannot release a newer reset barrier.
         guard resetTask == nil else { return }
+        databaseManager.invalidateSyncOperations()
         onResetInitiated()
         syncTask?.cancel()
         syncTask = nil
+        viewModel?.isLoading = true
         resetTask = Task { [weak self] in
             guard let self else { return }
-            guard let offlineModeService else {
-                do {
-                    try await databaseManager.clearMetadata()
-                    resetTask = nil
-                    refreshNow()
-                } catch is CancellationError {
-                    resetTask = nil
-                } catch {
-                    viewModel?.syncError = nil
-                    viewModel?.errorMessage = String(localized: "Failed to reset database: \(error.localizedDescription)")
-                    resetTask = nil
-                }
-                return
-            }
-
+            var resetError: (any Error)?
+            var resetOperation: SyncOperationToken?
             do {
-                try await offlineModeService.prepareForMetadataReset()
+                try await offlineModeService?.prepareForMetadataReset()
                 try Task.checkCancellation()
                 try await databaseManager.clearMetadata()
-                await offlineModeService.finishMetadataReset()
-                resetTask = nil
-                refreshNow()
-            } catch is CancellationError {
-                await offlineModeService.finishMetadataReset()
-                resetTask = nil
+                let operation = databaseManager.beginSyncOperation()
+                resetOperation = operation
+                let descriptors = try databaseManager.allAutoFillDescriptors()
+                try await identitySynchronizer.reconcile(descriptors: descriptors, isCurrent: { operation.isCurrent })
+                try requireCurrentSync(operation)
             } catch {
-                await offlineModeService.finishMetadataReset()
-                viewModel?.syncError = nil
-                viewModel?.errorMessage = String(localized: "Failed to reset database: \(error.localizedDescription)")
-                resetTask = nil
+                resetError = error
+            }
+            await offlineModeService?.finishMetadataReset()
+            resetTask = nil
+            guard resetOperation?.isCurrent != false else { return }
+            if Task.isCancelled { resetError = CancellationError() }
+            if let resetError {
+                viewModel?.isLoading = false
+                if !(resetError is CancellationError) {
+                    viewModel?.syncError = nil
+                    viewModel?.errorMessage = String(localized: "Failed to reset database: \(resetError.localizedDescription)")
+                }
+            } else {
+                refreshNow()
             }
         }
-    }
-
-    nonisolated static func syncErrorPresentation(
-        for error: Error,
-        cliSelection: PassCLISelection,
-        skippedItems: [SkippedSyncItem] = [],
-        diagnosticFileURL: URL? = nil
-    ) -> SyncErrorPresentation {
-        if let cliError = error as? CLIError, cliError.isAuthError {
-            return .loginRequired()
-        }
-
-        return .genericFailure(
-            diagnosticReport: SyncErrorDiagnosticReport.make(
-                error: error,
-                cliSelection: cliSelection,
-                skippedItems: skippedItems,
-                diagnosticFileURL: diagnosticFileURL
-            )
-        )
     }
 
     nonisolated private static func writeSkippedItemDiagnostics(_ skippedItems: [SkippedSyncItem]) -> URL? {
@@ -215,9 +219,11 @@ final class SyncCoordinator {
     private func finishSuccessfulSync(
         skippedItems: [SkippedSyncItem],
         diagnosticFileURL: URL?,
-        viewModel: QuickAccessViewModel
+        viewModel: QuickAccessViewModel,
+        operation: SyncOperationToken
     ) {
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: DefaultsKey.lastSyncTime)
+        guard operation.isCurrent, !Task.isCancelled else { return }
+        defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.lastSyncTime)
         viewModel.syncError = nil
         if skippedItems.isEmpty {
             viewModel.syncProgress = nil
@@ -235,11 +241,12 @@ final class SyncCoordinator {
         } else {
             onSyncIssueChanged(nil)
         }
+        guard operation.isCurrent, !Task.isCancelled else { return }
         viewModel.performSearch(query: viewModel.searchQuery)
     }
 
     private func clampedSyncInterval() -> TimeInterval {
-        let interval = UserDefaults.standard.double(forKey: DefaultsKey.syncInterval)
+        let interval = defaults.double(forKey: DefaultsKey.syncInterval)
         return interval >= 60 ? interval : 300
     }
 

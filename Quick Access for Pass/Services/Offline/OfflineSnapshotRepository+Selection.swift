@@ -25,10 +25,12 @@ nonisolated extension OfflineSnapshotRepository {
                     try db.execute(
                         sql: """
                             INSERT INTO offlineItems
-                            (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected, selectionGeneration)
-                            VALUES (?, ?, ?, NULL, ?, NULL, 1, ?)
+                            (itemId, vaultId, selectedAt, lastRefreshedAt, cacheStatus, pendingRequestId, isManuallySelected,
+                             selectionGeneration, metadataGeneration, requestGeneration)
+                            VALUES (?, ?, ?, NULL, ?, NULL, 1, ?, ?, ?)
                             """,
-                        arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, generation.uuidString]
+                        arguments: [itemID, vaultID, Date(), OfflineCacheStatus.notCached.rawValue, generation.uuidString,
+                                    UUID().uuidString, UUID().uuidString]
                     )
                 }
                 let promotions = [OfflineManualPromotion(

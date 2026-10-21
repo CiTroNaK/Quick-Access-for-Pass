@@ -163,26 +163,9 @@ extension PassItem {
         )
     }
 
-    /// Parse an ISO 8601 date string, trying the fractional-seconds format
-    /// first and falling back to the plain format. Returns `Date()` on
-    /// total parse failure.
-    ///
-    /// Constructs formatters per-call intentionally: `DateFormatter` (the
-    /// parent class of `ISO8601DateFormatter`) is explicitly not
-    /// thread-safe, and Apple does not document `ISO8601DateFormatter`
-    /// as thread-safe either. `ISO8601DateFormatter.init()` is
-    /// microseconds, and this method is called at most twice per
-    /// `PassItem` import during sync (a one-shot operation, not a hot
-    /// path), so the allocation cost is immeasurable.
+    /// Parses explicit-zone ISO 8601 or the CLI's UTC civil form.
+    /// Ordinary metadata retains its existing fallback; snapshot freshness must use the optional parser directly.
     private static func parseDate(_ string: String) -> Date {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: string) {
-            return date
-        }
-
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: string) ?? Date()
+        OfflineSourceModificationTime.parse(string) ?? Date()
     }
 }
