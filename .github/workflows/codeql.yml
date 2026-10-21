@@ -17,7 +17,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
 
     strategy:
@@ -35,7 +35,9 @@ jobs:
 
       - name: Select Xcode
         if: matrix.language == 'swift'
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4

@@ -52,7 +52,7 @@ Example: `feat: add Large Type display for selected values`
 
 ## Continuous Integration
 
-Tests run automatically on every PR via GitHub Actions (`macos-26`). CI must pass before merging. It builds and tests without Apple signing secrets.
+Tests run automatically on every PR via GitHub Actions. CI tests, release builds, and CodeQL use GitHub's `xcode-27` preview runner and its default Xcode 27 toolchain; each Xcode selection step logs the installed version. This image is currently a public preview and may have stability or queueing limitations. Linux-only release jobs remain on `ubuntu-latest`. CI must pass before merging. It builds and tests without Apple signing secrets.
 
 ### Release signing secrets
 

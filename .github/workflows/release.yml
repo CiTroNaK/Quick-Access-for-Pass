@@ -21,7 +21,7 @@ env:
 jobs:
   build:
     name: Build
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
 
     steps:
@@ -43,7 +43,9 @@ jobs:
           echo "Building version $VERSION (build $GITHUB_RUN_NUMBER)"
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
 
       - name: Import signing certificate
         env:
