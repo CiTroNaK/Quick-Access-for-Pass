@@ -193,10 +193,12 @@ in-memory queue tests cannot verify that optimization.
 
 Incremental ordinary sync obtains optional metadata-only capture authority before
 fetching full list content; absent/not-ready admission must not fail metadata sync
-or be acquired retroactively. Only invocation-bound exact 2.4.2 complete JSON may
-be bulk-reused; unknown/incomplete/ambiguous content uses sequential needed-copy
-item reads. Keep fetched items in the caller-owned awaited frame, never in service
-lifecycle registrations or queued work. Capture registries retain metadata only.
+or be acquired retroactively. Only invocation-bound exact 2.1.4, 2.2.3, 2.3.3,
+2.4.2 or 2.5.1 complete JSON may be bulk-reused; unknown/incomplete/ambiguous
+content uses sequential needed-copy item reads. See docs/pass-cli.md for
+published-release evidence and source-to-binary attestation limits. Keep fetched
+items in the caller-owned awaited frame, never in service lifecycle registrations
+or queued work. Capture registries retain metadata only.
 Close admission/revoke persisted captures before joining shutdown frames; reset
 purges before that join and clears ordinary metadata only after it. Removal/purge
 must not wait for fetch/preparation, subject to existing writer contention.

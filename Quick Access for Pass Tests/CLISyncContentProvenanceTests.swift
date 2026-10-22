@@ -37,8 +37,13 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenance == .unavailable)
     }
 
-    @Test("only the substantiated release has a full-output contract", arguments: [
-        ("2.4.2", true), ("2.4.1", false), ("2.4.3", false), ("3.0.0", false), ("unknown", false)
+    @Test("only substantiated releases have a full-output contract", arguments: [
+        ("2.1.4", true), ("2.2.3", true), ("2.3.3", true), ("2.4.2", true), ("2.5.1", true),
+        ("Proton Pass CLI 2.1.4 (d13561a)", true), ("Proton Pass CLI 2.2.3 (38ff599)", true),
+        ("Proton Pass CLI 2.3.3 (0d7235d)", true), ("Proton Pass CLI 2.5.1 (84186e7)", true),
+        ("2.1.3", false), ("2.1.5", false), ("2.2.2", false), ("2.2.4", false),
+        ("2.3.2", false), ("2.3.4", false), ("2.4.1", false), ("2.4.3", false), ("2.5.0", false), ("2.5.2", false),
+        ("2.6.0", false), ("3.0.0", false), ("unknown", false)
     ])
     func supportedReleaseContract(version: String, complete: Bool) {
         #expect((PassCLICapabilities(rawVersionString: version).snapshotContentProvenance == .completeJSONV1) == complete)
@@ -70,12 +75,12 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenance == .completeJSONV1)
     }
 
-    @Test("each actual vault invocation retains its own completeness")
-    func independentVaultProvenance() async throws {
+    @Test("each actual vault invocation retains its own completeness", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1"])
+    func independentVaultProvenance(version: String) async throws {
         let incomplete = Self.completeNote.replacingOccurrences(of: #""note":"","#, with: "")
             .replacingOccurrences(of: #""vault_id":"vault""#, with: #""vault_id":"second-vault""#)
             .replacingOccurrences(of: #""share_id":"share""#, with: #""share_id":"second-share""#)
-        let runner = ProvenanceListRunner(version: "2.4.2", lists: [
+        let runner = ProvenanceListRunner(version: version, lists: [
             "share": Data(Self.completeNote.utf8), "second-share": Data(incomplete.utf8)
         ])
         let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
@@ -84,7 +89,37 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenanceByVaultID["second-vault"] == .unavailable)
     }
 
-    @Test("summary and unverified invocations cannot acquire provenance", arguments: ["1.4.0", "unknown", "2.4.3"])
+    @Test("older full-list login shape preserves modeled secrets without newer fields", arguments: ["2.1.4", "2.2.3", "2.3.3"])
+    func olderLoginShapePreservesContent(version: String) async throws {
+        // Synthetic values matching the older releases' derived ItemData/LoginItem JSON.
+        // Deliberately no newer custom_icon, alias_email or autofill_urls fields.
+        let json = Self.completeNote.replacingOccurrences(
+            of: #""Note":null"#,
+            with: #"""
+            "Login":{"email":"synthetic@example.com","username":"uživatel","password":"synthetic-***",
+            "urls":["https://example.com"],"totp_uri":"otpauth://totp/Synthetic?secret=JBSWY3DPEHPK3PXP","passkeys":[]}
+            """#
+        )
+        let runner = ProvenanceListRunner(version: version, lists: [
+            "share": Data(json.utf8), "second-share": Data(#"{"items":[]}"#.utf8)
+        ])
+        let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
+        #expect(result.contentProvenanceByVaultID["vault"] == .completeJSONV1)
+        let entry = try #require(result.items.first)
+        guard case .login(let login) = entry.item.content.content else {
+            Issue.record("Expected synthetic login content")
+            return
+        }
+        #expect(login.email == "synthetic@example.com")
+        #expect(login.username == "uživatel")
+        #expect(login.password == "synthetic-***")
+        #expect(login.urls == ["https://example.com"])
+        #expect(login.totpUri == "otpauth://totp/Synthetic?secret=JBSWY3DPEHPK3PXP")
+    }
+
+    @Test("summary and unverified invocations cannot acquire provenance", arguments: [
+        "1.4.0", "unknown", "2.1.3", "2.1.5", "2.2.2", "2.2.4", "2.3.2", "2.3.4", "2.4.3", "2.5.0", "2.5.2"
+    ])
     func unverifiedInvocations(version: String) async throws {
         let runner = ProvenanceListRunner(version: version, lists: [
             "share": Data(Self.completeNote.utf8), "second-share": Data(#"{"items":[]}"#.utf8)

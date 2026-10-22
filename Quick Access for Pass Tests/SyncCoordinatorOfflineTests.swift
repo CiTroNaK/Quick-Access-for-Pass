@@ -6,9 +6,9 @@ import Testing
 @Suite("SyncCoordinator offline lifecycle", .timeLimit(.minutes(1)))
 @MainActor
 struct SyncCoordinatorOfflineTests {
-    @Test("sync reuses complete list content without an item view")
-    func syncReusesCompleteListPayloadForSelectedItem() async throws {
-        let harness = try await makeHarness(selectedItemIDs: ["item"])
+    @Test("sync reuses complete list content without an item view", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1"])
+    func syncReusesCompleteListPayloadForSelectedItem(cliVersion: String) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"], cliVersion: cliVersion)
         let previousRefresh = try #require(harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt)
         harness.coordinator.refreshNow()
         await harness.coordinator.currentSyncCompletion?.value
@@ -52,9 +52,9 @@ struct SyncCoordinatorOfflineTests {
         #expect(await harness.runner.viewRequests().isEmpty)
     }
 
-    @Test("explicit Retry then matching coordinator sync adds zero item views")
-    func matchingSyncAfterRetryAddsZeroViews() async throws {
-        let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor"])
+    @Test("explicit Retry then matching coordinator sync adds zero item views", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1"])
+    func matchingSyncAfterRetryAddsZeroViews(cliVersion: String) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor"], cliVersion: cliVersion)
         harness.coordinator.refreshNow()
         await harness.coordinator.currentSyncCompletion?.value
         #expect(await harness.runner.viewRequests().isEmpty)
