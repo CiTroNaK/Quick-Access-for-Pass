@@ -42,12 +42,6 @@ private struct NoOpAutoFillAccessibilityAdapter: AutoFillAccessibilityPresenting
 final class AutoFillBrokerCoordinator {
     private static let maximumRequestLifetimeNanoseconds: UInt64 = 30_000_000_000
 
-    nonisolated enum Error: Swift.Error, Equatable, Sendable {
-        case deadlineExpired
-        case descriptorNotFound
-        case unlockFailed
-    }
-
     typealias LockedState = @MainActor @Sendable () -> Bool
     typealias ShowLockedPanel = @MainActor @Sendable (TimeInterval) async -> Bool
     typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
@@ -328,5 +322,13 @@ final class AutoFillBrokerCoordinator {
             }
             return first
         }
+    }
+}
+
+extension AutoFillBrokerCoordinator {
+    nonisolated enum Error: Swift.Error, Equatable, Sendable {
+        case deadlineExpired
+        case descriptorNotFound
+        case unlockFailed
     }
 }

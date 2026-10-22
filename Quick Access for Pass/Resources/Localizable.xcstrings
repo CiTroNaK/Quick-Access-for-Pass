@@ -4841,12 +4841,13 @@
         }
       }
     },
-    "Make available offline" : {},
-    "Remove offline copy" : {},
-    "Enable this vault in Settings to make its items available offline." : {},
-    "The item is no longer available in the current vault catalog." : {},
+    "Make available offline" : {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zpřístupnit offline"}}}},
+    "Remove offline copy" : {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Odstranit offline kopii"}}}},
+    "Enable this vault in Settings to make its items available offline." : {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Chcete-li zpřístupnit položky tohoto trezoru offline, povolte jej v Nastavení."}}}},
+    "The item is no longer available in the current vault catalog." : {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Položka již není v aktuálním katalogu trezorů dostupná."}}}},
   "Offline" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Offline"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4857,6 +4858,7 @@
   },
   "Offline settings are unavailable." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Nastavení offline režimu není dostupné."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4867,6 +4869,7 @@
   },
   "Offline vaults" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Offline trezory"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4877,6 +4880,7 @@
   },
   "No vaults are available." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Nejsou dostupné žádné trezory."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4887,6 +4891,7 @@
   },
   "Selected offline items" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Vybrané offline položky"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4897,6 +4902,7 @@
   },
   "No items are selected for offline access." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Pro offline přístup nejsou vybrány žádné položky."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4907,6 +4913,7 @@
   },
   "Destructive actions" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Nevratné akce"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4917,6 +4924,7 @@
   },
   "Remove all offline data" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Odstranit všechna offline data"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4927,6 +4935,7 @@
   },
   "Remove all offline data?" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Odstranit všechna offline data?"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4937,6 +4946,7 @@
   },
   "This removes all device-bound offline copies and their selections." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Tím odstraníte všechny offline kopie vázané na toto zařízení i jejich výběry."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4947,6 +4957,7 @@
   },
   "Available" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Dostupné"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4957,6 +4968,7 @@
   },
   "Stale" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Neaktuální"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4984,6 +4996,7 @@
   },
   "Remove offline copy of %@" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Odstranit offline kopii položky %@"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -4994,6 +5007,7 @@
   },
   "Removes this item’s device-bound offline copy" : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Odstraní offline kopii této položky vázanou na zařízení"}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -5004,6 +5018,7 @@
   },
   "Could not update offline vault settings. Try again." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Nastavení offline trezoru se nepodařilo aktualizovat. Zkuste to znovu."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -5014,6 +5029,7 @@
   },
   "Offline copy removed for %@." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Offline kopie položky %@ byla odstraněna."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -5024,6 +5040,7 @@
   },
   "Could not remove offline copy. Try again." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Offline kopii se nepodařilo odstranit. Zkuste to znovu."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -5034,6 +5051,7 @@
   },
   "All offline data removed." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Všechna offline data byla odstraněna."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -5044,6 +5062,7 @@
   },
   "Could not remove offline data. Try again." : {
     "localizations" : {
+      "cs": {"stringUnit": {"state": "translated", "value": "Offline data se nepodařilo odstranit. Zkuste to znovu."}},
       "en" : {
         "stringUnit" : {
           "state" : "new",
@@ -5291,7 +5310,92 @@
           }
         }
       }
-    }
+    },
+    "Application Support is unavailable.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Složka Application Support není dostupná."}}}},
+    "The local database sidecar files are inconsistent. No database was changed.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Doprovodné soubory místní databáze nejsou konzistentní. Žádná databáze nebyla změněna."}}}},
+    "The existing local database passphrase is unavailable.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Heslo ke stávající místní databázi není dostupné."}}}},
+    "Failed to start AutoFill broker.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zprostředkovatele automatického vyplňování se nepodařilo spustit."}}}},
+    "Unlock Quick Access to continue AutoFill.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Chcete-li pokračovat v automatickém vyplňování, odemkněte Quick Access."}}}},
+    "AutoFill timed out. Try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Vypršel časový limit automatického vyplňování. Zkuste to znovu."}}}},
+    "AutoFill could not retrieve the credential from Proton Pass.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Automatickému vyplňování se nepodařilo získat přihlašovací údaje z Proton Pass."}}}},
+    "Manage SSH decisions…": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Spravovat rozhodnutí SSH…"}}}},
+    "Pass CLI health check timed out": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Vypršel časový limit kontroly stavu Pass CLI"}}}},
+    "Pass CLI health check failed": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Kontrola stavu Pass CLI selhala"}}}},
+    "Offline status updates are unavailable. Use Retry offline status to try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Aktualizace offline stavu nejsou dostupné. Zkuste to znovu pomocí akce Znovu načíst offline stav."}}}},
+    "Offline access could not be initialized. Live access and removal remain available.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline přístup se nepodařilo připravit. Online přístup a odstraňování zůstávají dostupné."}}}},
+    "Retry offline setup": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Znovu připravit offline přístup"}}}},
+    "Retry offline status": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Znovu načíst offline stav"}}}},
+    "Restarts offline status updates": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Obnoví aktualizace offline stavu"}}}},
+    "Could not initialize offline access. Try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline přístup se nepodařilo připravit. Zkuste to znovu."}}}},
+    "Selecting a vault stores encrypted offline copies of all its items on this Mac. New items added to selected vaults will also become available offline after syncing.": {"comment":"Offline Mode consent disclosure. Selecting a whole vault includes its future items after a successful sync.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Výběrem trezoru uložíte na tento Mac šifrované offline kopie všech jeho položek. Nové položky přidané do vybraných trezorů budou po synchronizaci také dostupné offline."}}}},
+    "Items removed individually stay excluded until selected again. Turning off a vault keeps individually selected items.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Jednotlivě odstraněné položky zůstanou vyloučené, dokud je znovu nevyberete. Vypnutím trezoru zůstanou zachovány jednotlivě vybrané položky."}}}},
+    "Items and vaults enabled for Offline Mode use cached values when a usable copy is available. Sync is needed to refresh them. Without a usable cached copy, Quick Access uses Pass CLI.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Položky a trezory povolené pro offline režim používají uložené hodnoty, pokud je dostupná použitelná kopie. K jejich aktualizaci je nutná synchronizace. Bez použitelné uložené kopie použije Quick Access Pass CLI."}}}},
+    "Offline copies are used for copy actions, Large Type, and System AutoFill. SSH Agent and Run proxies do not use offline copies.": {"comment":"Offline copies are not available to SSH or Run proxies. Preserve this restriction.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline kopie se používají pro kopírování, Velké písmo a systémové automatické vyplňování. Proxy SSH Agent a Run offline kopie nepoužívají."}}}},
+    "%lld selected, %lld usable": {"comment":"Counts of selected items and usable encrypted copies, respectively.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Vybráno: %lld, použitelných: %lld"}}}},
+    "Manage offline items…": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Spravovat offline položky…"}}}},
+    "Denied": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zamítnuto"}}}},
+    "Offline status is unavailable. Retry offline setup or status, then try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline stav není dostupný. Znovu připravte offline přístup nebo načtěte jeho stav a poté to zkuste znovu."}}}},
+    "%@ will remain available offline when its vault is turned off.": {"comment":"Placeholder is the unchanged item title.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Položka %@ zůstane dostupná offline i po vypnutí svého trezoru."}}}},
+    "Could not keep this item offline. Retry offline status and try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Tuto položku se nepodařilo zachovat offline. Znovu načtěte offline stav a zkuste to znovu."}}}},
+    "Unlock this Mac and try AutoFill again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Odemkněte tento Mac a zkuste automatické vyplňování znovu."}}}},
+    "The host database passphrase is unavailable.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Heslo k databázi hostitelské aplikace není dostupné."}}}},
+    "Recently used": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Nedávno použito"}}}},
+    "No matching credentials. Search by title or username.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Žádné odpovídající přihlašovací údaje. Hledejte podle názvu nebo uživatelského jména."}}}},
+    "Unable to load credentials. Try searching or reopen the picker.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přihlašovací údaje nelze načíst. Zkuste hledat nebo znovu otevřete výběr."}}}},
+    "Waiting for credential request": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Čekání na požadavek na přihlašovací údaje"}}}},
+    "Loading credentials": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Načítání přihlašovacích údajů"}}}},
+    "Unable to load credentials": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přihlašovací údaje nelze načíst"}}}},
+    "Loading credentials…": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Načítání přihlašovacích údajů…"}}}},
+    "Exact site match": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přesná shoda webu"}}}},
+    "Remember for this app": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zapamatovat pro tuto aplikaci"}}}},
+    "↑↓ Select · ↵ Fill": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"↑↓ Vybrat · ↵ Vyplnit"}}}},
+    "Use up and down arrows to select, then Return to fill": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Vyberte pomocí šipek nahoru a dolů a stisknutím Return vyplňte"}}}},
+    "No matching offline items.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Žádné odpovídající offline položky."}}}},
+    "Search items or vaults": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Hledat položky nebo trezory"}}}},
+    "%@ · %lld": {"comment":"Unchanged vault name followed by item count.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"%@ · %lld"}}}},
+    "%lld items shown": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zobrazeno položek: %lld"}}}},
+    "Done": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Hotovo"}}}},
+    "Keep offline individually": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Ponechat offline samostatně"}}}},
+    "Retry": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zkusit znovu"}}}},
+    "%@ · Last refreshed %@": {"comment":"First placeholder is a localized offline status; second is a formatted timestamp.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"%@ · Poslední aktualizace %@"}}}},
+    "Username or email: %@": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Uživatelské jméno nebo e-mail: %@"}}}},
+    "Cached": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Uloženo"}}}},
+    "Offline retry requested for %@.": {"comment":"Placeholder is the unchanged item title.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Pro položku %@ byl vyžádán nový pokus o uložení offline."}}}},
+    "This item is no longer available for offline retry.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Tato položka již není dostupná pro nový pokus o uložení offline."}}}},
+    "Could not retry this offline item. Retry offline status and try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Uložení této položky offline se nepodařilo zopakovat. Znovu načtěte offline stav a zkuste to znovu."}}}},
+    "Offline status is unavailable. Retry offline setup before selecting new items.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline stav není dostupný. Před výběrem nových položek znovu připravte offline přístup."}}}},
+    "The offline selection changed or another operation is in progress. Retry offline status and try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline výběr se změnil nebo probíhá jiná operace. Znovu načtěte offline stav a zkuste to znovu."}}}},
+    "Failed to copy secret": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Tajný údaj se nepodařilo zkopírovat"}}}},
+    "pass-cli command produced too much output": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Příkaz pass-cli vytvořil příliš velký výstup"}}}},
+    "pass-cli could not retrieve the requested secret": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"pass-cli nemohl získat požadovaný tajný údaj"}}}},
+    "Not available offline. Sign in to Proton Pass or reconnect, then try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Není dostupné offline. Přihlaste se k Proton Pass nebo obnovte připojení a zkuste to znovu."}}}},
+    "Offline status could not be updated. Retry offline setup.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Offline stav se nepodařilo aktualizovat. Znovu připravte offline přístup."}}}},
+    "Could not load app associations. Try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přiřazení aplikací se nepodařilo načíst. Zkuste to znovu."}}}},
+    "App association forgotten.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přiřazení aplikace bylo zapomenuto."}}}},
+    "Could not forget the app association. Try again.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přiřazení aplikace se nepodařilo zapomenout. Zkuste to znovu."}}}},
+    "Forget this app association?": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zapomenout toto přiřazení aplikace?"}}}},
+    "AutoFill app associations": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přiřazení aplikací pro automatické vyplňování"}}}},
+    "No app associations are remembered.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Nejsou zapamatována žádná přiřazení aplikací."}}}},
+    "App associations could not be loaded.": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Přiřazení aplikací se nepodařilo načíst."}}}},
+    "Loading app associations": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Načítání přiřazení aplikací"}}}},
+    "Forget association": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zapomenout přiřazení"}}}},
+    "This stops Quick Access from preferring %@ for %@.": {"comment":"Unchanged username and app/service name, respectively. Does not change authorization.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Quick Access přestane upřednostňovat %@ pro %@."}}}},
+    "Forget association for %@": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zapomenout přiřazení pro %@"}}}},
+    "Removes the remembered AutoFill login for this app": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Odstraní zapamatované přihlášení automatického vyplňování pro tuto aplikaci"}}}},
+    "Remembered SSH decisions (%lld)": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zapamatovaná rozhodnutí SSH (%lld)"}}}},
+    "Choose": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Vybrat"}}}},
+    "Remembered run decisions (%lld)": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zapamatovaná rozhodnutí Run (%lld)"}}}},
+    "Manage Run decisions…": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Spravovat rozhodnutí Run…"}}}},
+    "autoFillResolvingMessage": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrieving credential…"}},"cs":{"stringUnit":{"state":"translated","value":"Načítání přihlašovacích údajů…"}}}},
+    "autoFillResolvingAccessibility": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retrieving credential"}},"cs":{"stringUnit":{"state":"translated","value":"Načítání přihlašovacích údajů"}}}},
+    "autoFillSearchCredentials": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search credentials"}},"cs":{"stringUnit":{"state":"translated","value":"Hledat přihlašovací údaje"}}}},
+    "autoFillSelectedAnnouncement": {"extractionState":"manual","comment":"VoiceOver selection announcement. Placeholders are unchanged item title and username, respectively.","localizations":{"en":{"stringUnit":{"state":"translated","value":"Selected %@, %@"}},"cs":{"stringUnit":{"state":"translated","value":"Vybráno %@, %@"}}}},
+    "autoFillCredentialCount": {"extractionState":"manual","comment":"Number of credentials in the picker. Integer placeholder is the visible result count.","localizations":{"en":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"%lld credential"}},"other":{"stringUnit":{"state":"translated","value":"%lld credentials"}}}}},"cs":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"%lld přihlašovací údaj"}},"few":{"stringUnit":{"state":"translated","value":"%lld přihlašovací údaje"}},"other":{"stringUnit":{"state":"translated","value":"%lld přihlašovacích údajů"}}}}}}},
+    "autoFillMatchingCredentialCount": {"extractionState":"manual","comment":"VoiceOver result count. Integer placeholder is the matching credential count.","localizations":{"en":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"%lld matching credential"}},"other":{"stringUnit":{"state":"translated","value":"%lld matching credentials"}}}}},"cs":{"variations":{"plural":{"one":{"stringUnit":{"state":"translated","value":"%lld odpovídající přihlašovací údaj"}},"few":{"stringUnit":{"state":"translated","value":"%lld odpovídající přihlašovací údaje"}},"other":{"stringUnit":{"state":"translated","value":"%lld odpovídajících přihlašovacích údajů"}}}}}}},
+    "offlineLastRefreshedStatus": {"extractionState":"manual","comment":"Accessible offline status and localized refresh timestamp, respectively. No secret values.","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@, last refreshed %@"}},"cs":{"stringUnit":{"state":"translated","value":"%@, poslední aktualizace %@"}}}},
+    "offlineVaultLastRefreshedStatus": {"extractionState":"manual","comment":"Selected count, usable count, then localized refresh timestamp. Non-secret status only.","localizations":{"en":{"stringUnit":{"state":"translated","value":"%lld selected, %lld usable, last refreshed %@"}},"cs":{"stringUnit":{"state":"translated","value":"Vybráno: %lld, použitelných: %lld, poslední aktualizace %@"}}}},
+    "sshDecisionKey": {"extractionState":"manual","comment":"Remembered-decision detail. Placeholder is the unchanged public key fingerprint, never a private key.","localizations":{"en":{"stringUnit":{"state":"translated","value":"Key: %@"}},"cs":{"stringUnit":{"state":"translated","value":"Klíč: %@"}}}},
+    "sshUnknownKey": {"extractionState":"manual","comment":"Fallback display name with unchanged truncated public key fingerprint. Display only, not an authorization identity.","localizations":{"en":{"stringUnit":{"state":"translated","value":"Key %@..."}},"cs":{"stringUnit":{"state":"translated","value":"Klíč %@..."}}}}
   },
   "version" : "1.0"
 }

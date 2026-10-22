@@ -103,6 +103,7 @@ struct QuickAccessView: View {
     let onDismiss: () -> Void
     let appDelegate: AppDelegate
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.locale) private var locale
     @FocusState private var isSearchFocused: Bool
 
     private var hotkeyLabel: String {
@@ -281,7 +282,7 @@ struct QuickAccessView: View {
         }
         .onChange(of: viewModel.isActionLoading) { oldValue, newValue in
             if !oldValue && newValue {
-                AccessibilityNotification.Announcement("Fetching…").post()
+                AccessibilityNotification.Announcement(String(localized: "Fetching…", locale: locale)).post()
             }
         }
     }

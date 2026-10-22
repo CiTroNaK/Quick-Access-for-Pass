@@ -42,7 +42,7 @@ struct AutoFillCandidatePickerPresentationTests {
 
     @Test("resolving cancel remains a native keyboard cancel action")
     func resolvingCancelUsesTheSharedKeyboardAction() {
-        #expect(AutoFillResolvingPresentation.cancelAccessibilityLabel == "Cancel")
+        #expect(AutoFillLocalizedText.string("Cancel", locale: Locale(identifier: "en")) == "Cancel")
     }
 
     @Test("picker routes tab navigation through the displayed candidate set")
@@ -83,9 +83,10 @@ struct AutoFillCandidatePickerPresentationTests {
 
     @Test("picker selection routes resolving presentation through the controller compact host")
     func resolvingContentUsesTheControllerCompactHostForBothPaths() throws {
-        #expect(AutoFillResolvingPresentation.message == "Retrieving credential…")
-        #expect(AutoFillResolvingPresentation.accessibilityLabel == "Retrieving credential")
-        #expect(AutoFillResolvingPresentation.cancelAccessibilityLabel == "Cancel")
+        let english = Locale(identifier: "en")
+        #expect(AutoFillLocalizedText.string(.autoFillResolvingMessage, locale: english) == "Retrieving credential…")
+        #expect(AutoFillLocalizedText.string(.autoFillResolvingAccessibility, locale: english) == "Retrieving credential")
+        #expect(AutoFillLocalizedText.string("Cancel", locale: english) == "Cancel")
 
         let pickerSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent(
@@ -178,7 +179,7 @@ struct AutoFillCandidatePickerPresentationTests {
 
         for requiredSnippet in [
             "AutoFillPickerSearchField(",
-            "Text(\"\\(count) credential",
+            "Text(AutoFillLocalizedText.resultCount(count, locale: locale))",
             "Text(\"↑↓ Select · ↵ Fill\")",
             "VStack(alignment: .leading, spacing: AutoFillCandidatePickerPresentation.candidateRowSpacing)",
             "Rectangle().fill(isSelected ? Color.accentColor : Color.clear)",
@@ -223,8 +224,8 @@ struct AutoFillCandidatePickerPresentationTests {
         for requiredSnippet in [
             "struct AutoFillPickerSearchField: NSViewRepresentable",
             "NSSearchField",
-            "placeholderString = \"Search credentials\"",
-            "setAccessibilityLabel(\"Search credentials\")",
+            "placeholderString = AutoFillLocalizedText.searchCredentials(locale: locale)",
+            "setAccessibilityLabel(AutoFillLocalizedText.searchCredentials(locale: locale))",
             "controlTextDidChange",
             "doCommandBy commandSelector: Selector",
             "#selector(NSResponder.moveUp(_:))",

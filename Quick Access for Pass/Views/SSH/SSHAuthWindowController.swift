@@ -277,7 +277,7 @@ private extension SSHAuthWindowController {
 
     private func makeDialogRequest(for pending: PendingAuthRequest) -> SSHAuthRequest {
         let keyName = SSHKeyNameCache.shared.name(for: pending.keyBlob)
-            ?? "Key \(pending.fingerprint.prefix(16))..."
+            ?? String(localized: .sshUnknownKey(String(pending.fingerprint.prefix(16))))
         let host = pending.clientInfo.command.flatMap { ProcessIdentifier.parseHost($0) }
 
         let header = headerFactory(pending.clientInfo)

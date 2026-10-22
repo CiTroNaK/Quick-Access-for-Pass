@@ -360,6 +360,41 @@ struct VaultSettingsLayoutTests {
     }
 }
 
+extension VaultSettingsLayoutTests {
+    @Test("Vault names remain verbatim even when they match interface translation keys",
+          arguments: ["en", "cs"], ["offline", "ssh"])
+    func localizedVaultListsPreserveNames(language: String, list: String) async throws {
+        let fixture = try OfflineLifecycleFixture(itemIDs: [])
+        try fixture.database.upsertVaults([
+            PassVault(id: "vault", name: "Cached", shareId: "share"),
+            PassVault(id: "second", name: "Uloženo", shareId: "second-share")
+        ])
+        let suiteName = "VaultNameLocalizationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let content: AnyView
+        if list == "offline" {
+            let snapshot = try await fixture.database.reader.read { try OfflineCatalogObservation.presentation(in: $0) }
+            let coordinator = OfflineModeCoordinator(service: fixture.service(),
+                observation: OfflineCatalogObservation(database: fixture.database), shareIDForVault: { _ in "share" })
+            coordinator.apply(snapshot)
+            content = AnyView(OfflineSettingsTab().environment(\.offlineModeCoordinator, coordinator))
+        } else {
+            content = AnyView(SSHVaultFilterView().environment(\.databaseManager, fixture.database)
+                .defaultAppStorage(defaults))
+        }
+        let actual = try render(content.environment(\.locale, Locale(identifier: language)),
+                                size: NSSize(width: 480, height: 620))
+        for name in ["Cached", "Uloženo"] {
+            let reference = NSHostingView(rootView: Text(verbatim: name).font(.body)
+                .foregroundStyle(.secondary).fixedSize().frame(width: 200, alignment: .leading))
+            let expected = try render(reference.rootView, size: reference.fittingSize)
+            let nameRendered = await actual.containsText(from: expected)
+            #expect(nameRendered, "\(list) must preserve the distinct vault name \(name) in \(language)")
+        }
+    }
+}
+
 private struct LayoutSingleObservation: OfflineCatalogObserving {
     let snapshot: OfflinePresentationSnapshot
     func snapshots() -> AsyncThrowingStream<OfflinePresentationSnapshot, Error> {

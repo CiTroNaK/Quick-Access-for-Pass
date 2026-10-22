@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 struct AutoFillPickerSearchField: NSViewRepresentable {
     @Binding var text: String
+    @Environment(\.locale) private var locale
     let focusTarget: FocusState<AutoFillCandidatePickerFocusTarget?>.Binding
 
     let onMoveSelectionUp: @MainActor () -> Void
@@ -29,13 +30,15 @@ struct AutoFillPickerSearchField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSSearchField {
         let searchField = NSSearchField()
         searchField.delegate = context.coordinator
-        searchField.placeholderString = "Search credentials"
+        searchField.placeholderString = AutoFillLocalizedText.searchCredentials(locale: locale)
         searchField.sendsWholeSearchString = false
-        searchField.setAccessibilityLabel("Search credentials")
+        searchField.setAccessibilityLabel(AutoFillLocalizedText.searchCredentials(locale: locale))
         return searchField
     }
 
     func updateNSView(_ searchField: NSSearchField, context: Context) {
+        searchField.placeholderString = AutoFillLocalizedText.searchCredentials(locale: locale)
+        searchField.setAccessibilityLabel(AutoFillLocalizedText.searchCredentials(locale: locale))
         context.coordinator.update(
             text: $text,
             focusTarget: focusTarget,

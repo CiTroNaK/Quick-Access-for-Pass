@@ -2,14 +2,8 @@ import AppKit
 import SwiftUI
 
 @MainActor
-enum AutoFillResolvingPresentation {
-    static let message = "Retrieving credential…"
-    static let accessibilityLabel = "Retrieving credential"
-    static let cancelAccessibilityLabel = "Cancel"
-}
-
-@MainActor
 struct AutoFillResolvingView: View {
+    @Environment(\.locale) private var locale
     let onCancel: @MainActor () -> Void
     let focusTarget: FocusState<AutoFillCandidatePickerFocusTarget?>.Binding?
 
@@ -25,14 +19,13 @@ struct AutoFillResolvingView: View {
         HStack(spacing: 8) {
             ProgressView()
                 .accessibilityHidden(true)
-            Text(AutoFillResolvingPresentation.message)
+            Text(.autoFillResolvingMessage)
                 .font(.body)
             Button("Cancel", action: onCancel)
                 .keyboardShortcut(.cancelAction)
-                .accessibilityLabel(AutoFillResolvingPresentation.cancelAccessibilityLabel)
                 .modifier(AutoFillResolvingCancelFocusModifier(focusTarget: focusTarget))
         }
-        .accessibilityLabel(AutoFillResolvingPresentation.accessibilityLabel)
+        .accessibilityLabel(AutoFillLocalizedText.string(.autoFillResolvingAccessibility, locale: locale))
     }
 }
 
@@ -163,15 +156,12 @@ enum AutoFillCandidatePickerPresentation {
 
     static func accessibilityLabel(
         for candidate: AutoFillCandidate,
-        in state: AutoFillCandidatePickerModel.State
+        in state: AutoFillCandidatePickerModel.State,
+        locale: Locale = .current
     ) -> String {
-        var label = "\(candidate.title), \(candidate.username)"
-        if candidate.isRecentlyUsed {
-            label += ", \(String(localized: "Recently used"))"
-        }
-        return showsExactSiteMatch(for: candidate, in: state)
-            ? "\(label), Exact site match"
-            : label
+        AutoFillLocalizedText.candidateAccessibilityLabel(
+            candidate, exactMatch: showsExactSiteMatch(for: candidate, in: state), locale: locale
+        )
     }
 }
 
@@ -209,6 +199,7 @@ struct AutoFillCandidatePickerView: View {
     @State private var measuredCandidateRowHeights: [UUID: CGFloat] = [:]
     @FocusState private var focusTarget: AutoFillCandidatePickerFocusTarget?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
 
     private let onCancel: @MainActor () -> Void
     private let onResolving: @MainActor () -> Void
@@ -259,7 +250,7 @@ struct AutoFillCandidatePickerView: View {
                 focusTarget = .candidate(identifier)
             }
             guard let candidate = displayedCandidates.first(where: { $0.descriptorID == identifier }) else { return }
-            AccessibilityNotification.Announcement("Selected \(candidate.title), \(candidate.username)").post()
+            AccessibilityNotification.Announcement(AutoFillLocalizedText.selectedAnnouncement(candidate, locale: locale)).post()
         }
         .onChange(of: model.state) { oldState, newState in
             measuredCandidateRowHeights = [:]
@@ -269,7 +260,9 @@ struct AutoFillCandidatePickerView: View {
             focusTarget = AutoFillCandidatePickerFocus.initialTarget(for: newState)
             updateContentSize()
             guard oldState != .unavailable, newState == .unavailable else { return }
-            AccessibilityNotification.Announcement("Unable to load credentials. Try searching or reopen the picker.").post()
+            AccessibilityNotification.Announcement(AutoFillLocalizedText.string(
+                "Unable to load credentials. Try searching or reopen the picker.", locale: locale
+            )).post()
         }
     }
 
@@ -381,7 +374,8 @@ struct AutoFillCandidatePickerView: View {
         .accessibilityLabel(
             AutoFillCandidatePickerPresentation.accessibilityLabel(
                 for: candidate,
-                in: model.state
+                in: model.state,
+                locale: locale
             )
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -510,10 +504,10 @@ struct AutoFillCandidatePickerView: View {
     }
 
     private func resultCountLabel(_ count: Int) -> some View {
-        Text("\(count) credential\(count == 1 ? "" : "s")")
+        Text(AutoFillLocalizedText.resultCount(count, locale: locale))
             .font(.footnote)
             .foregroundStyle(.secondary)
-            .accessibilityLabel("\(count) matching credential\(count == 1 ? "" : "s")")
+            .accessibilityLabel(AutoFillLocalizedText.matchingResultCount(count, locale: locale))
     }
 
     private var canSearch: Bool {

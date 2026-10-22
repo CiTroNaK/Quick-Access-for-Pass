@@ -83,7 +83,7 @@ nonisolated struct SSHDecisionRowPresentation: Sendable {
             bundleID: bundleID,
             primaryText: primaryText,
             secondaryText: secondaryText(relativeExpiration: relativeExpiration),
-            detailText: "Key: \(decision.keyFingerprint)",
+            detailText: String(localized: .sshDecisionKey(decision.keyFingerprint)),
             allowed: decision.allowed,
             removeHelpText: removeHelpText
         )

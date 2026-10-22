@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OfflineSettingsTab: View {
     @Environment(\.offlineModeCoordinator) private var coordinator
+    @Environment(\.locale) private var locale
     @State private var isRemoveAllConfirmationPresented = false
     @State private var isItemsManagerPresented = false
     @State private var errorMessage: String?
@@ -75,7 +76,7 @@ struct OfflineSettingsTab: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(coordinator.vaults) { vault in
-                    SettingsLayout.settingsRow(label: LocalizedStringKey(vault.vaultName)) {
+                    SettingsLayout.settingsRow(label: Text(verbatim: vault.vaultName)) {
                         Toggle(vault.vaultName, isOn: Binding(
                             get: { vault.isSelected },
                             set: { selected in
@@ -212,8 +213,13 @@ struct OfflineSettingsTab: View {
     }
 
     private func vaultStatus(for vault: OfflineVaultSettingsRow) -> String {
-        let timestamp = vault.lastRefreshedAt.map { ", last refreshed \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
-        return String(localized: "\(vault.selectedCount) selected, \(vault.usableCount) usable\(timestamp)")
+        guard let lastRefreshedAt = vault.lastRefreshedAt else {
+            return String(localized: "\(vault.selectedCount) selected, \(vault.usableCount) usable", locale: locale)
+        }
+        let timestamp = lastRefreshedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale))
+        var status = LocalizedStringResource.offlineVaultLastRefreshedStatus(vault.selectedCount, vault.usableCount, timestamp)
+        status.locale = locale
+        return String(localized: status)
     }
 
 }

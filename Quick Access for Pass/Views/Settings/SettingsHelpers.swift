@@ -17,9 +17,23 @@ enum SettingsLayout {
         label: LocalizedStringKey? = nil,
         @ViewBuilder control: () -> Control
     ) -> some View {
+        settingsRowContent(label: label.map { Text($0) }, control: control)
+    }
+
+    static func settingsRow<Control: View>(
+        label: Text,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        settingsRowContent(label: label, control: control)
+    }
+
+    private static func settingsRowContent<Control: View>(
+        label: Text?,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
         HStack {
             if let label {
-                Text(label)
+                label
                     .foregroundStyle(.secondary)
                     .fixedSize()
             }

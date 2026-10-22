@@ -79,11 +79,32 @@ The workflow reads profile names from the installed profiles, maps both bundle I
 - **No secrets on disk** — ordinary database tables store metadata only. Sync may temporarily load full item content from `pass-cli` to derive metadata; selected actions fetch current values on demand. Offline snapshots are the sole persisted-secret exception: users explicitly select individual items or whole vaults; fixtures must cover manual-only authorization without requiring a whole-vault selection, and must keep offline data out of SSH/Run proxies and the extension.
 - **Offline release authority has one owner** — repositories and the database own persisted selection authority and release proofs; the database-owned release authority orders non-secret invalidation against final release, while `SecretReleaseGuard` owns lifecycle validation. Catalog mutation fixtures are test-only; production must not bypass audited repository/database writers.
 - **Run proxy clients must be verified** — maintain `PeerVerifier` protections; unverified local peers must stay rejected.
-- **AutoFill remains IPC-only** — protocol v2 may expose at most 20 in-memory, non-secret candidates to the extension. The host alone owns descriptor and app-association storage, the database, Keychain, Pass CLI, unlock UI, and secret resolution; never add those capabilities to the extension.
+- **AutoFill remains IPC-only** — protocol v3 may expose at most 20 in-memory, non-secret candidates to the extension. The host alone owns descriptor and app-association storage, the database, Keychain, Pass CLI, unlock UI, and secret resolution; never add those capabilities to the extension.
 - **Tests use Swift Testing** — use `@Suite`, `@Test`, `#expect`, and `#require`, not XCTest.
 - **Single external dependency** — [GRDB.swift](https://github.com/groue/GRDB.swift) via Swift Package Manager.
 - **Accessibility first** — icon-only buttons need `.accessibilityLabel`, decorative images need `.accessibilityHidden(true)`, selection uses `.accessibilityAddTraits(.isSelected)`, and state changes should announce via `AccessibilityNotification.Announcement`.
 - **Keep docs current** — update `README.md`, `SECURITY.md`, and `AGENTS.md` when relevant.
+
+## Localization
+
+`Quick Access for Pass/Resources/Localizable.xcstrings` is the single English/Czech catalog. Both the host and AutoFill extension compile it into their own bundles; keep extension resource membership when editing the project. Do not duplicate the catalog or load translations from the installed host app.
+
+Translate visible text, accessibility labels/help, announcements, statuses, and presented errors. Prefer generated `LocalizedStringResource` symbols for new messages, with manual extraction state and translator comments for interpolated values. Native controls and runtime `String` values need explicit localization; `Text(String)` does not localize them automatically. Preserve usernames, titles, domains, commands, and other user/technical values verbatim. Honor the view locale when formatting dynamic presentation or updating AppKit controls.
+
+Use catalog plural forms rather than English suffixes, and test Czech `one`/`few`/`other` with counts 0, 1, 2, and 5. Preserve printf argument identities and types, including positional arguments. English literal keys may use source-language fallback; Czech units must be nonempty and marked translated.
+
+After building both targets, verify the catalog against compiler extraction and actual compiled `.strings`/`.stringsdict` resources in both bundles:
+
+```bash
+xcodebuild -scheme "Quick Access for Pass" -derivedDataPath build/ build
+python3 -m unittest discover -s scripts/tests -p 'test_verify_localizations.py'
+python3 scripts/verify-localizations.py \
+  --catalog "Quick Access for Pass/Resources/Localizable.xcstrings" \
+  --stringsdata-root build/Build/Intermediates.noindex \
+  --app "build/Build/Products/Debug/Quick Access for Pass.app"
+```
+
+CI runs this gate after building. It cannot discover raw strings that bypass compiler extraction: keep runtime locale tests for native controls, dynamic formatting, accessibility, and value preservation as well as `LocalizationBundleTests` for independent bundle lookup.
 
 ## Project Layout
 

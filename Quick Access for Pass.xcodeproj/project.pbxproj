@@ -28,6 +28,8 @@
 		AF9100010000000000000001 /* Quick Access AutoFill/AutoFillPickerSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9100110000000000000011 /* Quick Access AutoFill/AutoFillPickerSearchField.swift */; };
 		B1C2D3E4F5061728394A5B6C /* qa-env-export in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = D1E2F3041526374859A6B7C8 /* qa-env-export */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CA8090ADFF78D87CD0716FBB /* qa-run in Copy qa-run Helper */ = {isa = PBXBuildFile; fileRef = 4E831D0129FFC62BD7071873 /* qa-run */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AF9200010000000000000001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AF9200110000000000000011 /* Localizable.xcstrings */; };
+		AF9300010000000000000001 /* AutoFillLocalizedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9300110000000000000011 /* AutoFillLocalizedText.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -109,6 +111,8 @@
 		AF9100110000000000000011 /* Quick Access AutoFill/AutoFillPickerSearchField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access AutoFill/AutoFillPickerSearchField.swift"; sourceTree = SOURCE_ROOT; };
 		D1E2F3041526374859A6B7C8 /* qa-env-export */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "qa-env-export"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1F203142536475869A7B8C9 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		AF9200110000000000000011 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = "Quick Access for Pass/Resources/Localizable.xcstrings"; sourceTree = SOURCE_ROOT; };
+		AF9300110000000000000011 /* AutoFillLocalizedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Quick Access AutoFill/AutoFillLocalizedText.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -252,6 +256,8 @@
 				AF8000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift */,
 				AF9000110000000000000011 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift */,
 				AF9100110000000000000011 /* Quick Access AutoFill/AutoFillPickerSearchField.swift */,
+				AF9200110000000000000011 /* Localizable.xcstrings */,
+				AF9300110000000000000011 /* AutoFillLocalizedText.swift */,
 			);
 			name = "Shared AutoFill Sources";
 			sourceTree = "<group>";
@@ -449,6 +455,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AF9200010000000000000001 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -479,6 +486,7 @@
 				AF8000010000000000000001 /* Quick Access AutoFill/AutoFillCandidatePickerModel.swift in Sources */,
 				AF9000010000000000000001 /* Quick Access AutoFill/AutoFillCandidatePickerView.swift in Sources */,
 				AF9100010000000000000001 /* Quick Access AutoFill/AutoFillPickerSearchField.swift in Sources */,
+				AF9300010000000000000001 /* AutoFillLocalizedText.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -147,6 +147,7 @@ struct AutoFillExtensionTargetTests {
         "Quick Access AutoFill/AutoFillCandidatePickerModel.swift",
         "Quick Access AutoFill/AutoFillCandidatePickerView.swift",
         "Quick Access AutoFill/AutoFillPickerSearchField.swift",
+        "Quick Access AutoFill/AutoFillLocalizedText.swift",
         "Quick Access AutoFill/AutoFillExtensionCoordinator.swift",
         "Quick Access AutoFill/CredentialProviderViewController.swift"
     ]

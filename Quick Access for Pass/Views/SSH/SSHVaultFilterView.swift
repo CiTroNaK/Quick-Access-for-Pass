@@ -21,7 +21,7 @@ struct SSHVaultFilterView: View {
                 .font(.body)
 
             ForEach(availableVaults, id: \.self) { name in
-                SettingsLayout.settingsRow(label: LocalizedStringKey(name)) {
+                SettingsLayout.settingsRow(label: Text(verbatim: name)) {
                     Toggle(name, isOn: binding(for: name))
                         .labelsHidden()
                         .toggleStyle(.switch)

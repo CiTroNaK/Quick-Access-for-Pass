@@ -4,6 +4,7 @@ import SwiftUI
 struct OfflineItemsManagerView: View {
     let coordinator: OfflineModeCoordinator
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     @State private var searchText = ""
     @State private var errorMessage: String?
     @State private var isVisible = false
@@ -195,15 +196,18 @@ struct OfflineItemsManagerView: View {
 
     private func statusLabel(for item: OfflineItemSettingsRow) -> String {
         switch item.status {
-        case .cached where item.hasUsableSnapshot: String(localized: "Cached")
-        case .failed where item.hasUsableSnapshot: String(localized: "Stale")
-        case .cached, .failed, .notCached, .unavailable: String(localized: "Unavailable")
+        case .cached where item.hasUsableSnapshot: String(localized: "Cached", locale: locale)
+        case .failed where item.hasUsableSnapshot: String(localized: "Stale", locale: locale)
+        case .cached, .failed, .notCached, .unavailable: String(localized: "Unavailable", locale: locale)
         }
     }
 
     private func statusAccessibilityLabel(for item: OfflineItemSettingsRow) -> String {
-        let timestamp = item.lastRefreshedAt.map { ", last refreshed \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
-        return "\(statusLabel(for: item))\(timestamp)"
+        guard let lastRefreshedAt = item.lastRefreshedAt else { return statusLabel(for: item) }
+        let timestamp = lastRefreshedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale))
+        var status = LocalizedStringResource.offlineLastRefreshedStatus(statusLabel(for: item), timestamp)
+        status.locale = locale
+        return String(localized: status)
     }
 
     private func statusColor(for item: OfflineItemSettingsRow) -> Color {

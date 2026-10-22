@@ -130,6 +130,14 @@ Pass CLI's specific `Error decrypting local session` failure retains a typed `lo
 
 Browser-only session repair is user-initiated, never a background reset. Route Settings, menu, panel and notification login actions through `requestPassCLILogin()` and `PassCLILoginCoordinator.requestLogin(health:confirmSessionReset:)`. Confirm shared-session impact before bounded CLI-owned cleanup and one browser login; preserve the saved PAT and offline snapshots. Recognize chunked local-session decryption failures with typed login state/result, not a missing-URL message. Do not let a historical login failure override changed health to authorize cleanup. Keep cancellation ownership until the operation unwinds, block duplicate confirmations/resets, and use `isLoggingIn` (not a historical result state) to gate automatic PAT recovery.
 
+## Localization Rules
+
+Use `Quick Access for Pass/Resources/Localizable.xcstrings` as the single English/Czech catalog, compiled separately into both the host and AutoFill extension. Keep both resource memberships; do not duplicate the catalog or read translations from an installed containing app. New generated-resource keys are manual and include translator context and both languages.
+
+Localize interface text at its presentation boundary, including native placeholders, errors, help, accessibility, and announcements. Preserve user-provided titles, usernames, domains, commands, and identity values verbatim; never run arbitrary runtime text through `LocalizedStringKey`. Pass view locale into dynamic formatters and native-control updates. Use catalog plural forms, not English suffix concatenation; test English and Czech counts 0/1/2/5 and exact interpolation-value preservation.
+
+After building, run `scripts/verify-localizations.py` with `--catalog`, `--stringsdata-root`, and `--app` paths from that build, plus its standard-library fixture tests. See `CONTRIBUTING.md` for the full command. The CI gate checks Czech translation readiness, printf identities/types, compiler-extracted key coverage, and compiled `.strings`/`.stringsdict` values in both bundles. Extraction alone misses raw runtime strings, so preserve actual locale/control/formatter and independent-bundle tests. Do not mutate global locale preferences in tests.
+
 ## Accessibility Rules
 
 Views follow VoiceOver and Voice Control patterns throughout:
