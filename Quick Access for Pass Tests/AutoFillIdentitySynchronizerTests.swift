@@ -25,6 +25,70 @@ struct AutoFillIdentitySynchronizerTests {
         #expect(operations.removedOneTimeCodes.isEmpty)
     }
 
+    @Test("same-title code suggestions identify their accounts without changing record IDs")
+    func distinguishesSameTitleCodeAccounts() async throws {
+        let first = makeDescriptor(
+            id: UUID(), title: "Proton", username: "personal@example.com", service: "proton.me", hasTOTP: true
+        )
+        let second = makeDescriptor(
+            id: UUID(), title: "Proton", username: "work@example.com", service: "proton.me", hasTOTP: true
+        )
+        let adapter = FakeCredentialIdentityStoreAdapter()
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+
+        try await synchronizer.reconcile(descriptors: [first, second])
+
+        let operations = await adapter.operations()
+        #expect(operations.savedOneTimeCodes == [
+            AutoFillOneTimeCodeIdentity(
+                descriptorID: first.id, serviceIdentifier: "proton.me", label: "Proton — personal@example.com"
+            ),
+            AutoFillOneTimeCodeIdentity(
+                descriptorID: second.id, serviceIdentifier: "proton.me", label: "Proton — work@example.com"
+            )
+        ])
+    }
+
+    @Test("sync upgrades title-only code labels without replacing passwords or removing identities")
+    func upgradesExistingCodeLabels() async throws {
+        let descriptor = makeDescriptor(
+            id: UUID(), title: "Proton", username: "personal@example.com", service: "proton.me", hasTOTP: true
+        )
+        let adapter = FakeCredentialIdentityStoreAdapter(
+            passwords: [AutoFillPasswordIdentity(descriptor: descriptor)],
+            oneTimeCodes: [AutoFillOneTimeCodeIdentity(
+                descriptorID: descriptor.id, serviceIdentifier: "proton.me", label: "Proton"
+            )]
+        )
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+
+        try await synchronizer.reconcile(descriptors: [descriptor])
+
+        let operations = await adapter.operations()
+        #expect(operations.savedOneTimeCodes == [AutoFillOneTimeCodeIdentity(
+            descriptorID: descriptor.id, serviceIdentifier: "proton.me", label: "Proton — personal@example.com"
+        )])
+        #expect(operations.savedPasswords.isEmpty)
+        #expect(operations.removedPasswords.isEmpty)
+        #expect(operations.removedOneTimeCodes.isEmpty)
+    }
+
+    @Test("code suggestions without a username retain the item title")
+    func codeLabelWithoutUsername() async throws {
+        let descriptor = makeDescriptor(
+            id: UUID(), title: "Proton", username: "", service: "proton.me", hasTOTP: true
+        )
+        let adapter = FakeCredentialIdentityStoreAdapter()
+        let synchronizer = AutoFillIdentitySynchronizer(adapter: adapter)
+
+        try await synchronizer.reconcile(descriptors: [descriptor])
+
+        let operations = await adapter.operations()
+        #expect(operations.savedOneTimeCodes == [AutoFillOneTimeCodeIdentity(
+            descriptorID: descriptor.id, serviceIdentifier: "proton.me", label: "Proton"
+        )])
+    }
+
     @Test("removes stale one-time-code identity without dropping password identity")
     func totpBecomingUnavailable() async throws {
         let id = UUID()

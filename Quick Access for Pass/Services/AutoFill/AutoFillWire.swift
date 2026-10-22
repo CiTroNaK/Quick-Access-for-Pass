@@ -11,7 +11,7 @@ nonisolated enum AutoFillWireDeliveryError: Error, Equatable, Sendable {
 /// Strict length-prefixed JSON framing for the dedicated AutoFill broker.
 /// The four-byte big-endian length is validated before allocating the body buffer.
 nonisolated enum AutoFillWire {
-    static let protocolVersion: UInt16 = 2
+    static let protocolVersion: UInt16 = 3
     static let maximumMessageSize = 64 * 1024
 
     static func readMessage<T: AutoFillWireMessage>(

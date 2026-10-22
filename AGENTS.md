@@ -70,6 +70,10 @@ If you add shared mutable state, prefer an actor or isolate it to `@MainActor` i
 5. `ClipboardManager` copies to pasteboard with `org.nspasteboard.ConcealedType` and auto-clear
 6. Detail rows can also be shown in **Large Type** through `LargeTypeWindowController`
 
+### System AutoFill recent-use presentation
+
+`AutoFillBrokerCoordinator` owns one `@MainActor` `AutoFillRecentPasswordSelection`. Only a complete successful password write at `AutoFillCredentialRelease` records its opaque descriptor ID, exact saved domain, release-guard generation, and two-minute monotonic expiry. Keep the record memory-only and secret-free. Protocol v3 candidates carry a presentation-only `isRecentlyUsed` flag; eligible site TOTP results move only within their original service-match tier. Never use this hint as authorization, hide other accounts, infer login success or browser-tab identity, change global/native-app matching, or modify the system identity store/rankings. Clear it with transient-access revocation; expiry, lock, and generation validity are checked again after awaited candidate lookup.
+
 ### SSH Agent Proxy
 
 `SSHAgentProxy` listens on `~/.ssh/quick-access-agent.sock` and proxies to the Pass CLI daemon at `~/.ssh/proton-pass-agent.sock`.

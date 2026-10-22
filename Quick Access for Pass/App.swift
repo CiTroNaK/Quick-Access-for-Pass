@@ -228,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// does not promise to retract values that were already released.
     func revokeTransientSecretAccess() {
         secretReleaseGuard.revoke()
+        autoFillBrokerCoordinator?.clearRecentPasswordSelection()
         viewModel?.cancelSecretActions()
         // Production composition owns this instance; the view-model fallback
         // preserves the same ownership rule in lifecycle-focused test wiring.

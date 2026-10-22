@@ -27,6 +27,7 @@ final class AutoFillCredentialRelease {
     private let secretReleaseGuard: SecretReleaseGuard
     private let isAppLocked: @MainActor @Sendable () -> Bool
     private let now: @Sendable () -> UInt64
+    private let onPasswordDelivered: (@MainActor @Sendable (UUID, String, UUID) -> Void)?
     private var consumed = false
 
     init(
@@ -36,7 +37,8 @@ final class AutoFillCredentialRelease {
         descriptorStore: any AutoFillDescriptorStoring,
         secretReleaseGuard: SecretReleaseGuard,
         isAppLocked: @escaping @MainActor @Sendable () -> Bool,
-        now: @escaping @Sendable () -> UInt64
+        now: @escaping @Sendable () -> UInt64,
+        onPasswordDelivered: (@MainActor @Sendable (UUID, String, UUID) -> Void)? = nil
     ) {
         self.request = request
         self.descriptor = descriptor
@@ -45,6 +47,7 @@ final class AutoFillCredentialRelease {
         self.secretReleaseGuard = secretReleaseGuard
         self.isAppLocked = isAppLocked
         self.now = now
+        self.onPasswordDelivered = onPasswordDelivered
     }
 
     /// Revalidates current metadata after the registry-completion suspension,
@@ -79,6 +82,11 @@ final class AutoFillCredentialRelease {
                 toFileDescriptor: fd
             )
         })
+        // Only a complete successful write records non-secret presentation metadata.
+        // Failed/partial frames and resolution alone must not establish a preference.
+        if request.kind == .password {
+            onPasswordDelivered?(descriptor.id, descriptor.serviceIdentifier, releaseToken)
+        }
     }
 
     /// Runs the final metadata lookup only within the request's remaining

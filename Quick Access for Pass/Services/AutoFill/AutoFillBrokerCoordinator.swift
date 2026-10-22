@@ -61,6 +61,7 @@ final class AutoFillBrokerCoordinator {
     private let accessibility: any AutoFillAccessibilityPresenting
     private let now: @Sendable () -> UInt64
     private let deadlineSleep: DeadlineSleep
+    private let recentPasswordSelection: AutoFillRecentPasswordSelection
 
     // A substituted clock must also supply a sleeper driven by that clock.
     init(
@@ -83,6 +84,9 @@ final class AutoFillBrokerCoordinator {
         self.accessibility = accessibility ?? NoOpAutoFillAccessibilityAdapter()
         self.now = now
         self.deadlineSleep = deadlineSleep
+        self.recentPasswordSelection = AutoFillRecentPasswordSelection(
+            now: now, secretReleaseGuard: secretReleaseGuard, isAppLocked: isAppLocked
+        )
     }
 
     /// Resolves metadata before entering either unlock UI or Pass CLI. Every
@@ -96,7 +100,11 @@ final class AutoFillBrokerCoordinator {
         guard candidates.count <= AutoFillCandidate.maximumCandidates else {
             throw AutoFillProtocolError.malformedMessage
         }
-        return candidates
+        return recentPasswordSelection.candidates(candidates, for: query)
+    }
+
+    func clearRecentPasswordSelection() {
+        recentPasswordSelection.clear()
     }
 
     func resolve(
@@ -136,7 +144,12 @@ final class AutoFillBrokerCoordinator {
                     descriptorStore: descriptorStore,
                     secretReleaseGuard: secretReleaseGuard,
                     isAppLocked: isAppLocked,
-                    now: now
+                    now: now,
+                    onPasswordDelivered: { [recentPasswordSelection] descriptorID, serviceIdentifier, token in
+                        recentPasswordSelection.recordDelivery(
+                            descriptorID: descriptorID, serviceIdentifier: serviceIdentifier, releaseToken: token
+                        )
+                    }
                 )
             )
         } catch Error.deadlineExpired {

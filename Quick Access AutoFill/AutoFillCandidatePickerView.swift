@@ -165,7 +165,10 @@ enum AutoFillCandidatePickerPresentation {
         for candidate: AutoFillCandidate,
         in state: AutoFillCandidatePickerModel.State
     ) -> String {
-        let label = "\(candidate.title), \(candidate.username)"
+        var label = "\(candidate.title), \(candidate.username)"
+        if candidate.isRecentlyUsed {
+            label += ", \(String(localized: "Recently used"))"
+        }
         return showsExactSiteMatch(for: candidate, in: state)
             ? "\(label), Exact site match"
             : label
@@ -345,6 +348,9 @@ struct AutoFillCandidatePickerView: View {
                         Text(candidate.username.isEmpty ? " " : candidate.username)
                         if showsExactSiteMatch {
                             Text("Exact site match")
+                        }
+                        if candidate.isRecentlyUsed {
+                            Text("Recently used")
                         }
                     }
                     .font(.subheadline)

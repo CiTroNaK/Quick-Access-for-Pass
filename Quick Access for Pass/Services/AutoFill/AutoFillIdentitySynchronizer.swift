@@ -38,7 +38,9 @@ nonisolated struct AutoFillOneTimeCodeIdentity: Sendable, Hashable {
         self.init(
             descriptorID: descriptor.id,
             serviceIdentifier: descriptor.serviceIdentifier,
-            label: descriptor.title
+            label: descriptor.username.isEmpty
+                ? descriptor.title
+                : "\(descriptor.title) — \(descriptor.username)"
         )
     }
 }

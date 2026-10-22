@@ -28,9 +28,9 @@ struct AutoFillProtocolTests {
         #expect(try roundTrip(request, as: AutoFillBrokerRequest.self) == request)
     }
 
-    @Test("global candidate requests retain optional wake handles in protocol version two")
+    @Test("global candidate requests retain optional wake handles in protocol version three")
     func globalCandidateRequestRoundTripsWithWakeHandle() throws {
-        #expect(AutoFillWire.protocolVersion == 2)
+        #expect(AutoFillWire.protocolVersion == 3)
         let request = AutoFillBrokerRequest.listCandidates(.global(
             requestID: requestID,
             search: "example",
@@ -41,8 +41,8 @@ struct AutoFillProtocolTests {
         #expect(try roundTrip(request, as: AutoFillBrokerRequest.self) == request)
     }
 
-    @Test("version-two wire messages retain their exact Codable contract")
-    func versionTwoWireMessagesRetainCodableContract() throws {
+    @Test("version-three wire messages retain their exact Codable contract")
+    func versionThreeWireMessagesRetainCodableContract() throws {
         let request = AutoFillBrokerRequest.resolveCredential(
             requestID: requestID,
             descriptorID: descriptorID,
@@ -94,7 +94,7 @@ struct AutoFillProtocolTests {
         #expect(decodedCandidates == [candidate])
     }
 
-    @Test("credential resolution remains a tagged version-two operation")
+    @Test("credential resolution remains a tagged version-three operation")
     func credentialResolutionRoundTrips() throws {
         let request = AutoFillBrokerRequest.resolveCredential(
             requestID: requestID,
@@ -209,7 +209,8 @@ struct AutoFillProtocolTests {
             "title": "Example",
             "username": "person@example.com",
             "kind": "password",
-            "matchTier": 0
+            "matchTier": 0,
+            "isRecentlyUsed": false
         ]
         #expect(throws: AutoFillProtocolError.malformedMessage) {
             try AutoFillWire.decodeMessage(AutoFillBrokerResponse.self, from: JSONSerialization.data(withJSONObject: [
@@ -237,7 +238,8 @@ struct AutoFillProtocolTests {
             "title": "Example",
             "username": "person@example.com",
             "kind": "password",
-            "matchTier": 0
+            "matchTier": 0,
+            "isRecentlyUsed": false
         ]
         candidate["unexpected"] = true
         #expect(throws: AutoFillProtocolError.malformedMessage) {

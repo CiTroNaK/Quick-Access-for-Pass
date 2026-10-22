@@ -159,6 +159,8 @@ nonisolated struct AutoFillCandidate: Codable, Equatable, Sendable {
     let kind: AutoFillValueKind
     /// Zero-based index into the supplied service identifiers; global search uses zero.
     let matchTier: Int
+    /// Presentation-only hint; never used to authorize or select a secret for release.
+    let isRecentlyUsed: Bool
 
     private enum CodingKeys: String, CodingKey {
         case descriptorID
@@ -166,6 +168,7 @@ nonisolated struct AutoFillCandidate: Codable, Equatable, Sendable {
         case username
         case kind
         case matchTier
+        case isRecentlyUsed
     }
 
     init(
@@ -173,19 +176,21 @@ nonisolated struct AutoFillCandidate: Codable, Equatable, Sendable {
         title: String,
         username: String,
         kind: AutoFillValueKind,
-        matchTier: Int
+        matchTier: Int,
+        isRecentlyUsed: Bool = false
     ) {
         self.descriptorID = descriptorID
         self.title = title
         self.username = username
         self.kind = kind
         self.matchTier = matchTier
+        self.isRecentlyUsed = isRecentlyUsed
     }
 
     init(from decoder: any Decoder) throws {
         try requireExactJSONKeys(
             decoder,
-            allowed: ["descriptorID", "title", "username", "kind", "matchTier"]
+            allowed: ["descriptorID", "title", "username", "kind", "matchTier", "isRecentlyUsed"]
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
@@ -193,7 +198,8 @@ nonisolated struct AutoFillCandidate: Codable, Equatable, Sendable {
             title: try container.decode(String.self, forKey: .title),
             username: try container.decode(String.self, forKey: .username),
             kind: try container.decode(AutoFillValueKind.self, forKey: .kind),
-            matchTier: try container.decode(Int.self, forKey: .matchTier)
+            matchTier: try container.decode(Int.self, forKey: .matchTier),
+            isRecentlyUsed: try container.decode(Bool.self, forKey: .isRecentlyUsed)
         )
     }
 
@@ -204,6 +210,7 @@ nonisolated struct AutoFillCandidate: Codable, Equatable, Sendable {
         try container.encode(username, forKey: .username)
         try container.encode(kind, forKey: .kind)
         try container.encode(matchTier, forKey: .matchTier)
+        try container.encode(isRecentlyUsed, forKey: .isRecentlyUsed)
     }
 }
 
