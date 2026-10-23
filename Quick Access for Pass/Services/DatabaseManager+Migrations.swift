@@ -8,6 +8,7 @@ nonisolated extension DatabaseManager {
         var migrator = DatabaseMigrator()
         registerMigrations(&migrator)
         registerIncrementalOfflineMigration(&migrator)
+        registerOfflineSnapshotContentMigration(&migrator)
         try migrator.migrate(writer)
     }
 

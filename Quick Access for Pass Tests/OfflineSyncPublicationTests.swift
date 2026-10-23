@@ -138,3 +138,113 @@ struct OfflineSyncPublicationTests {
         #expect(try await fixture.repository.publishSyncBatch(late, capture: capture).isEmpty)
     }
 }
+
+extension OfflineSyncPublicationTests {
+    @Test(arguments: [false, true])
+    func explicitPublicationInsertsAndReplacesPayloadAndItsOwnAliasMarker(initialHasEmail: Bool) async throws {
+        let fixture = try OfflineAliasPublicationFixture()
+        let initial = try await fixture.seed(hasEmail: initialHasEmail)
+        try await assertAliasSnapshot(initial, in: fixture)
+        let request = try await fixture.request()
+        let replacement = try await fixture.prepare(hasEmail: !initialHasEmail)
+        #expect(try await fixture.repository.publish(replacement, for: request, refreshedAt: Date(timeIntervalSince1970: 41)))
+        try await assertAliasSnapshot(replacement, in: fixture)
+    }
+
+    @Test(arguments: [false, true])
+    func syncPublicationInsertsAndReplacesPayloadAndItsOwnAliasMarker(initialHasEmail: Bool) async throws {
+        let fixture = try OfflineAliasPublicationFixture()
+        _ = try await fixture.repository.selectItemManually(itemID: "item", vaultID: "vault", shareID: "share")
+        for (index, hasEmail) in [initialHasEmail, !initialHasEmail].enumerated() {
+            let sourceTime = index + 2
+            let capture = try await fixture.planning.capture()
+            let result = try await fixture.database.synchronizeMetadata(
+                vaults: [PassVault(id: "vault", name: "Vault", shareId: "share")],
+                items: [OfflineAliasPublicationFixture.metadata(sourceTime: sourceTime)],
+                descriptors: [], operation: capture.operation
+            )
+            let work = try #require(try await fixture.planning.work(
+                for: capture, proofs: result.offlineMetadataProofs,
+                sourceTimes: ["item": Date(timeIntervalSince1970: Double(sourceTime))]
+            ).first)
+            let prepared = try await fixture.prepare(hasEmail: hasEmail, sourceTime: sourceTime)
+            let publication = OfflineSyncPublication(work: work, prepared: prepared, refreshedAt: Date(timeIntervalSince1970: 41))
+            #expect(try await fixture.repository.publishSyncBatch([publication], capture: capture) == [work.key])
+            try await assertAliasSnapshot(prepared, in: fixture)
+            try await fixture.repository.endSyncCapture(capture)
+        }
+    }
+
+    @Test(arguments: ["rejected", "rollback"])
+    func explicitPublicationFailureRetainsOldPayloadAndAliasMarker(outcome: String) async throws {
+        let fixture = try OfflineAliasPublicationFixture()
+        let initial = try await fixture.seed()
+        let request = try await fixture.request()
+        let replacement = try await fixture.prepare(hasEmail: true)
+        if outcome == "rejected" {
+            _ = try await fixture.request() // A newer explicit owner supersedes the prepared request.
+        } else {
+            try await fixture.database.writer.write { db in
+                try db.execute(sql: """
+                    CREATE TEMP TRIGGER rejectAliasStatus BEFORE UPDATE OF cacheStatus ON offlineItems
+                    BEGIN SELECT RAISE(ABORT, 'synthetic rollback after snapshot upsert'); END
+                    """)
+            }
+        }
+        let before = try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item")
+        if outcome == "rejected" {
+            #expect(try await !fixture.repository.publish(replacement, for: request, refreshedAt: .now))
+        } else {
+            await #expect(throws: OfflinePersistenceError.persistenceFailed) {
+                try await fixture.repository.publish(replacement, for: request, refreshedAt: .now)
+            }
+        }
+        #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == before)
+        try await assertAliasSnapshot(initial, in: fixture)
+    }
+
+    @Test(arguments: ["rejected", "rollback"])
+    func syncPublicationFailureRetainsOldPayloadAndAliasMarker(outcome: String) async throws {
+        let fixture = try OfflineAliasPublicationFixture()
+        let initial = try await fixture.seed()
+        let capture = try await fixture.planning.capture()
+        let work = try #require(try await fixture.planning.work(for: capture).first)
+        let prepared = try await fixture.prepare(hasEmail: true)
+        let publication = OfflineSyncPublication(work: work, prepared: prepared, refreshedAt: Date(timeIntervalSince1970: 41))
+        if outcome == "rejected" {
+            _ = try await fixture.request()
+        } else {
+            // Abort after the UPSERT updates the existing snapshot, rolling back selection and payload together.
+            try await fixture.database.writer.write { db in
+                try db.execute(sql: """
+                    CREATE TEMP TRIGGER rejectAliasSnapshot AFTER UPDATE ON offlineSnapshots
+                    BEGIN SELECT RAISE(ABORT, 'synthetic rollback after snapshot upsert'); END
+                    """)
+            }
+        }
+        let before = try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item")
+        if outcome == "rejected" {
+            #expect(try await fixture.repository.publishSyncBatch([publication], capture: capture).isEmpty)
+        } else {
+            await #expect(throws: OfflinePersistenceError.persistenceFailed) {
+                try await fixture.repository.publishSyncBatch([publication], capture: capture)
+            }
+        }
+        #expect(try await OfflinePersistedTestState.capture(database: fixture.database, itemID: "item") == before)
+        try await assertAliasSnapshot(initial, in: fixture)
+    }
+
+    private func assertAliasSnapshot(_ prepared: PreparedOfflineSnapshot, in fixture: OfflineAliasPublicationFixture) async throws {
+        #expect(try await fixture.repository.authorizedSnapshot(for: prepared.snapshot.identity.key) == prepared.snapshot)
+        try await fixture.database.reader.read { db in
+            let row = try #require(try Row.fetchOne(db, sql: "SELECT * FROM offlineSnapshots WHERE itemId = 'item'"))
+            #expect(row["contentRevision"] as Int == prepared.contentRevision)
+            #expect(row["sourceModifyTime"] as Double? == prepared.sourceModifyTime?.timeIntervalSince1970)
+            let metadata = try String.fetchOne(db, sql: "SELECT metadataGeneration FROM offlineItems WHERE itemId = 'item'")
+            #expect(row["metadataGeneration"] as String? == metadata)
+        }
+        let codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { true })
+        let decoded = try await codec.decodeSnapshot(prepared.snapshot)
+        #expect(decoded.aliasEmail == (prepared.contentRevision == 1 ? "synthetic@example.test" : nil))
+    }
+}

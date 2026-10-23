@@ -8,6 +8,7 @@ nonisolated extension OfflineSnapshotRepository {
         let times = Dictionary(work.compactMap { candidate in candidate.expectedSourceModifyTime.map { (candidate.key.itemId, $0) } },
                                uniquingKeysWith: { first, _ in first })
         let current = try syncWork(capture: capture, metadataProofs: proofs, sourceTimes: times, allowMembershipExpansion: true,
+                                   contentRefreshCandidates: Set(work.filter(\.requiresContentRefresh).map(\.key)),
                                    itemIDs: Set(work.map { $0.key.itemId }), in: db)
         let byKey = Dictionary(uniqueKeysWithValues: current.map { ($0.key, $0) })
         var owned: [OfflineSnapshotKey: OfflineSyncWork] = [:]
@@ -20,7 +21,7 @@ nonisolated extension OfflineSnapshotRepository {
     }
 
     static func sameSyncWork(_ lhs: OfflineSyncWork, _ rhs: OfflineSyncWork) -> Bool {
-        lhs.key == rhs.key && lhs.ownership == rhs.ownership && lhs.shareID == rhs.shareID && lhs.itemType == rhs.itemType
+        lhs.requiresContentRefresh == rhs.requiresContentRefresh && lhs.key == rhs.key && lhs.ownership == rhs.ownership && lhs.shareID == rhs.shareID && lhs.itemType == rhs.itemType
             && lhs.capturedPendingRequestID == rhs.capturedPendingRequestID && lhs.expectedSourceModifyTime == rhs.expectedSourceModifyTime
             && lhs.metadataProof.operationID == rhs.metadataProof.operationID && lhs.metadataProof.shareID == rhs.metadataProof.shareID
             && lhs.metadataProof.metadataGeneration == rhs.metadataProof.metadataGeneration
@@ -80,15 +81,17 @@ nonisolated extension OfflineSnapshotRepository {
         let snapshot = publication.prepared.snapshot
         try db.execute(sql: """
             INSERT INTO offlineSnapshots
-                (vaultId, itemId, schemaVersion, snapshotRevision, keyFingerprint, encryptedPayload, sourceModifyTime, metadataGeneration)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (vaultId, itemId, schemaVersion, snapshotRevision, keyFingerprint, encryptedPayload, sourceModifyTime, metadataGeneration, contentRevision)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(vaultId, itemId) DO UPDATE SET
                 schemaVersion = excluded.schemaVersion, snapshotRevision = excluded.snapshotRevision,
                 keyFingerprint = excluded.keyFingerprint, encryptedPayload = excluded.encryptedPayload,
-                sourceModifyTime = excluded.sourceModifyTime, metadataGeneration = excluded.metadataGeneration
+                sourceModifyTime = excluded.sourceModifyTime, metadataGeneration = excluded.metadataGeneration,
+                contentRevision = excluded.contentRevision
             """, arguments: [publication.work.key.vaultId, publication.work.key.itemId, snapshot.identity.key.schemaVersion,
                              snapshot.identity.revision.uuidString, snapshot.identity.keyFingerprint, snapshot.payload,
-                             publication.prepared.sourceModifyTime?.timeIntervalSince1970, metadataGeneration.uuidString])
+                             publication.prepared.sourceModifyTime?.timeIntervalSince1970, metadataGeneration.uuidString,
+                             publication.prepared.contentRevision])
     }
 
     static func writeSyncFailure(_ work: OfflineSyncWork, in db: Database) throws {

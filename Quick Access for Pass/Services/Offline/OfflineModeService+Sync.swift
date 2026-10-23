@@ -10,7 +10,8 @@ extension OfflineModeService {
         let work: [OfflineSyncWork]
         do {
             work = try await repository.syncWork(capture: capture, metadataProofs: metadataProofs,
-                                                 sourceTimes: index.sourceTimes, allowMembershipExpansion: allowMembershipExpansion)
+                                                 sourceTimes: index.sourceTimes, allowMembershipExpansion: allowMembershipExpansion,
+                                                 contentRefreshCandidates: index.contentRefreshCandidates)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -66,13 +67,18 @@ extension OfflineModeService {
             // Recheck the original conditional ownership before an additional secret-facing fetch.
             // This is not a new scalar reservation and cannot adopt a newer Retry or selection.
             let current = try await repository.syncWork(capture: capture, metadataProofs: [work.key: work.metadataProof],
-                                                        sourceTimes: index.sourceTimes, allowMembershipExpansion: allowMembershipExpansion)
+                                                        sourceTimes: index.sourceTimes, allowMembershipExpansion: allowMembershipExpansion,
+                                                        contentRefreshCandidates: work.requiresContentRefresh ? [work.key] : [])
             guard current.contains(where: { OfflineSnapshotRepository.sameSyncWork(work, $0) }),
                   try syncContextIsActive(capture) else { return nil }
             item = try await cliService.viewItem(itemId: work.key.itemId, shareId: work.shareID)
             source = .liveFallback
         }
         guard try syncContextIsActive(capture) else { return nil }
+        if work.requiresContentRefresh {
+            let policy = OfflineSnapshotContentPolicy.current
+            guard !policy.needsRefresh(contentRevision: policy.satisfiedRevision(for: item), for: work.itemType) else { return nil }
+        }
         let identity = OfflineSnapshotPreparationIdentity(key: work.key, shareID: work.shareID, itemType: work.itemType)
         let prepared = try await codec.prepareSnapshot(from: item, for: identity)
         guard prepared.snapshot.payload.count <= OfflineSyncPublicationLimits.ciphertextBytes else { throw OfflinePersistenceError.payloadTooLarge }

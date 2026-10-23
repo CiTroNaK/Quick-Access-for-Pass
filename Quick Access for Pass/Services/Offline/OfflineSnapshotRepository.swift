@@ -22,7 +22,8 @@ nonisolated protocol OfflineSnapshotPersisting: Sendable {
     var releaseAuthority: OfflineReleaseAuthority { get }
     func beginSyncCapture(operation: SyncOperationToken, lifecycleGeneration: UUID) async throws -> OfflineSyncCapture
     func syncWork(capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
-                  sourceTimes: [String: Date], allowMembershipExpansion: Bool) async throws -> [OfflineSyncWork]
+                  sourceTimes: [String: Date], allowMembershipExpansion: Bool,
+                  contentRefreshCandidates: Set<OfflineSnapshotKey>) async throws -> [OfflineSyncWork]
     func endSyncCapture(_ capture: OfflineSyncCapture) async throws
     func publishSyncBatch(_ publications: [OfflineSyncPublication], capture: OfflineSyncCapture) async throws -> Set<OfflineSnapshotKey>
     func finishSyncFailures(_ work: [OfflineSyncWork], capture: OfflineSyncCapture) async throws
@@ -213,15 +214,16 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                 try db.execute(
                     sql: """
                     INSERT INTO offlineSnapshots
-                    (vaultId, itemId, schemaVersion, snapshotRevision, keyFingerprint, encryptedPayload, sourceModifyTime, metadataGeneration)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (vaultId, itemId, schemaVersion, snapshotRevision, keyFingerprint, encryptedPayload, sourceModifyTime, metadataGeneration, contentRevision)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(vaultId, itemId) DO UPDATE SET
                         schemaVersion = excluded.schemaVersion,
                         snapshotRevision = excluded.snapshotRevision,
                         keyFingerprint = excluded.keyFingerprint,
                         encryptedPayload = excluded.encryptedPayload,
                         sourceModifyTime = excluded.sourceModifyTime,
-                        metadataGeneration = excluded.metadataGeneration
+                        metadataGeneration = excluded.metadataGeneration,
+                        contentRevision = excluded.contentRevision
                     """,
                     arguments: [
                         request.key.vaultId,
@@ -232,7 +234,8 @@ nonisolated struct OfflineSnapshotRepository: OfflineSnapshotPersisting, Sendabl
                         snapshot.payload,
                         // Numeric epoch preserves the actual source marker's submillisecond precision.
                         prepared.sourceModifyTime?.timeIntervalSince1970,
-                        request.metadataGeneration.uuidString
+                        request.metadataGeneration.uuidString,
+                        prepared.contentRevision
                     ]
                 )
                 try db.execute(

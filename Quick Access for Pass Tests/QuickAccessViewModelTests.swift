@@ -308,7 +308,7 @@ struct QuickAccessViewModelActionTests {
         arguments: [Optional<String>.none, "", "   "]
     )
     @MainActor func copyAliasFailsWithoutUsableFetchedEmail(aliasEmail: String?) async throws {
-        let runner = try AliasSecretActionRunner(aliasEmail: aliasEmail)
+        let runner = try AliasSecretActionRunner(aliasEmail: aliasEmail, nestedEmail: "must-not-copy@example.com")
         let cliService = PassCLIService(cliPath: "pass-cli", runner: runner)
         let db = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         let clipboard = ClipboardManager(autoClearSeconds: 0, pasteboard: .withUniqueName())
@@ -331,7 +331,7 @@ struct QuickAccessViewModelActionTests {
         await vm.inFlightCopy?.value
 
         #expect(clipboard.lastCopiedValue == nil)
-        #expect(vm.errorMessage == "Failed: Alias email is unavailable because this pass-cli version does not expose it.")
+        #expect(vm.errorMessage == "Failed: Alias email is unavailable.")
         #expect(dismissed == false)
         #expect(vm.isActionLoading == false)
     }
@@ -365,19 +365,13 @@ struct QuickAccessViewModelActionTests {
 private actor AliasSecretActionRunner: CLIRunning {
     private let response: Data
 
-    init(aliasEmail: String?) throws {
-        let aliasContent: String
-        if let aliasEmail {
-            let data = try JSONEncoder().encode(aliasEmail)
-            guard let encodedEmail = String(bytes: data, encoding: .utf8) else {
-                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Invalid alias email JSON"))
-            }
-            aliasContent = "{\"email\":" + encodedEmail + "}"
-        } else {
-            aliasContent = "null"
-        }
+    init(aliasEmail: String?, nestedEmail: String? = nil) throws {
+        let encodedEmail = String(decoding: try JSONEncoder().encode(aliasEmail), as: UTF8.self)
+        let aliasContent = try nestedEmail.map {
+            "{\"email\":" + String(decoding: try JSONEncoder().encode($0), as: UTF8.self) + "}"
+        } ?? "null"
         response = Data("""
-        {"item":{"id":"alias1","share_id":"s1","vault_id":"v1",
+        {"item":{"id":"alias1","share_id":"s1","vault_id":"v1","alias_email":\(encodedEmail),
         "content":{"title":"Fetched Alias","note":"","item_uuid":"u-alias",
         "content":{"Alias":\(aliasContent)},"extra_fields":[]},"state":"Active","flags":[],
         "create_time":"2025-01-01T00:00:00","modify_time":"2025-01-01T00:00:00"}}

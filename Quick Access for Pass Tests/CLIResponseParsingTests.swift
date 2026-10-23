@@ -193,14 +193,13 @@ struct CLIResponseParsingTests {
         """.data(using: .utf8)!
 
         let response = try JSONDecoder().decode(CLIItemListResponse.self, from: json)
-        guard case .alias(let alias) = response.items[0].content.content else {
-            Issue.record("Expected alias type")
-            return
-        }
-        #expect(alias.email.isEmpty)
+        #expect(response.items[0].content.content.itemType == .alias)
+        let encoded = try JSONEncoder().encode(response.items[0])
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["alias_email"] == nil)
     }
 
-    @Test("parse alias item with email")
+    @Test("parse and round-trip the top-level alias email returned by Pass CLI 2.4+")
     func parseAliasItemWithEmail() throws {
         let json = """
         {
@@ -208,11 +207,12 @@ struct CLIResponseParsingTests {
             "id": "item4",
             "share_id": "share1",
             "vault_id": "vault1",
+            "alias_email": "shopping@example.com",
             "content": {
               "title": "Shopping Alias",
               "note": "",
               "item_uuid": "uuid4",
-              "content": {"Alias": {"email": "shopping@example.com"}},
+              "content": {"Alias": null},
               "extra_fields": []
             },
             "state": "Active",
@@ -224,29 +224,24 @@ struct CLIResponseParsingTests {
         """.data(using: .utf8)!
 
         let response = try JSONDecoder().decode(CLIItemListResponse.self, from: json)
-        guard case .alias(let alias) = response.items[0].content.content else {
-            Issue.record("Expected alias type")
-            return
-        }
-        #expect(alias.email == "shopping@example.com")
+        let item = try #require(response.items.first)
+        #expect(item.content.content.itemType == .alias)
+        let encoded = try JSONEncoder().encode(item)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["alias_email"] as? String == "shopping@example.com")
+        let metadata = PassItem(from: item, vaultId: "vault1")
+        #expect(metadata.subtitle.isEmpty)
+        #expect(metadata.url == nil)
+        #expect(metadata.fieldKeys.isEmpty)
     }
 
-    @Test("encode alias content")
+    @Test("nested alias email is not retained as alias content")
     func encodeAliasContent() throws {
-        let emptyData = try JSONEncoder().encode(CLIItemTypeContent.alias(CLIAliasContent()))
-        let emptyObject = try #require(
-            JSONSerialization.jsonObject(with: emptyData) as? [String: Any]
-        )
-        #expect(emptyObject["Alias"] is NSNull)
-
-        let populatedData = try JSONEncoder().encode(
-            CLIItemTypeContent.alias(CLIAliasContent(email: "shopping@example.com"))
-        )
-        let populatedObject = try #require(
-            JSONSerialization.jsonObject(with: populatedData) as? [String: Any]
-        )
-        let aliasObject = try #require(populatedObject["Alias"] as? [String: String])
-        #expect(aliasObject["email"] == "shopping@example.com")
+        let nestedData = Data(#"{"Alias":{"email":"must-not-copy@example.com"}}"#.utf8)
+        let content = try JSONDecoder().decode(CLIItemTypeContent.self, from: nestedData)
+        let encoded = try JSONEncoder().encode(content)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["Alias"] is NSNull)
     }
 
     @Test("parse identity item")

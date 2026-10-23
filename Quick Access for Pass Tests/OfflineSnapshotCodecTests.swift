@@ -31,6 +31,75 @@ struct OfflineSnapshotCodecTests {
         #expect(try await codec.decodeSnapshot(snapshot.snapshot).id == item.id)
     }
 
+    @Test func aliasEmailSurvivesEncryptedSnapshotRoundTrip() async throws {
+        let codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { false })
+        let item = try JSONDecoder().decode(CLIItem.self, from: Data("""
+            {"id":"item","vault_id":"vault","share_id":"share","alias_email":"synthetic@example.com",
+             "content":{"title":"Alias","note":"","item_uuid":"uuid","content":{"Alias":null},"extra_fields":[]},
+             "state":"Active","flags":[],"create_time":"","modify_time":""}
+            """.utf8))
+        let aliasRequest = OfflineRequestToken(
+            id: request.id, key: request.key, shareID: request.shareID,
+            metadataModifyTime: request.metadataModifyTime, itemType: .alias,
+            selectionGeneration: request.selectionGeneration, metadataGeneration: request.metadataGeneration,
+            requestGeneration: request.requestGeneration
+        )
+
+        let prepared = try await codec.prepareSnapshot(from: item, for: aliasRequest)
+        let decoded = try await codec.decodeSnapshot(prepared.snapshot)
+        let data = try JSONEncoder().encode(decoded)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["alias_email"] as? String == "synthetic@example.com")
+        #expect(prepared.contentRevision == 1)
+        #expect(prepared.snapshot.identity.key.schemaVersion == 1)
+    }
+
+    @Test(arguments: ["missing", "null", "empty", "blank", "email", "padded"])
+    func bothPreparationPathsMarkOnlyActualNonblankAliasEmail(kind: String) async throws {
+        let email: String?
+        switch kind {
+        case "email": email = "synthetic@example.test"
+        case "padded": email = " \n synthetic@example.test\t "
+        case "empty": email = ""
+        case "blank": email = " \t\r\n "
+        default: email = nil
+        }
+        let item = try offlineTestAliasItem(email: email, includeEmail: kind != "missing")
+        let codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { false })
+        let aliasRequest = OfflineRequestToken(
+            id: request.id, key: request.key, shareID: request.shareID,
+            metadataModifyTime: request.metadataModifyTime, itemType: .alias,
+            selectionGeneration: request.selectionGeneration, metadataGeneration: request.metadataGeneration,
+            requestGeneration: request.requestGeneration
+        )
+        let explicit = try await codec.prepareSnapshot(from: item, for: aliasRequest)
+        let sync = try await codec.prepareSnapshot(from: item, for: OfflineSnapshotPreparationIdentity(
+            key: request.key, shareID: request.shareID, itemType: .alias
+        ))
+        let expected = ["email", "padded"].contains(kind) ? 1 : 0
+        for prepared in [explicit, sync] {
+            #expect(prepared.contentRevision == expected)
+            #expect(prepared.snapshot.identity.key.schemaVersion == 1)
+            let decoded = try await codec.decodeSnapshot(prepared.snapshot)
+            #expect(decoded.aliasEmail == email)
+        }
+    }
+
+    @Test func nonAliasPayloadNeverMarksAliasCompletionEvenWithTopLevelEmail() async throws {
+        let codec = OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { false })
+        let login = try offlineTestCLIItem(id: "item", vaultID: "vault", shareID: "share", password: "synthetic")
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(login)) as? [String: Any])
+        object["alias_email"] = "synthetic@example.test"
+        let item = try JSONDecoder().decode(CLIItem.self, from: JSONSerialization.data(withJSONObject: object))
+        let explicit = try await codec.prepareSnapshot(from: item, for: request)
+        let sync = try await codec.prepareSnapshot(from: item, for: OfflineSnapshotPreparationIdentity(
+            key: request.key, shareID: request.shareID, itemType: .login
+        ))
+        #expect(explicit.contentRevision == 0)
+        #expect(sync.contentRevision == 0)
+        #expect(PreparedOfflineSnapshot(snapshot: explicit.snapshot, sourceModifyTime: nil).contentRevision == 0)
+    }
+
     @Test(arguments: [
         try offlineTestCLIItem(id: "other", vaultID: "vault", shareID: "share", password: "fake-password"),
         try offlineTestCLIItem(id: "item", vaultID: "other", shareID: "share", password: "fake-password"),

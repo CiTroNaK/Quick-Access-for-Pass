@@ -221,7 +221,7 @@ policy and performs no offline-content conversion or ordinary-data wipe.
 
 ## Database Schema
 
-`DatabaseManager` currently defines **15 migrations**:
+`DatabaseManager` currently defines **16 migrations**:
 
 - **v1**
   - `vaults`
@@ -267,6 +267,11 @@ policy and performs no offline-content conversion or ordinary-data wipe.
   - adds nullable actual-payload source time and matching metadata generation to `offlineSnapshots`; publication commits these with ciphertext/status/timestamp, never using a catalog fallback date as the payload baseline
   - adds metadata-only `offlineSyncCaptures`, `offlineSyncCaptureVaults`, and `offlineSyncCaptureItems`; child rows cascade with their capture, not catalog rows, so removal cannot erase prior-admission evidence
   - changes no ordinary metadata/profile/decision rows and does not read snapshot payloads or keys; performs no offline-content conversion
+- **v16**
+  - adds non-secret `contentRevision` to `offlineSnapshots`, defaulting existing rows to 0; `OfflineSnapshotContentPolicy` defines ordered cumulative content requirements independently per item type, not by app version
+  - the codec certifies only the leading requirements satisfied by the actual validated payload; aliases currently require revision 1 (nonblank top-level `alias_email`), all other types require 0
+  - already-selected snapshots below their type's requirement can refresh during ordinary sync after unambiguous sufficient-content evidence; equal or newer revisions add no refresh reason. Missing connectivity/login/supporting CLI defers work without manual Retry, a launch job or an app-wide completion flag; revision metadata is not authorization
+  - leaves encrypted payload schema 1, AAD, existing ciphertext and Keychain policy unchanged; reads no old payloads/keys and performs no conversion, key access during migration, global forced sync or ordinary-data wipe
 
 ### Offline Mode Documentation Verification Checklist
 

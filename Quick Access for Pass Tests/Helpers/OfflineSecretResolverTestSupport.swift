@@ -294,9 +294,10 @@ actor RemovalRaceRepository: OfflineSnapshotPersisting {
         try await base.beginSyncCapture(operation: operation, lifecycleGeneration: lifecycleGeneration)
     }
     func syncWork(capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
-                  sourceTimes: [String: Date], allowMembershipExpansion: Bool) async throws -> [OfflineSyncWork] {
+                  sourceTimes: [String: Date], allowMembershipExpansion: Bool,
+                  contentRefreshCandidates: Set<OfflineSnapshotKey>) async throws -> [OfflineSyncWork] {
         try await base.syncWork(capture: capture, metadataProofs: metadataProofs, sourceTimes: sourceTimes,
-                                allowMembershipExpansion: allowMembershipExpansion)
+                                allowMembershipExpansion: allowMembershipExpansion, contentRefreshCandidates: contentRefreshCandidates)
     }
     func endSyncCapture(_ capture: OfflineSyncCapture) async throws { try await base.endSyncCapture(capture) }
     func publishSyncBatch(_ publications: [OfflineSyncPublication], capture: OfflineSyncCapture) async throws -> Set<OfflineSnapshotKey> {

@@ -35,9 +35,10 @@ actor IncrementalSyncRepository {
         completed.forEach { $0.1.resume() }
     }
     func syncWork(capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
-                  sourceTimes: [String: Date], allowMembershipExpansion: Bool) async throws -> [OfflineSyncWork] {
+                  sourceTimes: [String: Date], allowMembershipExpansion: Bool,
+                  contentRefreshCandidates: Set<OfflineSnapshotKey>) async throws -> [OfflineSyncWork] {
         try await base.syncWork(capture: capture, metadataProofs: metadataProofs, sourceTimes: sourceTimes,
-                                allowMembershipExpansion: allowMembershipExpansion)
+                                allowMembershipExpansion: allowMembershipExpansion, contentRefreshCandidates: contentRefreshCandidates)
     }
     func publishSyncBatch(_ publications: [OfflineSyncPublication], capture: OfflineSyncCapture) async throws -> Set<OfflineSnapshotKey> {
         batches.append((publications.count, publications.reduce(0) { $0 + $1.prepared.snapshot.payload.count }))

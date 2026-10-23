@@ -21,8 +21,15 @@ nonisolated struct EncryptedOfflineSnapshot: Sendable, Equatable {
     let payload: Data
 }
 
-/// Ciphertext plus the source marker parsed from that actual payload, never from catalog fallback time.
+/// Ciphertext with actual-payload source time and certified per-item-type content revision.
 nonisolated struct PreparedOfflineSnapshot: Sendable, Equatable {
     let snapshot: EncryptedOfflineSnapshot
     let sourceModifyTime: Date?
+    let contentRevision: Int
+
+    init(snapshot: EncryptedOfflineSnapshot, sourceModifyTime: Date?, contentRevision: Int = 0) {
+        self.snapshot = snapshot
+        self.sourceModifyTime = sourceModifyTime
+        self.contentRevision = contentRevision
+    }
 }

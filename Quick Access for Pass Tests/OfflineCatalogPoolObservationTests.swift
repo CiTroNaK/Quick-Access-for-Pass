@@ -98,7 +98,7 @@ extension OfflineCatalogPoolObservationTests {
         let pool = try OfflineCatalogPoolFixture(seedCatalog: false)
         defer { pool.remove() }
         #expect(pool.database.writer is DatabasePool)
-        #expect(try await pool.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM grdb_migrations") } == 15)
+        #expect(try await pool.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM grdb_migrations") } == 16)
         let handle = try FileHandle(forReadingFrom: pool.root.appendingPathComponent("catalog.db"))
         let header = try handle.read(upToCount: 16)
         try handle.close()

@@ -7,7 +7,7 @@ private enum SecretCopyError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .aliasEmailUnavailable:
-            String(localized: "Alias email is unavailable because this pass-cli version does not expose it.")
+            String(localized: "Alias email is unavailable.")
         }
     }
 }
@@ -173,9 +173,9 @@ extension QuickAccessViewModel {
             case .creditCard(let card): return (card.number, String(localized: "Card number copied"))
             case .note: return (detail.content.note, String(localized: "Note copied"))
             case .identity(let identity): return (identity.email, String(localized: "Email copied"))
-            case .alias(let alias):
-                let email = alias.email.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !email.isEmpty else { throw SecretCopyError.aliasEmailUnavailable }
+            case .alias:
+                guard let email = detail.aliasEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !email.isEmpty else { throw SecretCopyError.aliasEmailUnavailable }
                 return (email, String(localized: "Alias copied"))
             case .sshKey(let key): return (key.publicKey, String(localized: "Public key copied"))
             case .wifi(let wifi): return (wifi.password, String(localized: "Password copied"))

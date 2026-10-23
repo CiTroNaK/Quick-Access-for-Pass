@@ -89,6 +89,22 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenanceByVaultID["second-vault"] == .unavailable)
     }
 
+    @Test("full-list alias email survives snapshot serialization", arguments: ["2.4.2", "2.5.1"])
+    func aliasEmailRetainsCompleteProvenance(version: String) async throws {
+        let json = Self.completeNote
+            .replacingOccurrences(of: #""Note":null"#, with: #""Alias":null"#)
+            .replacingOccurrences(of: #""id":"item""#, with: #""id":"item","alias_email":"synthetic@example.com""#)
+        let runner = ProvenanceListRunner(version: version, lists: [
+            "share": Data(json.utf8), "second-share": Data(#"{"items":[]}"#.utf8)
+        ])
+        let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
+        #expect(result.contentProvenanceByVaultID["vault"] == .completeJSONV1)
+        let entry = try #require(result.items.first)
+        let data = try JSONEncoder().encode(entry.item)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["alias_email"] as? String == "synthetic@example.com")
+    }
+
     @Test("older full-list login shape preserves modeled secrets without newer fields", arguments: ["2.1.4", "2.2.3", "2.3.3"])
     func olderLoginShapePreservesContent(version: String) async throws {
         // Synthetic values matching the older releases' derived ItemData/LoginItem JSON.

@@ -29,6 +29,8 @@ nonisolated struct CLIItem: Codable, Sendable {
     let id: String
     let shareId: String
     let vaultId: String
+    /// Secret-facing item data supplied by Pass CLI 2.4+; never ordinary cached metadata.
+    let aliasEmail: String?
     let content: CLIItemContent
     let state: String
     let flags: [String]
@@ -39,6 +41,7 @@ nonisolated struct CLIItem: Codable, Sendable {
         case id
         case shareId = "share_id"
         case vaultId = "vault_id"
+        case aliasEmail = "alias_email"
         case content, state, flags
         case createTime = "create_time"
         case modifyTime = "modify_time"
@@ -49,6 +52,7 @@ nonisolated struct CLIItem: Codable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         shareId = try container.decode(String.self, forKey: .shareId)
         vaultId = try container.decode(String.self, forKey: .vaultId)
+        aliasEmail = try container.decodeIfPresent(String.self, forKey: .aliasEmail)
         content = try container.decode(CLIItemContent.self, forKey: .content)
         state = try container.decodeIfPresent(String.self, forKey: .state) ?? "Active"
         flags = try container.decodeIfPresent([String].self, forKey: .flags) ?? []
@@ -134,27 +138,10 @@ nonisolated enum CLIExtraFieldContent: Codable, Sendable {
 
 // MARK: - Tagged Enum for Item Type Content
 
-nonisolated struct CLIAliasContent: Codable, Sendable {
-    let email: String
-
-    enum CodingKeys: String, CodingKey {
-        case email
-    }
-
-    init(email: String = "") {
-        self.email = email
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
-    }
-}
-
 nonisolated enum CLIItemTypeContent: Codable, Sendable {
     case login(CLILoginContent)
     case note
-    case alias(CLIAliasContent)
+    case alias
     case creditCard(CLICreditCardContent)
     case identity(CLIIdentityContent)
     case sshKey(CLISshKeyContent)
@@ -176,7 +163,7 @@ nonisolated enum CLIItemTypeContent: Codable, Sendable {
         } else if container.contains(.Note) {
             self = .note
         } else if container.contains(.Alias) {
-            self = .alias(try container.decodeIfPresent(CLIAliasContent.self, forKey: .Alias) ?? CLIAliasContent())
+            self = .alias
         } else if container.contains(.CreditCard) {
             self = .creditCard(try container.decode(CLICreditCardContent.self, forKey: .CreditCard))
         } else if container.contains(.Identity) {
@@ -201,12 +188,7 @@ nonisolated enum CLIItemTypeContent: Codable, Sendable {
         switch self {
         case .login(let v): try container.encode(v, forKey: .Login)
         case .note: try container.encodeNil(forKey: .Note)
-        case .alias(let alias):
-            if alias.email.isEmpty {
-                try container.encodeNil(forKey: .Alias)
-            } else {
-                try container.encode(alias, forKey: .Alias)
-            }
+        case .alias: try container.encodeNil(forKey: .Alias)
         case .creditCard(let v): try container.encode(v, forKey: .CreditCard)
         case .identity(let v): try container.encode(v, forKey: .Identity)
         case .sshKey(let v): try container.encode(v, forKey: .SshKey)

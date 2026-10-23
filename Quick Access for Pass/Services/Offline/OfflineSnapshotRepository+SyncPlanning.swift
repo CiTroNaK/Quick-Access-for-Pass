@@ -6,7 +6,8 @@ nonisolated extension OfflineSnapshotRepository {
         capture: OfflineSyncCapture,
         metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
         sourceTimes: [String: Date],
-        allowMembershipExpansion: Bool
+        allowMembershipExpansion: Bool,
+        contentRefreshCandidates: Set<OfflineSnapshotKey> = []
     ) async throws -> [OfflineSyncWork] {
         try Task.checkCancellation()
         guard capture.operation.isCurrent else { return [] }
@@ -15,14 +16,16 @@ nonisolated extension OfflineSnapshotRepository {
         let itemIDs: Set<String>? = metadataProofs.count <= OfflineSyncPublicationLimits.items ? Set(metadataProofs.keys.map(\.itemId)) : nil
         return try await database.reader.read { db in
             try Self.syncWork(capture: capture, metadataProofs: metadataProofs, sourceTimes: sourceTimes,
-                              allowMembershipExpansion: allowMembershipExpansion, itemIDs: itemIDs, in: db)
+                              allowMembershipExpansion: allowMembershipExpansion,
+                              contentRefreshCandidates: contentRefreshCandidates, itemIDs: itemIDs, in: db)
         }
     }
 
     /// Same persisted eligibility check for reader planning and final writer admission. Never creates a new proof.
     static func syncWork(
         capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
-        sourceTimes: [String: Date], allowMembershipExpansion: Bool, itemIDs: Set<String>? = nil, in db: Database
+        sourceTimes: [String: Date], allowMembershipExpansion: Bool,
+        contentRefreshCandidates: Set<OfflineSnapshotKey> = [], itemIDs: Set<String>? = nil, in db: Database
     ) throws -> [OfflineSyncWork] {
         guard capture.operation.isCurrent, itemIDs?.isEmpty != true, try hasSyncCapture(capture, in: db) else { return [] }
         let ids = itemIDs?.sorted()
@@ -46,10 +49,15 @@ nonisolated extension OfflineSnapshotRepository {
             let source = sourceTimes[row.item.id].flatMap { time in
                 time.timeIntervalSince1970.isFinite && time == proof.item.modifyTime ? time : nil
             }
-            guard !row.canSkip(source: source, proof: proof) else { return nil }
+            let requiresContentRefresh = (raw["hasSelectedRow"] as Bool)
+                && (raw["contentRevision"] as Int?).map {
+                    OfflineSnapshotContentPolicy.current.needsRefresh(contentRevision: $0, for: row.item.itemType)
+                } == true
+                && contentRefreshCandidates.contains(row.key)
+            guard requiresContentRefresh || !row.canSkip(source: source, proof: proof) else { return nil }
             return OfflineSyncWork(key: row.key, shareID: row.shareID, itemType: row.item.itemType,
                                    metadataProof: proof, ownership: ownership, capturedPendingRequestID: nil,
-                                   expectedSourceModifyTime: source)
+                                   expectedSourceModifyTime: source, requiresContentRefresh: requiresContentRefresh)
         }
         return capture.operation.isCurrent ? work : []
     }
@@ -67,7 +75,7 @@ nonisolated extension OfflineSnapshotRepository {
                o.metadataGeneration AS currentMetadataGeneration, o.pendingRequestId AS currentPendingRequestID,
                p.policyGeneration AS currentPolicyGeneration, c.policyGeneration AS capturedPolicyGeneration,
                EXISTS(SELECT 1 FROM offlineItemExclusions x WHERE x.itemId = i.id AND x.vaultId = i.vaultId) AS currentExcluded,
-               o.cacheStatus, s.schemaVersion AS snapshotSchemaVersion, s.snapshotRevision,
+               o.cacheStatus, s.contentRevision, s.schemaVersion AS snapshotSchemaVersion, s.snapshotRevision,
                length(s.keyFingerprint) AS fingerprintLength, length(s.encryptedPayload) AS payloadLength,
                s.sourceModifyTime AS snapshotSourceTime, s.metadataGeneration AS snapshotMetadataGeneration
         FROM items i JOIN vaults v ON v.id = i.vaultId

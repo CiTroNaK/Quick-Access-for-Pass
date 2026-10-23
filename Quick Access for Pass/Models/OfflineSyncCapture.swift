@@ -32,4 +32,18 @@ nonisolated struct OfflineSyncWork: Sendable {
     let ownership: OfflineSyncOwnership
     let capturedPendingRequestID: UUID?
     let expectedSourceModifyTime: Date?
+    let requiresContentRefresh: Bool
+
+    init(key: OfflineSnapshotKey, shareID: String, itemType: ItemType, metadataProof: OfflineSyncedMetadataProof,
+         ownership: OfflineSyncOwnership, capturedPendingRequestID: UUID?, expectedSourceModifyTime: Date?,
+         requiresContentRefresh: Bool = false) {
+        self.key = key
+        self.shareID = shareID
+        self.itemType = itemType
+        self.metadataProof = metadataProof
+        self.ownership = ownership
+        self.capturedPendingRequestID = capturedPendingRequestID
+        self.expectedSourceModifyTime = expectedSourceModifyTime
+        self.requiresContentRefresh = requiresContentRefresh
+    }
 }

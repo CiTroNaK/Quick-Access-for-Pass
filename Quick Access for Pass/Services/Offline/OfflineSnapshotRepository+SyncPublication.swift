@@ -60,6 +60,9 @@ nonisolated extension OfflineSnapshotRepository {
         return snapshot.identity.key == publication.work.key && snapshot.identity.key.schemaVersion == OfflineSnapshotLimits.schemaVersion
             && snapshot.identity.keyFingerprint.count == 32 && snapshot.payload.count >= 28
             && snapshot.payload.count <= OfflineSnapshotLimits.ciphertextBytes
+            && (!publication.work.requiresContentRefresh || !OfflineSnapshotContentPolicy.current.needsRefresh(
+                contentRevision: publication.prepared.contentRevision, for: publication.work.itemType
+            ))
             && (publication.source == .liveFallback || publication.prepared.sourceModifyTime == publication.work.expectedSourceModifyTime)
             && publication.prepared.sourceModifyTime?.timeIntervalSince1970.isFinite != false
             && publication.refreshedAt.timeIntervalSince1970.isFinite

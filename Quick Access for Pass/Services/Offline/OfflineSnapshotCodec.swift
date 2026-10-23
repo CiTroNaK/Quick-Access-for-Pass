@@ -77,7 +77,8 @@ actor OfflineSnapshotCodec: OfflineSnapshotCoding {
         try Task.checkCancellation()
         return PreparedOfflineSnapshot(
             snapshot: EncryptedOfflineSnapshot(identity: identity, payload: payload),
-            sourceModifyTime: OfflineSourceModificationTime.parse(item.modifyTime)
+            sourceModifyTime: OfflineSourceModificationTime.parse(item.modifyTime),
+            contentRevision: OfflineSnapshotContentPolicy.current.satisfiedRevision(for: item)
         )
     }
 

@@ -817,12 +817,20 @@
         }
       }
     },
-    "Alias email is unavailable because this pass-cli version does not expose it." : {
+    "Alias email is unavailable." : {
+      "comment" : "Shown when an alias item response or offline snapshot has no usable alias_email value. Does not imply that the CLI version is unsupported.",
+      "extractionState" : "manual",
       "localizations" : {
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "E-mail aliasu není k dispozici, protože ho tato verze pass-cli nezpřístupňuje."
+            "value" : "E-mail aliasu není k dispozici."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alias email is unavailable."
           }
         }
       }
