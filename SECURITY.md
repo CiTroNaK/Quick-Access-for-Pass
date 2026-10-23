@@ -1,247 +1,237 @@
-# Security Policy
+# Security policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-If you discover a security vulnerability in Quick Access for Pass, **please do not open a public issue**.
+Private reports go through [GitHub Security Advisories](https://github.com/CiTroNaK/Quick-Access-for-Pass/security/advisories/new), not public issues. A useful report includes the affected component, reproduction steps, expected and actual behavior, impact, and a proof of concept or redacted logs.
 
-Instead, report it privately via [GitHub Security Advisories](https://github.com/CiTroNaK/Quick-Access-for-Pass/security/advisories/new).
-
-Please include:
-- a clear description of the issue
-- steps to reproduce
-- affected component or subsystem
-- expected vs. actual behavior
-- potential impact
-- any proof-of-concept details or logs that help reproduce the problem
-
-You should receive an acknowledgment within 48 hours. We will investigate the report, work with you to validate it, and coordinate a fix before public disclosure when appropriate.
+The acknowledgment target is 48 hours. Reports are investigated and validated with the reporter, with a fix coordinated before public disclosure where appropriate. Coordinated disclosure gives maintainers time to investigate and fix the issue.
 
 ## Scope
 
-This policy covers the Quick Access for Pass application, including:
+This policy covers the menu-bar app, search panel, clipboard, Large Type, SSH Agent Proxy, Run Proxy, and bundled helpers. It also covers System AutoFill, peer verification, authorization decisions, database and Keychain access, health checks, recovery, and service lifecycle handling.
 
-- the main menu-bar app and its handling of secrets, credentials, and biometric authorization
-- the Quick Access search panel, detail views, and clipboard flows
-- the SSH agent proxy (`SSHAgentProxy`) and Pass CLI daemon integration
-- SSH BatchMode notification handling and remembered decisions
-- the Run Proxy (`RunProxy`) and the bundled `qa-run` helper
-- the macOS 27 System AutoFill credential-provider extension and host broker
-- local socket authentication and peer verification (`PeerVerifier` and `AutoFillPeerVerifier`)
-- database encryption and Keychain usage
-- health checks, recovery logic, and local service lifecycle handling
+The following reports are generally outside scope unless they demonstrate a project-specific security impact:
 
-## Security Posture Summary
+- Vulnerabilities in Proton Pass or `pass-cli` itself.
+- Physical access to an unlocked Mac without a project-specific exploit path.
+- Local denial of service without data exposure or a privilege consequence.
+- Missing hardening without an exploitable condition.
+- Unrelated social engineering, phishing, or third-party account compromise.
 
-Quick Access for Pass is designed around a few core invariants:
+## Stored data and local protection
 
-- **Ordinary database tables do not store fetched Pass item content** — the primary GRDB/SQLCipher database persists search metadata, not retrieved secret values outside the dedicated snapshot table. A separate, narrow exception stores caller-supplied Run command text in the encrypted authorization table for readable remembered decisions; arguments may themselves contain credentials (see Run Proxy Authorization Boundary).
-- **Offline persistence is opt-in and single-database** — a user may select an individual item or explicitly select a whole vault, including future items after successful sync. Removing an item under a selected vault excludes it from automatic caching until selected again; turning off a vault preserves individually selected items, and **Keep offline individually** promotes a vault-only copy without refetching. Only selected full snapshots are persisted in `offlineSnapshots`, encrypted before SQLite receives them; there is no second offline database, legacy import, or compatibility reader. On v11 upgrade, prior explicit item copies remain selected individually, while old permission-only vault rows do not become whole-vault consent.
-- **Offline snapshot keys are device-bound** — the distinct snapshot-cipher key is stored in the data-protection Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`; snapshots are additionally authenticated with their vault, item, revision, and key fingerprint. Snapshot cipher/key use is operation-scoped, SQLCipher passphrase use is connection-lifetime, and row purge deliberately retains keys rather than racing Keychain deletion/rotation
-- **Authorized usable cache comes first** — selected snapshots are preferred for supported secret actions, without a live request or connectivity probe. Sync refreshes cached values; without a usable cached copy, Quick Access uses Pass CLI. Settings can list and remove selected items, show stale cache state, or purge all offline data. The snapshot can serve ordinary host copy/Large Type or the existing verified host-broker AutoFill password/TOTP request, never SSH or Run proxy resolution
-- **Database encryption is mandatory** — the unified database, including encrypted selected snapshots, uses GRDB/SQLCipher with a Keychain-backed passphrase
-- **Backup and deletion limits are explicit** — backup exclusion applies to the entire unified file, including local Run profiles and remembered decisions. Device-bound snapshot keys make offline data non-portable; after committed deletion, bounded out-of-transaction WAL maintenance may reduce active-file remnants, but logical deletion does not claim forensic secure erasure, cryptographic shredding, APFS snapshot removal, or deletion from manual/third-party backups
-- **Optional Proton Pass CLI personal access tokens stay in Keychain** — PATs use `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and are never written to UserDefaults, SQLite, logs, notifications, or captured CLI output. Confirmed unusable sessions (missing remote session or the specific local-session decryption failure) may be reset through `pass-cli logout --force` before one saved-PAT retry, with transient host secret access revoked first. Generic decryption, network, timeout, and Keychain-access errors do not authorize that cleanup. Credential presence checks preserve Keychain errors: only `errSecItemNotFound` confirms absence and permits a generic sign-in notification. Unavailable checks defer without consuming an automatic attempt; saved-PAT failures remain PAT-specific instead of falling back to browser sign-in. The saved PAT is retained; Quick Access does not directly remove CLI session files/keys or weaken the key provider. CLI cleanup may affect other clients sharing the session configuration and does not revoke the old remote session
-- **Browser-only session repair requires explicit user consent** — background checks only offer login. User-initiated repair of the specific unreadable local session explains shared-client impact, requires confirmation, revokes transient host secret access, and delegates bounded cleanup to `pass-cli logout --force` before one browser login. Cancellation or cleanup failure prevents the subsequent login. Consent is bound to the full diagnosed CLI selection and revalidated against current health/configuration and cancellation ownership after the prompt and before queued cleanup; stale authority starts neither cleanup nor an alternate login. These observed-state checks are not an atomic guarantee against external CLI clients. The saved PAT and selected offline snapshots are retained
-- **App-owned authentication mutations are serialized without queuing** — browser, saved-token, and explicit logout operations share metadata-only, identity-checked leases through actual unwind, including cancellation. Busy requests do not mutate credentials or CLI sessions, revoke delivery, or purge offline data. Automatic contention is non-consuming; sync forwards typed authentication health without raw diagnostics. Explicit user logout retains its separate purge-after-success policy, unlike session repair
-- **Local proxies are permission constrained** — sockets are created with strict owner-only permissions
-- **Run proxy peers are verified** — unverified local clients are rejected; trusted helper handling is explicit
-- **AutoFill IPC is mutually authenticated** — both endpoints bind the connected socket's audit token to a signed-code check that pins the Apple anchor, exact bundle identifier, and certificate Team ID; socket permissions alone are not trusted
-- **Authorization is contextual** — remembered decisions are scoped to app identity and command/profile context rather than globally
-- **Clipboard exposure is reduced** — copied secrets are marked with `org.nspasteboard.ConcealedType` and auto-cleared on a timer
+Ordinary database tables contain metadata, not fetched Pass item content. Sync can temporarily hold full CLI items to derive metadata. Live actions fetch current values on demand.
 
-## Run Proxy Authorization Boundary
+Fetched full secrets can persist only in explicitly selected, encrypted `offlineSnapshots` records in the host-only unified database. Remembered Run command text is a separate exception for caller-supplied arguments, which can themselves contain credentials.
 
-Run Proxy authorization defaults to exact-command scope, matching the complete
-ordered argument vector received from `qa-run`, including the executable string,
-flags, values, empty arguments, and argument boundaries. Changed values, order,
-or grouping do not match that exact decision. App identity and profile remain
-separate authorization boundaries. Exact scope does not bind the working directory,
-environment, or executable contents, and version commands are not automatically
-approved. Peer verification and biometric authorization are unchanged.
+The database uses GRDB and SQLCipher with a 256-bit Keychain-backed passphrase. The passphrase uses `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and remains available for the connection lifetime.
 
-Users may explicitly choose broader command-prefix scopes where offered. Existing
-legacy broad approvals and denials are retained without migration or reset; these
-can still match changed commands. Matching checks exact then narrow-to-broad
-prefixes across session and persistent decisions; session takes precedence only
-within the same scope. Both approval and denial support the existing durations,
-including Forever. Do Not Remember still uses the existing 10-second in-memory
-burst cache, but writes no persistent decision.
+The owned directory is `0700`. The database, known sidecars, and private preflight copies are `0600`. Expected owned paths are validated before permission changes. SQLCipher memory sanitization, secure deletion, in-memory temporary storage, and foreign keys are enabled and checked.
 
-Exact matching uses the versioned `exact-argv-v1` type and unchanged full SHA256
-digest over the ordered literal argv. Fingerprinting is not encryption or a
-confidentiality guarantee. For readable remembered decisions, the encrypted Run
-authorization table also stores full command text. Caller-supplied arguments may
-contain tokens or passwords; this narrowly authorized persistence is not
-redacted or guaranteed secret-free. Resolved profile environment variables,
-fetched Pass secrets, and Offline Mode snapshots are never command text. Full
-command text is not publicly logged or written to FTS, UserDefaults, App Group
-storage, or an unencrypted sidecar. Explicit broader prefixes keep their literal
-matching values.
+Local proxy sockets are owner-only. Run rejects unverified clients. AutoFill verifies both connected peers rather than trusting socket permissions alone.
 
-Settings shows the stored command text and a localized **Exact command**,
-**Command prefix**, or **Unknown matching type** description. Display labels do
-not authorize: matching and uniqueness use typed identity, and Settings selection
-and removal use stable persisted row IDs. The v14 upgrade removes only strictly
-valid old exact-v1 fingerprint-only rows once, because their command text cannot
-be reconstructed; it preserves old broad rules and malformed/literal keys as
-prefix decisions. Removing an old exact rule does not guarantee an unconditional
-prompt if another broad rule or live burst cache still applies. **Settings → Run →
-Manage Run decisions… → Remove** removes the selected row; a still-live burst
-cache or another applicable broad decision may continue to apply.
+Copied secrets use `org.nspasteboard.ConcealedType` and an automatic-clear timer. These controls reduce clipboard exposure but cannot recall values another process has already read.
 
-An initially matching denial prevents secret resolution. A queued request is
-rechecked before showing its prompt; a newly matching queued denial prevents
-release of environment variables, rather than undoing resolution that may already
-have occurred. Already released values cannot be recalled. The profile's
-in-memory secret-resolution cache is separate from authorization decisions;
-Offline Mode snapshots remain excluded from Run Proxy resolution. See
-[Run Proxy documentation](docs/run-proxy.md) for usage and decision management.
+## CLI credentials and session recovery
+
+Saved personal access tokens use the data-protection Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`. They never enter UserDefaults, SQLite, logs, notifications, or captured CLI output. Login receives the token through the child-process environment, not command-line arguments.
+
+### Saved-token recovery
+
+A confirmed unusable CLI session can trigger `pass-cli logout --force` followed by one saved-token retry. Cleanup is allowed for a confirmed missing remote session or the specific `Error decrypting local session` failure. Generic decryption errors, network errors, timeouts, and Keychain-access errors do not authorize cleanup.
+
+Recovery revokes transient host secret access before cleanup and checks cancellation before cleanup and retry. The saved token remains in Keychain. Quick Access never directly deletes CLI files or keys or weakens the key provider.
+
+Only `errSecItemNotFound` confirms that no token exists. A Keychain error leaves availability unknown, defers recovery without consuming an automatic attempt, and does not trigger browser sign-in notification. Saved-token failures remain token-specific. A completed automatic attempt is not repeated until a healthy CLI session has been observed.
+
+CLI cleanup can affect other clients that share its session configuration. Forced local logout does not revoke the old remote session.
+
+### Browser repair and consent
+
+Background checks do not reset a browser-only session. User-initiated repair for the specific unreadable-session failure explains the shared-client impact and requires confirmation.
+
+After consent, Quick Access revokes transient access, runs bounded CLI-owned cleanup, and starts browser login once. Cleanup failure or cancellation prevents the login. Repair retains the saved token and selected offline snapshots.
+
+Consent is bound to the full diagnosed CLI selection. Health, configuration, generation, lease identity, and cancellation ownership are rechecked after confirmation and before queued cleanup. Stale consent starts neither cleanup nor an alternate login. These checks are not an atomic lock against external CLI clients.
+
+### Authentication ownership
+
+Browser login and repair, saved-token login and recovery, and explicit logout share one `PassCLISessionMutationGate`. The first owner keeps its metadata-only, role-validated lease until actual unwind, including cancellation. Competing operations do not queue.
+
+A busy request does not change credentials or sessions, revoke delivery, or purge offline data. Automatic contention does not consume a recovery attempt or produce competing presentation. Sync forwards typed authentication health, not raw diagnostics.
+
+Only explicit successful logout applies the existing offline-data purge policy. Session repair does not purge snapshots.
+
+## Run Proxy authorization boundary
+
+Run authorization defaults to the complete ordered argument vector received from `qa-run`. Exact scope includes the executable string, flags, values, empty arguments, and argument boundaries. A changed value, order, or grouping does not match that decision.
+
+App identity and profile are separate checks. Exact scope does not bind the working directory, environment, or executable contents. Version commands are not automatically approved.
+
+Users can select broader command-prefix scopes. Existing broad approvals and denials remain valid and can match changed commands. Lookup checks exact scope before prefixes, from narrowest to broadest, across session and persistent decisions. Session takes precedence only within the same scope.
+
+Both approval and denial support the existing durations, including Forever. **Do Not Remember** writes no persistent decision but retains the 10-second in-memory burst cache.
+
+### Stored command text
+
+Exact identity uses `exact-argv-v1` and the full SHA256 digest of the literal ordered arguments. A fingerprint is not encryption or a confidentiality guarantee.
+
+The encrypted authorization table also stores full command text for readable remembered decisions. Caller arguments can contain tokens or passwords. That text is not guaranteed redacted or secret-free.
+
+Resolved profile environment values, fetched Pass secrets, and offline snapshots never become stored command text. Full command text never enters public logs, FTS, UserDefaults, App Group storage, or an unencrypted sidecar. Explicit prefixes retain their literal matching value.
+
+Settings displays the stored text and a localized **Exact command**, **Command prefix**, or **Unknown matching type** label. Typed identity controls matching and uniqueness. Stable row IDs control selection and removal. Display labels do not authorize.
+
+The v14 migration removes strictly valid old exact-v1 fingerprint-only entries because their text cannot be recovered. It retains broad rules and malformed literal entries as prefix decisions. Removing a row does not guarantee a prompt while another broad decision or a live burst-cache entry applies.
+
+### Resolution and release
+
+An initial matching denial prevents secret resolution. A queued request is rechecked before its prompt. A new queued denial prevents environment release but cannot undo earlier resolution or recall released values.
+
+The profile's in-memory resolved-secret cache is separate from authorization decisions. Offline snapshots never serve Run resolution. `qa-env-export` sends only approved environment variables over a private FIFO rather than stdout or stderr. Resolved values are not persisted by that flow.
+
+The [Run Proxy guide](docs/run-proxy.md) covers setup and decision management.
 
 ## Terminal-host presentation boundary
 
-SSH and Run share **Settings → General → Terminal hosts**. Herdr is automatically enabled on first detection; explicit host/details opt-out and display-name edits survive rediscovery and restart. Filesystem-only discovery never executes candidates, and generic mappings are never launched. Identified macOS apps take precedence over executable mappings.
+**Settings → Integrations** contains shared SSH and Run terminal settings. Filesystem-only discovery does not execute candidates. Generic mappings never launch executables. Identified macOS apps take precedence over mappings.
 
-Terminal labels and Herdr workspace/tab, pane title, and directory are **untrusted display context**, not authorization evidence. They do not change peer verification, bundle/team identifiers, SSH command/host/key cache identity, or Run subcommand/profile scopes. A detached trusted `qa-run` parent keeps the Run authorization identifier `unknown`. Metadata remains request-scoped in memory and is excluded from persistence and audit logs.
+Herdr is enabled on first detection. Explicit opt-out and edits survive rediscovery and restart. Terminal labels, workspace or tab names, pane titles, and directories are untrusted display context. They never change peer verification, bundle or team identifiers, SSH command, host, or key identity, or Run command and profile scope.
 
-Only matched, enabled Herdr details invoke fixed read-only CLI commands. Requester routing hints are limited to `HERDR_SOCKET_PATH` and `HERDR_PANE_ID`; a local user-owned socket, bounded requester-side shell-PID correlation, coherent ancestry/start times, and final process/socket/association revalidation are required. These point-in-time checks are best-effort consistency, not atomic ownership or permission proofs. No pane output, transcripts, agent session files, or unrelated environment values are read for context. Inherited application Herdr routing is neutralized.
+A detached trusted `qa-run` helper keeps authorization identifier `unknown`. Request metadata remains in memory and stays out of persistence and audit logs.
 
-Enrichment is one attempt per displayed request, sharing an absolute 750 ms deadline, a 512 KiB output cap per command, at most 32 panes and four concurrent process-info calls. Incomplete, over-limit, ambiguous, stale, malformed, cancelled, or slow lookups show no details. Decisions/countdowns do not wait for metadata; configuration changes and dialog lifecycle cancellation invalidate late publication without changing permission scopes or cache keys.
+Only matched, enabled Herdr details invoke fixed read-only commands. Routing hints are limited to `HERDR_SOCKET_PATH` and `HERDR_PANE_ID`. Lookup requires a local user-owned socket, bounded requester-side shell-PID correlation, coherent ancestry and start times, and final process, socket, and association revalidation.
 
-## System AutoFill Boundary
+Those checks establish point-in-time consistency, not atomic ownership or permission. Inherited application routing is neutralized. Lookup never reads pane output, transcripts, agent session files, or unrelated environment values.
 
-System AutoFill is available only on macOS 27 and later. The credential-provider extension advertises passwords and one-time codes only; it does not register, retrieve, or sign passkeys. Proton Pass can remain enabled as the passkey provider while Quick Access supplies passwords and current TOTP codes in Safari and compatible native apps.
+Each displayed eligible request gets one lookup with one absolute 750 ms deadline, a 512 KiB per-command cap, a 32-pane limit, and four concurrent process-info calls. Incomplete, excessive, ambiguous, stale, malformed, cancelled, or slow results produce no details.
 
-The main app is the only component that invokes Pass CLI. The extension sends an opaque descriptor ID and a fixed value kind over a dedicated local broker connection. Both endpoints verify the connected peer using the socket audit token and signed-code requirements before processing a request. A `quickaccesspass://autofill` URL contains only a random, expiring wake handle: it can launch the host without activating it, but it never identifies a credential or authorizes a fill. The first verified cold-host candidate-list or direct credential-resolution request must atomically claim the matching handle. Handle-free requests are allowed only to an already-warm host or after that initial bootstrap claim succeeds.
+Authorization and countdowns do not wait for metadata. Configuration changes and dialog lifecycle events cancel lookup and invalidate late results without changing permission scopes or cache keys.
 
-The provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the AutoFill broker socket directory and socket. The directory is owner-only (`0700`) and the socket is owner-only (`0600`). The extension has no database or Keychain Sharing entitlement: it sends only the system identity's opaque descriptor ID and fixed value kind over the verified broker. The host alone opens the local SQLCipher metadata database and accesses its `H23TXL6LPT.codes.petr.quick-access-for-pass` Keychain Sharing group with the data-protection Keychain and `WhenUnlockedThisDeviceOnly` accessibility.
+## System AutoFill boundary
 
-Retrieved passwords, TOTP seeds, and generated TOTP codes are not persisted in ordinary metadata tables, the system identity store, App Group files, logs, or launch URLs. The sole exception for retrieved AutoFill values is an explicitly selected encrypted `offlineSnapshots` record in the host-owned unified database. It is never exposed to the extension and is excluded from SSH and Run proxy resolution. For the existing host-only, verified AutoFill broker boundary, a selected snapshot is preferred for only the requested password or TOTP value when authorized and usable. Without a usable cached copy, the host uses Pass CLI; failures remain generic without cache diagnostics. Values returned to the verified extension are returned once and discarded.
+System AutoFill requires macOS 27 or later. The extension advertises passwords and one-time codes, not passkeys. Quick Access never creates, retrieves, stores, signs, or completes passkeys. Proton Pass can remain the passkey provider.
 
-The host may retain one non-secret, memory-only recent password selection (opaque descriptor ID, exact saved domain, lifecycle generation, and monotonic expiry) for two minutes after a complete successful password IPC write. Failed or partial writes and resolution alone never record this hint. It only reorders already-matching website TOTP candidates within their existing service tier and adds a presentation-only **Recently used** flag in protocol v3; it never hides other accounts, authorizes a release, changes secret resolution, changes system identity rankings, or proves website login success. Global searches and native-app matching are unchanged. Transient-access revocation clears the hint; expired, revoked, or locked state cannot produce a new preference. No password, code, TOTP seed, username, or title is retained in this recent-selection record, and the record is not persisted or logged. The extension holds returned candidate presentation metadata only for its active picker.
+Only the host invokes Pass CLI. The extension sends an opaque descriptor ID and fixed value kind through the broker. Each endpoint verifies the connected socket's audit token and signed identity, pinning the Apple anchor, exact bundle identifier, and certificate Team ID.
 
-## Offline Storage Lifecycle and Limits
+A `quickaccesspass://autofill` URL contains only a random expiring wake handle. It can launch the host without activating it but cannot identify a credential or authorize release. The first verified cold-host candidate or resolution request atomically claims the matching handle. Handle-free requests require a warm host or a successful initial bootstrap claim.
 
-Offline Mode uses one host-only SQLCipher database, outside App Group storage.
-Migration v11 adds the dedicated `offlineSnapshots` table and request ownership;
-migration v12 adds whole-vault policy generations, manual item-selection state, and
-per-item exclusions. It clears legacy permission-only vault rows while preserving
-existing individually selected rows and ciphertext; v1–v11 remain intact. The unified schema now has 16 migrations. Additive v15 adds non-secret metadata/request generations, nullable actual-payload source time and matching snapshot metadata generation, and metadata-only sync capture tables. It does not convert offline content, read snapshot payloads/keys, wipe ordinary catalog/profile/decision data, or change Keychain policy. Additive v16 adds non-secret `contentRevision` to `offlineSnapshots`; existing rows default to 0. An immutable policy defines ordered cumulative requirements independently per item type. The codec certifies the leading requirements satisfied by the actual identity-validated payload, and publication commits that revision atomically with the ciphertext. Aliases currently require revision 1 (a nonblank top-level `alias_email`); all other types require 0. Equal or newer stored revisions add no content-refresh reason. This is freshness metadata, not authorization or a global app-version stamp. Existing selected aliases refresh per item during ordinary sync after unambiguous usable email evidence; connectivity, login, or CLI capability can defer refresh without requiring manual Retry or an app-wide completion switch. Migration performs no payload conversion or key access, retains encrypted payload schema 1, AAD, ciphertext and Keychain policy, and triggers no global forced sync. Snapshot payloads receive an additional
-AES-256-GCM layer with authenticated domain, vault/item, schema, revision, and
-key-fingerprint identity. Ordinary tables, FTS, presentation models, diagnostics,
-UserDefaults, and proxy paths never persist offline plaintext. Clipboard and
-Large Type retain only transient requested action values, not decoded snapshots.
+The provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the broker socket directory and socket, with `0700` and `0600` permissions. The extension has no database or Keychain Sharing entitlement.
 
-The independent snapshot key is host-only, non-synchronizable, and device-bound.
-Encryption/decryption loads it per operation; SQLCipher connections retain their
-passphrase for their connection lifetime. Offline Mode keeps the existing app
-authorization policy: it adds no mandatory Touch ID, user-presence ACL, Secure
-Enclave requirement, or authorization-reuse window. A compromised trusted host
-process on an unlocked Mac may still read keys or plaintext. Best-effort temporary
-buffer clearing is not guaranteed Swift/compiler/OS memory zeroization.
+The host alone opens the database and accesses `H23TXL6LPT.codes.petr.quick-access-for-pass` through the data-protection Keychain with `WhenUnlockedThisDeviceOnly` accessibility.
 
-Offline access is explicitly opt-in by individual item or whole vault, including future items after successful sync; item exclusions persist until re-selection. Explicit item/vault materialization and Retry reserve metadata-only request tokens before secret-facing fetches. Ordinary sync instead obtains optional metadata-only capture authority before its full-list fetch, as described below. Publication checks
-current ownership and identity and atomically commits ciphertext, status, and the
-last successful refresh time. Ordinary refresh failure preserves the previous
-complete snapshot and timestamp, marked stale. Cancellation before commit can
-prevent publication; cancellation after commit cannot undo it. Item removal, whole-vault deselection, and global purge atomically invalidate
-applicable selections and pending requests. Whole-vault deselection preserves
-manual item selections; item removal under a selected vault records an exclusion.
-Corruption cleanup is conditional on the captured revision, so it cannot remove
-a newer replacement. Missing, locked, invalid, or mismatched keys and unsupported
-formats are non-destructive failures, not permission to reset storage or rekey.
+Retrieved passwords, TOTP seeds, and generated codes never persist in ordinary tables, the system identity store, App Group files, logs, or launch URLs. Explicitly selected encrypted offline snapshots are the only persisted exception for fetched AutoFill values.
+
+An authorized, usable snapshot can provide the requested password or TOTP value through the verified broker. Without a usable copy, the host uses Pass CLI. Failures remain generic, without cache diagnostics. The extension receives the requested value once and discards it, never storage access.
+
+### Recent password presentation
+
+Only a complete successful password IPC write records a recent selection. The host retains one record for two minutes in memory, with an opaque descriptor ID, exact saved domain, lifecycle generation, and monotonic expiry.
+
+The record has no password, seed, code, username, or title. Resolution alone and failed or partial writes do not record it. It is neither persisted nor logged.
+
+Protocol v3 uses the record only to flag **Recently used** and reorder matching website TOTP candidates within their existing service tier. Other accounts, global search, native-app matching, identity rankings, resolution, and authorization stay unchanged. The hint proves neither login success nor browser-tab identity.
+
+Transient-access revocation clears the record. Expired, revoked, or locked state cannot produce a preference. The extension holds candidate metadata only for its active picker, with at most 20 non-secret candidates.
+
+## Offline storage lifecycle and limits
+
+Offline Mode uses the host-only unified SQLCipher database outside App Group storage. Full selected snapshots persist only in `offlineSnapshots`, encrypted before SQLite receives them. Ordinary tables, FTS, presentation models, diagnostics, UserDefaults, and proxy paths never persist offline plaintext.
+
+### Consent and storage format
+
+Selection is opt-in by item or whole vault. Whole-vault selection includes future items after successful sync. Item removal creates an exclusion until re-selection. Turning off a vault preserves individual selections. **Keep offline individually** promotes a vault-only copy without refetching.
+
+Migration v11 adds snapshots and request ownership. Migration v12 adds whole-vault generations, manual selection state, and exclusions. It preserves existing item selections and ciphertext without turning prior permission-only vault rows into whole-vault consent.
+
+Migration v15 adds metadata and durable request generations, actual-payload source time, snapshot metadata generation, and metadata-only sync captures. It does not convert content, read payloads or keys, wipe ordinary data, or change Keychain policy.
+
+Migration v16 adds non-secret `contentRevision`, defaulting existing rows to 0. `OfflineSnapshotContentPolicy` defines ordered cumulative requirements per item type. The codec certifies the leading requirements satisfied by the actual identity-validated payload. Publication commits the revision atomically with ciphertext.
+
+Aliases currently require revision 1, a nonblank top-level `alias_email`. Other types require 0. Equal or newer revisions add no refresh reason. Revisions describe freshness, not authorization or application version.
+
+Existing selected aliases refresh during ordinary sync after unambiguous usable email evidence. Connectivity, login, or CLI support can defer work without manual Retry or a global completion switch. Migration performs no conversion or key access and leaves payload schema 1, AAD, ciphertext, and Keychain policy unchanged. It starts no global forced sync.
+
+Snapshots use an additional AES-256-GCM layer authenticated with domain, vault, item, schema, snapshot revision, and key fingerprint. The distinct host-only key is non-synchronizable and device-bound, with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`.
+
+Key loading and snapshot encryption or decryption are operation-scoped. The SQLCipher passphrase remains connection-scoped. Purge retains snapshot keys.
+
+Offline Mode adds no mandatory Touch ID, user-presence ACL, Secure Enclave requirement, or authorization-reuse window. A compromised trusted process on an unlocked Mac can still read keys or plaintext. Temporary-buffer clearing is best effort, not guaranteed Swift, compiler, or OS zeroization.
+
+### Request ownership and publication
+
+Explicit selection and Retry reserve metadata-only ownership before secret fetches. Ordinary sync instead acquires optional metadata-only capture authority before its list fetch.
+
+Publication rechecks current ownership and identity, then atomically commits ciphertext, status, and the last successful refresh time. Failure preserves the previous complete snapshot and time, marked stale. Cancellation before commit can prevent publication. Late cancellation cannot reverse a committed transaction.
+
+Removal, vault deselection, and purge invalidate applicable selections and requests. Vault deselection keeps manual selections. Corruption cleanup is conditional on the captured snapshot revision and cannot delete a newer replacement.
+
+Missing, locked, invalid, or mismatched keys and unsupported formats fail without resetting storage or rekeying.
 
 ### Incremental sync admission and freshness
 
-Ordinary sync may reuse full list content only after optional pre-fetch admission while Offline Mode is ready with fresh observation. Absent/unavailable admission does not fail ordinary metadata sync. Becoming ready after the fetch starts cannot retroactively authorize that plaintext. A terminal observation failure blocks new admission, but does not revoke an already admitted operation; every publication still revalidates persisted original identity/share, selection, policy and request generations. Display state never supplies authority.
+Ordinary sync can acquire capture authority only while Offline Mode is ready with fresh observation, before the list fetch. Missing admission does not fail ordinary metadata sync. Readiness recovered during a fetch cannot retroactively authorize that plaintext.
 
-The sync writer admits only the current operation. Its committed metadata transaction produces the original publication proofs and advances each affected selected item's durable metadata generation once across item/share/descriptor changes. Usage and vault display renames do not dirty snapshots. Explicit Retry advances a durable request generation that remains after completion, preventing older captures from regaining ownership when a pending token disappears. Metadata reconciliation and AutoFill side effects remain ordered through their awaited native work. Writer admission decides commit order; later cancellation cannot reverse an actual commit.
+Terminal observation failure blocks new admission but does not revoke an admitted operation. Publication still rechecks persisted original identity and share, selection, policy, request, and metadata evidence. Display state is never authority.
 
-A usable snapshot is unchanged only when its actual successful payload modification time equals a valid incoming source time and its published metadata generation matches the current selection. Missing, invalid, older or unequal source times and dirty metadata refresh conservatively. Unchanged copies cause no item-view fetch, snapshot key lookup, decrypt/encode/encrypt, ciphertext write or last-successful-refresh-time update; short-lived capture records still have database writes. No secret-body comparison or content hash is persisted. Consequently, a secret-only upstream change with an unchanged timestamp and unchanged ordinary metadata/descriptor inputs can remain undetected until explicit **Retry**, which bypasses unchanged detection. Durable metadata evidence survives failed/cancelled publication and service recreation. A live fallback records the actual fetched payload's time, never substitutes the listing/catalog time.
+Writer admission accepts only the current sync. Its committed metadata transaction produces publication proofs and advances each affected selected item's metadata generation once for item, share, or descriptor changes. Usage and vault display-name changes do not dirty snapshots.
 
-Bulk reuse is limited to invocation-bound, recognized complete JSON output; unknown versions, incomplete/ambiguous content and identity mismatches use sequential needed-copy item reads instead. See [CLI contract and fallback](docs/pass-cli.md#incremental-offline-sync-contract). Preparation is sequential, and each writer batch is capped at 32 items and 8 MiB of ciphertext, with at most that batch plus one in-flight prepared result. These are prepared-output bounds, not a bound on the owning sync's full fetched list or a hard real-time writer bound. The full result remains in the caller-owned awaited frame, not a secret-bearing service lifecycle registration. A failed batch retains earlier committed batches; still-owned failures preserve older ciphertext, source baseline and successful timestamp. Failed new vault members do not create provisional item rows or resurrect removed selections.
+Explicit Retry advances a request generation that remains after completion. An older capture cannot regain ownership when a pending token disappears. Metadata reconciliation and AutoFill effects remain ordered through awaited native work. Writer admission decides commit order.
 
-Removal/purge can invalidate authority without waiting for full-list fetch or crypto preparation; writer contention and active transactions still apply. Stop closes admission and attempts persisted capture revocation before joining active frames. Store-unavailable metadata cleanup is best effort; startup recovery abandons orphan capture rows, and in-memory lifecycle checks block new submissions while stop joins existing frames. Reset commits purge, joins those frames, then clears ordinary metadata. Scoped removal preserves unrelated admitted work. Shutdown/error/cancellation cleanup is explicitly awaited and metadata-only; older cleanup cannot consume a newer owner. None of this permits offline snapshots in SSH/Run or weakens existing final secret-release guards.
+A usable snapshot is unchanged only when its actual successful payload time equals a valid incoming time and its metadata generation matches the selection. Unknown, invalid, older, or different times and dirty metadata require conservative refresh.
 
-Startup recovers abandoned provisional requests before offline readiness. Recovery
-failure disables fallback and new selections until explicit retry succeeds;
-live operations, removal, and purge remain usable. **Settings → Offline** lists selected copies, supports individual removal and Retry, and can purge all offline data. Settings/detail state observes
-non-secret committed projections, showing selected/usable counts, available,
-stale, or unavailable status and last successful refresh timestamps. These are
-metadata eligibility indicators, not promises that later key access/decryption
-will succeed. Observation failure marks retained display state stale and disables
-new selections until a fresh observation succeeds; explicit removal/purge remain
-available. Final authorization/revision, lock, generation, and broker-deadline
-checks reject obsolete release. Removal cannot retract a value already released. Cached capabilities remain valid only until synchronized final release; invalidation ordered before that release blocks it, while an already-released value cannot be recalled.
+Unchanged copies cause no item-view fetch, key lookup, decryption, encoding, encryption, ciphertext write, or successful-refresh-time update. Short-lived capture records still require database writes.
 
-The owned database directory is `0700`; the database, known sidecars, and private
-preflight copies are `0600`. Owned expected paths are validated before permission
-changes. SQLCipher memory sanitization, secure deletion, in-memory temporary
-storage, and foreign keys are enabled and checked. Backup exclusion is reapplied
-after creation/replacement, including local Run profiles and remembered decisions
-in the unified file. These flags guide supported backup software; they cannot
-control manual copies, third-party backups, APFS snapshots, or storage-controller
-copies. Device-bound keys are not portable backup/restore credentials.
+No secret-body hash is persisted. A secret-only change with the same time and unchanged ordinary metadata can remain undetected until explicit **Retry**. Dirty metadata survives failed publication and service recreation. A live fallback records the fetched payload's time, never the catalog time.
 
-After committed offline deletion, a metadata-only owner requests an
-out-of-transaction WAL TRUNCATE checkpoint. Concurrent requests coalesce into
-bounded follow-up batches (at most one pending batch while a batch is active); a
-request arriving during an active batch is retained for that follow-up. All three
-result columns are checked; busy retries at most three total attempts, with two
-cooperative 250 ms inter-attempt delays. Errors end that batch without reversing or misreporting deletion or sync.
-Startup also checkpoints after recovery. Normal termination cancels and awaits
-owned maintenance after joining setup; forced termination may bypass cleanup.
-Writer queues, disk I/O, and SQLite busy handling add latency: this is not a hard
-wall-clock erasure bound. Keys are retained, so an older copied ciphertext may
-remain decryptable on the original host. No secure erase or cryptographic
-shredding is promised. No legacy database import, compatibility reader, transfer,
-or automatic legacy file/Keychain cleanup was implemented.
+Bulk reuse requires invocation-bound recognized complete JSON. Unknown versions, incomplete or ambiguous bodies, and identity mismatches use sequential reads for needed selected copies. The [CLI contract](docs/pass-cli.md#incremental-offline-sync-contract) defines exact-release eligibility.
 
-Verified host-broker System AutoFill is the only external offline integration;
-ordinary authorized host copy and Large Type are also supported. The extension
-receives only the requested final password/TOTP value, never storage access,
-selection state, or fallback diagnostics. SSH and Run never use snapshots.
-AutoFill preserves its original broker deadline and peer verification. The absolute
-deadline includes queue time and applies across every native CLI command in one
-AutoFill request. An authorized usable selected snapshot is preferred without a live request or connectivity probe and resolves without native
-CLI work; live/no-cache requests keep the original remaining budget, with no
-cache-fallback reserve. Invalidation cannot recall a value
-already released to the verified caller. Cancellation, deadline expiry, identity mismatch, and admitted cache authorization
-or release failure remain terminal; they do not authorize a live retry. Explicit
-key/decode availability failures may select live access only after current
-authority checks. TOTP is generated locally from the cached seed and current time,
-never from a stored code. Native cleanup uses up to 250 ms SIGTERM grace, then SIGKILL,
-nonblocking bounded pipe draining, and exactly-once completion; it is a monotonic
-policy bound, not a hard real-time OS guarantee. Secret-facing stdout is capped at
-4 MiB plus 4 KiB framing and stderr at 256 KiB; overflow/errors expose no captured
-output. Ordinary host actions use the same cache-first resolver and final release guards.
+Preparation is sequential. Each writer batch holds at most 32 items and 8 MiB of ciphertext, plus at most one additional prepared result. These limits do not bound the owning sync's full fetched list or guarantee a hard real-time write limit. Full results remain in the caller-owned awaited frame, not service lifecycle registrations.
 
-## Sensitive Components
+Earlier committed batches survive later failure. Still-owned failures retain old ciphertext, source time, and successful refresh time. Failed new vault members create no provisional row and cannot resurrect removed selections.
 
-The most security-sensitive parts of the codebase are:
+Removal and purge do not wait for fetch or crypto preparation, though active transactions and writer contention still apply. Stop closes admission and attempts persisted capture revocation before joining active frames.
 
-- `PassCLIService` and `CLIRunner`
-- `DatabaseManager` and Keychain integration
-- `Services/SSHAgent/*`
-- `Services/RunProxy/*`
-- `Services/AutoFill/*`
-- `Services/Security/PeerVerifier.swift`
-- authorization dialogs and remembered-decision flows
+Unavailable-store metadata cleanup is best effort. Startup abandons orphan captures. Lifecycle checks block new submissions while stop joins frames. Reset purges first, joins frames, then clears ordinary metadata. Scoped removal keeps unrelated admitted work.
 
-## Out of Scope
+Cleanup is awaited and metadata-only. Older cleanup cannot consume a newer owner. Final release guards remain in force, and SSH and Run never use snapshots.
 
-The following are generally out of scope unless they directly enable a meaningful security impact in this project:
+### Readiness and final release
 
-- issues in Proton Pass itself or `pass-cli`
-- problems requiring physical access to an already-unlocked machine without a project-specific exploit path
-- local-only denial of service with no data exposure or privilege consequence
-- missing best-practice hardening that does not currently create an exploitable condition
-- social engineering, phishing, or third-party account compromise unrelated to this codebase
+Startup recovers abandoned provisional requests before readiness. Recovery failure disables offline fallback and new selections until explicit retry succeeds. Live access, removal, and purge remain available.
 
-## Disclosure Expectations
+**Settings → Offline** lists copies, supports individual Retry and removal, and can purge all offline data. Committed projections show selected and usable counts, available, stale, or unavailable status, and refresh times. These are metadata indicators, not decryption guarantees.
 
-Please give us a reasonable opportunity to investigate and fix the issue before public disclosure. Coordinated disclosure is appreciated.
+Observation failure marks retained display state stale and blocks new selections until fresh observation succeeds. Removal and purge remain available.
 
-## Additional Documentation
+Final release checks authorization, snapshot revision, lifecycle generation, lock state, and broker deadline. Invalidation ordered before synchronized release blocks the value. An already-released value cannot be recalled.
 
-- [README.md](README.md#security) — user-facing security design summary
-- [AGENTS.md](AGENTS.md) — repository constraints contributors and coding agents should preserve
+### Backup and deletion
+
+Backup exclusion is reapplied after database creation or replacement. It covers the entire file, including local Run profiles and remembered decisions. It guides supported backup tools but cannot control manual copies, third-party backups, APFS snapshots, or storage-controller copies. Device-bound keys are not portable restore credentials.
+
+After committed offline deletion, a metadata-only owner requests a WAL TRUNCATE checkpoint outside the transaction. Requests coalesce into bounded follow-up batches, with at most one pending batch while another runs. A request received during a batch remains scheduled for that follow-up.
+
+All three checkpoint result columns are checked. Busy handling allows at most three attempts with two cooperative 250 ms delays. An error ends the batch without reversing deletion or misreporting deletion or sync.
+
+Startup checkpoints after recovery. Normal termination cancels and awaits owned maintenance after setup joins. Forced termination can bypass cleanup. Writer queues, disk I/O, and SQLite busy handling add latency, so this is not a hard wall-clock erasure bound.
+
+Keys remain after deletion. An older ciphertext copy can remain decryptable on the original host. No secure erase, cryptographic shredding, legacy import, compatibility reader, transfer, or automatic legacy file or Keychain cleanup is provided.
+
+### Offline AutoFill and native CLI limits
+
+Authorized host copy and Large Type can use snapshots. Verified host-broker AutoFill is the only external offline integration. The extension receives only the requested password or TOTP value, never storage access, selection state, or fallback diagnostics.
+
+The original AutoFill deadline includes queue time and spans every native CLI command in the request. A usable authorized snapshot resolves without a live request or connectivity probe. Live requests keep the remaining deadline without a separate cache-fallback reserve.
+
+Cancellation, expiry, identity mismatch, and admitted cache-authorization or release failure are terminal. They do not authorize live retry. Explicit key or decode availability failures can select live access only after current authority checks.
+
+TOTP is generated from the cached seed and current time, never a stored code. Native cleanup allows up to 250 ms of SIGTERM grace before SIGKILL, with bounded nonblocking pipe draining and exactly-once completion. This is a monotonic policy limit, not a hard real-time OS guarantee.
+
+Secret-facing stdout is capped at 4 MiB plus 4 KiB framing. Stderr is capped at 256 KiB. Overflow and errors expose no captured output. Ordinary host actions use the same cache-first resolver and final release guards.
+
+## Security-sensitive components
+
+The main components are `PassCLIService`, `CLIRunner`, `DatabaseManager`, Keychain integration, authorization dialogs, and remembered-decision handling. Proxy, AutoFill, and verification code lives under `Quick Access for Pass/Services/SSHAgent/`, `RunProxy/`, `AutoFill/`, and `Security/`.
+
+The [README](README.md#security) gives the user-facing summary. [AGENTS.md](AGENTS.md) records repository rules for contributors and coding agents.

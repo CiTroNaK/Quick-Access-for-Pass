@@ -1,226 +1,142 @@
 # Quick Access for Pass
 
-**Fast, Touch-ID-protected access to your [Proton Pass](https://proton.me/pass) secrets from the macOS menu bar.** Press a hotkey, search, copy — done.
+**Search Proton Pass, copy what you need, and get back to what you were doing.**
+
+Quick Access for Pass brings your [Proton Pass](https://proton.me/pass) passwords, usernames, and verification codes to a keyboard-first macOS menu-bar app. Press `⇧⌥Space`, type a few letters, and copy a value without opening the Proton Pass app.
+
+Built with Swift, with Touch ID protection, clipboard auto-clear, and optional offline access. Free and open source.
+
+[Download the app](https://github.com/CiTroNaK/Quick-Access-for-Pass/releases) · [Get started](docs/get-started.md) · [Contribute](CONTRIBUTING.md)
 
 <p align="center">
-  <img src="docs/images/intro.gif" alt="Quick Access for Pass in action" width="640">
+  <img src="docs/images/intro.gif" alt="Search for a Proton Pass item and copy a value in Quick Access" width="640">
 </p>
+
+## Why Quick Access?
+
+- Search from any app with a global hotkey and navigate results from the keyboard.
+- Copy passwords, usernames, alias addresses, TOTP codes, URLs, and individual fields.
+- Read a selected value in Large Type when you need it on another device.
+- Keep selected items or whole vaults available offline on your Mac.
+- Fill passwords and verification codes in Safari and compatible apps with optional System AutoFill.
+- Authorize SSH signing and command-line secret injection with the optional SSH and Run proxies.
+
+Use just the search panel, or enable the integrations that suit you. There is no shell setup required for the main app.
 
 ## Get started
 
-For the simplest setup, download the signed app from [Releases](../../releases), open the DMG, and drag **Quick Access for Pass** to `/Applications`. The signed app includes Proton's official Pass CLI, so you do **not** need Homebrew, Terminal setup, or a separate CLI install.
+1. Download the signed app from [GitHub Releases](https://github.com/CiTroNaK/Quick-Access-for-Pass/releases).
+2. Open the DMG and drag **Quick Access for Pass** to `/Applications`.
+3. Open the app and sign in to Proton Pass when prompted.
+4. Press `⇧⌥Space` to find your first item.
 
-If you manage apps with [Homebrew](https://brew.sh/), you can install Quick Access that way too:
+Signed releases include Proton's official Pass CLI. You do not need to install it separately.
+
+Prefer Homebrew?
 
 ```bash
 brew install CiTroNaK/tap/quick-access-for-pass
 ```
 
-Homebrew can fetch app updates through your normal `brew` workflow. Quick Access can also use an already installed Proton Pass CLI before falling back to the bundled helper; see [Proton Pass CLI integration](docs/pass-cli.md).
+You need macOS 15 or later and a paid Proton Pass subscription with Pass CLI access. Biometric prompts require Touch ID. System AutoFill requires macOS 27 or later.
 
-## Quick start
+The [setup guide](docs/get-started.md) covers login, your first copy, and optional integrations.
 
-1. Open Quick Access for Pass.
-2. Log in to Proton Pass CLI:
-   - If a login notification appears, click **Log In**.
-   - If notifications are disabled or you miss the notification, open Quick Access, press `⌘,`, then use **Settings → Pass CLI → Log In to Proton Pass CLI…**.
-3. Press `⇧⌥Space`.
-4. Search for a Proton Pass item.
-5. Hit Return to copy the selected value.
+## Search and copy
 
-If Quick Access needs a Proton Pass CLI session, the main panel shows a **Login** button in the sync status area so you can recover without leaving search.
+Find an item, press `Return` for its primary action, or press `→` to choose a field. Use `⇧Return` to show a value in Large Type.
+
+Search stays available when sync needs attention. **Login** restores a missing CLI session, and **Show sync errors** opens diagnostics without closing search.
+
+The default shortcuts are:
+
+| Action | Shortcut |
+| --- | --- |
+| Open or close Quick Access | `⇧⌥Space` |
+| Select a result | `↑` or `↓` |
+| Open item detail | `→` |
+| Go back | `←` |
+| Run the selected action | `Return` |
+| Copy username | `⌘C` |
+| Copy password | `⇧⌘C` |
+| Copy TOTP | `⌥⌘C` |
+| Open in browser | `⌘O` |
+| Show in Large Type | `⇧Return` |
+
+**Settings → Shortcuts** contains the configurable action shortcuts.
 
 <p align="center">
-  <img src="docs/images/login.png" alt="Quick Access main panel showing the Login button in the sync status area" width="640">
+  <img src="docs/images/detail.png" alt="Item details with actions for individual fields" width="340">
+  <img src="docs/images/large-type.png" alt="A selected value displayed in Large Type" width="340">
 </p>
 
-Everything else is optional configuration.
+## Offline Mode
 
-## What you get
+Keep the items you need available when you cannot reach Proton Pass. Choose individual items or a whole vault. Vault selection includes future items after successful sync. Removing an item excludes it until you select it again, and turning off a vault keeps individual selections.
 
-- **Global-hotkey search** — open a floating search panel from anywhere with `⇧⌥Space` by default.
-- **Fast local metadata search** — encrypted SQLite + FTS5 keeps ordinary search tables metadata-only. The sole persisted-secret exception is opt-in Offline Mode’s encrypted `offlineSnapshots` table; see the [security policy](SECURITY.md).
-- **Non-blocking sync recovery** — if sync needs attention, search stays usable. Login-required states show **Login** in the sync status area, while sync diagnostics and skipped-item details open from **Show sync errors** in a separate window.
-- **Keyboard-first actions** — copy usernames, passwords, TOTP codes, URLs, or fields with configurable shortcuts.
-- **Touch ID protection** — unlock the app and authorize sensitive optional proxy actions with biometrics.
-- **Clipboard safety controls** — concealed pasteboard type support and automatic clipboard clearing.
-- **Large Type** — display selected values in a large temporary window when you need to read them aloud.
-- **Optional SSH Agent Proxy** — gate Proton Pass SSH key signing behind Touch ID.
-- **Optional Run Proxy** — inject Proton Pass secrets into commands through the bundled `qa-run` helper.
-- **Optional System AutoFill (macOS 27+)** — offer Proton Pass passwords and current TOTP codes to Safari and compatible native apps without adding passkey handling.
+Authorized, usable copies support copy and Large Type without a live request or connectivity probe. Sync refreshes them. Without a usable copy, the app uses Pass CLI. **Settings → Offline** lets you review selected items, retry a refresh, remove one copy, or remove all offline data.
 
-## Quick Access panel
+Full fetched secrets persist only in the encrypted `offlineSnapshots` table in the host-only database, protected by a separate device-bound Keychain key. Offline Mode uses the existing app authorization policy without adding a hardware or biometric requirement.
 
-The core app is a small menu-bar utility for searching Proton Pass and copying values quickly.
+System AutoFill can request an offline password or TOTP value through the verified host broker. The extension receives no cache access or fallback diagnostics. SSH and Run proxies never use offline copies.
 
-- Default hotkey: `⇧⌥Space`
-- Result navigation: `↑` / `↓`
-- Open item detail: `→`
-- Go back: `←`
-- Run selected action: `Return`
-- Copy Username: `⌘C`
-- Copy Password: `⇧⌘C`
-- Copy TOTP: `⌥⌘C`
-- Open in Browser: `⌘O`
-- Show in Large Type: `⇧Return`
-
-All shortcuts can be changed in **Settings → Shortcuts**.
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/images/detail.png" alt="Item detail view with per-field actions" width="340"><br><sub>Item detail with per-field copy actions</sub></td>
-    <td align="center"><img src="docs/images/large-type.png" alt="Large Type display of a value" width="340"><br><sub>Large Type display, handy when reading a password aloud</sub></td>
-  </tr>
-</table>
+Copies are tied to this Mac. Deletion retains the key, and backup exclusion and WAL checkpointing do not guarantee secure erasure or portable restore. See [Offline Mode](docs/offline-mode.md) for everyday behavior and the [security policy](SECURITY.md#offline-storage-lifecycle-and-limits) for storage limits.
 
 <p align="center">
-  <img src="docs/images/offline.png" alt="Item detail showing a cached offline copy with Remove offline copy and Keep offline individually actions" width="640"><br>
-  <sub>Offline items: remove a cached copy or keep a vault-cached item individually</sub>
+  <img src="docs/images/offline.png" alt="An offline item with actions to remove the copy or keep it individually" width="640">
 </p>
 
-## Why trust it?
+## Optional integrations
 
-Quick Access is built around a few security constraints:
+For passwords in the browser or secrets in your development tools, Quick Access also offers these optional integrations:
 
-- **Search metadata stays separate from fetched secrets** — ordinary search tables store metadata, not fetched Pass content. Remembered Run command text has a separate, narrowly authorized caller-controlled credential risk described in [SECURITY.md](SECURITY.md#run-proxy-authorization-boundary).
-- **Offline access is explicit** — select an individual item with **Make available offline**, or explicitly select a whole vault in **Settings → Offline** to cache its current and future items after successful sync. Selecting a vault stores encrypted offline copies of all its items on this Mac. New items added to selected vaults will also become available offline after syncing. Individual removals stay excluded from whole-vault caching until selected again; turning off a vault preserves individually selected items. You can **Keep offline individually** for a vault-cached item. The v12 upgrade preserves existing selected copies as individual selections; old vault permissions do not become whole-vault consent. Offline Mode uses the existing app authorization policy and does not add a mandatory Touch ID, Secure Enclave, or hardware gate.
-- **Selected offline snapshots are encrypted in the same host-only database** — the unified SQLCipher file has 16 migrations; only the dedicated `offlineSnapshots` table may contain selected full secrets, protected again with an authenticated AES-GCM snapshot cipher and a device-bound Keychain key. Whole-vault selection is a policy choice, not a promise that every copy succeeded: failed initial explicit item copies remain selected and unavailable until retry, while a failed new vault member remains covered by the selected vault policy without a provisional item row. Failed refreshes retain the previous complete snapshot. No second offline database, legacy transfer, compatibility reader, or automatic legacy cleanup is used.
-- **Offline data has whole-file trade-offs** — backup exclusion applies to the unified database file, including local Run profiles and remembered decisions. Device-bound keys make selected snapshots non-portable. Logical deletion retains snapshot keys. After committed offline deletion, maintenance requests a bounded, best-effort, out-of-transaction WAL checkpoint to reduce active-file remnants; it does not promise forensic secure erasure, cryptographic shredding, APFS-snapshot removal, removal from manual/third-party backups, or forced-termination cleanup.
-- **Cached values are preferred** — authorized usable selected copies serve ordinary host copy and Large Type without a live request or connectivity probe. Sync refreshes changed copies, reusing complete content it already fetched when supported; other CLI output falls back to needed item reads. An unchanged sync does not reset the last successful copy time. Change detection uses the actual payload's modification time plus durable metadata changes, not a secret-content hash: a secret-only upstream change with the same time and unchanged metadata can remain undetected until **Retry** forces a refresh. Without a usable cached copy, Quick Access uses Pass CLI. The only external offline integration is the existing verified host-broker System AutoFill password/TOTP request; the extension receives neither cache access nor fallback diagnostics. SSH Agent and Run proxies do not use offline copies.
-- **You stay in control** — **Settings → Offline** shows selected/usable counts and a **Manage offline items…** button. The manager keeps long lists in a bounded, scrollable sheet grouped by vault, with metadata-only search (including usernames and email addresses), available/stale/unavailable status, last successful refresh times, and individual Keep/Retry/Remove actions. Retry refreshes only that selected item. Removing all offline data remains available in the main Offline pane. Failed refresh preserves the previous complete snapshot. Request ownership and atomic publication prevent obsolete fetches from recreating removed selections; a completed commit is not undone by late cancellation. Startup recovery or observation failure disables new selections until an explicit retry succeeds, without blocking live access or removal/purge.
-- **Database encryption** uses a Keychain-managed passphrase. Snapshot keys are loaded only for encrypt/decrypt operations; the SQLCipher passphrase is connection-lifetime. The database directory is owner-only (`0700`), its database/known sidecars are `0600`, and backup exclusion is guidance rather than a portable restore guarantee. Native CLI timeout and output bounds remain bounded safety limits, not a promise of hard real-time termination. See [SECURITY.md](SECURITY.md#offline-storage-lifecycle-and-limits) for request/cancellation, readiness, key-failure, backup, and native-deadline limits.
-- **Clipboard leakage is reduced** with `org.nspasteboard.ConcealedType` and automatic clearing.
-- **Auto-lock** can lock the app after inactivity, macOS lock, or sleep.
-- **Owner-only sockets** protect optional local proxy communication.
-- **Run Proxy peer verification** rejects unverified local clients.
-
-Signed releases bundle Proton's official Pass CLI binaries. The bundled CLI is vendored from Proton's release assets, checksum-verified during release preparation, and signed as part of the app bundle. See [Proton Pass CLI integration](docs/pass-cli.md) for selection order, PAT support, provenance, and verification commands.
-
-For vulnerability reporting, see [SECURITY.md](SECURITY.md).
-
-## Optional power-user integrations
-
-Quick Access works as a normal menu-bar app without these integrations. Enable them only if they fit your workflow.
-
-### System AutoFill (macOS 27+)
-
-Quick Access can provide Proton Pass passwords and current TOTP codes through macOS AutoFill in Safari and compatible native apps. After installing and opening Quick Access, go to **System Settings → General → AutoFill & Passwords**, enable AutoFill, and enable **Quick Access for Pass** as a provider.
-
-Verification-code suggestions use **item title — username/email** so accounts with the same item title can be distinguished; items without a username retain their title. Existing suggestion labels update on the next sync after upgrading.
-
-System AutoFill is optional. While its credential identity store is disabled, Quick Access skips system identity updates without showing a sync error; ordinary sync and offline-copy refresh continue. Local AutoFill metadata stays current, and system identities are reconciled on the next sync after the store is enabled.
-
-The picker shows exact typed-service matches first. A login with multiple saved website hosts appears once, retaining its earliest matching service; distinct items or usernames remain separate even when their labels match. Enter non-empty text to run a bounded global search of up to 20 distinct logins; it does not show a generic vault list before typing. Native apps start with explicit app associations only. If a field supplies no usable service identifier, the picker stays ready for search without attempting a contextual lookup. Empty results invite search; generic loading errors do not imply that the Mac is locked. After choosing a login, you can opt in to **Remember for this app**; manage or remove remembered associations in **Settings → Security → App associations**. Associations are host-local, non-secret metadata and are never inferred from a website or an app display name.
-
-After Quick Access delivers a password to its AutoFill extension, its own website verification-code picker can mark the same descriptor **Recently used** for two minutes and place it first within its existing site-match tier. Other accounts remain available. This memory-only hint applies to the last delivered password and its exact saved domain; global search and native-app matching are unchanged. It clears on transient-access revocation (including explicit app/system lock) or app termination, and is ignored once expired or while locked. It does not prove that the website accepted the password, distinguish browser tabs, or detect passwords entered manually or through another provider. It does not change macOS's suggestion dropdown.
-
-Quick Access does not register or handle passkeys. You can keep Proton Pass enabled alongside it: Quick Access supplies passwords and codes, while Proton remains the passkey provider. A passkey request shows Quick Access's password/TOTP picker content rather than a blank panel, but Quick Access never creates, signs, stores, or completes a passkey. The main Quick Access app is the only component that runs Pass CLI; the extension never does. If Quick Access is quit, selecting one of its credentials wakes the menu-bar app without bringing it to the front. A locked app shows its existing unlock panel before resolving the value.
-
-The host and extension mutually verify each connected socket using its audit token and exact signed identity. Their provisioned `group.codes.petr.quick-access-for-pass` App Group contains only the owner-only AutoFill broker socket. Protocol v3 returns at most 20 non-secret candidate records (opaque descriptor ID, title, username, kind, match tier, and a presentation-only recent-use flag), retained by the extension in memory only for the active picker. The extension cannot open the unified SQLCipher database or access the Keychain; the host alone owns metadata, offline snapshots, their Keychain material, descriptor storage, and secret resolution. An authorized usable offline snapshot is preferred for the existing verified host-broker password or TOTP request; without a usable copy, the host uses Pass CLI. Sync refreshes cached values. The extension never receives cache access or fallback diagnostics; unavailable items fail generically.
-
-### SSH Agent Proxy
-
-The SSH Agent Proxy places a Touch ID gate between SSH clients and Proton Pass's SSH agent. Identity listing passes through, while signing requests can show an authorization prompt with requesting app and command context.
-
-Useful for Git, Terminal, and GUI Git clients that use SSH keys stored in Proton Pass.
-
-Read the setup guide: [SSH Agent Proxy](docs/ssh-agent-proxy.md)
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/images/ssh-auth-terminal.png" alt="SSH authorization from a terminal running git fetch" width="340"><br><sub>SSH authorization from a terminal</sub></td>
-    <td align="center"><img src="docs/images/herdr.png" alt="SSH authorization showing Herdr workspace, pane, and working-directory context" width="340"><br><sub>Herdr: requesting pane context in the authorization prompt</sub></td>
-  </tr>
-</table>
-
-### Run Proxy
-
-The Run Proxy lets the bundled `qa-run` helper inject Proton Pass secrets into command environments after Touch ID authorization.
-
-Useful for tools that expect API tokens in environment variables, such as `gh`, deployment CLIs, or local development commands.
-
-Read the setup guide: [Run Proxy and qa-run](docs/run-proxy.md)
+- [System AutoFill](docs/autofill.md) supplies passwords and current TOTP codes to Safari and compatible native apps. Quick Access does not handle passkeys.
+- [SSH Agent Proxy](docs/ssh-agent-proxy.md) requires authorization for Proton Pass SSH signing unless a cached decision applies.
+- [Run Proxy and `qa-run`](docs/run-proxy.md) injects configured secrets into command environments after authorization.
+- [Terminal-host context](docs/terminal-hosts.md) describes custom terminal names and Herdr pane details in SSH and Run prompts. The details never change authorization.
 
 <p align="center">
-  <img src="docs/images/run-auth-gh.png" alt="Run Proxy authorization for a gh command" width="340">
+  <img src="docs/images/ssh-auth-terminal.png" alt="SSH authorization for a terminal command" width="340">
+  <img src="docs/images/run-auth-gh.png" alt="Run authorization for a GitHub CLI command" width="340">
 </p>
 
 ## Settings
 
-Right-click the menu-bar icon and choose **Settings…** to open Settings without opening Quick Access first. You can also press **⌘,** in Quick Access. Left-clicking the icon still toggles Quick Access.
+Right-clicking the menu-bar icon opens a menu with **Settings…**. In the panel, `⌘,` opens Settings. Left-clicking the icon toggles the panel.
 
-**Settings → Integrations** configures supported-app presentation and custom terminal mappings shared by SSH and Run authorization prompts. Herdr is currently the only supported app with pane-details integration; it is detected automatically and enabled on first detection; you can rename or disable it, turn off **Show workspace, pane title and directory**, or add a custom mapping. The editor accepts a pasted absolute or `~`-relative executable path, including paths with spaces, and also offers an optional file picker. Recording a path does not execute the file. Explicit opt-out and edits survive rediscovery and restart. Existing identified macOS apps keep their names and icons.
+Settings includes launch at login, language, shortcuts, clipboard clearing, auto-lock, sync cadence, CLI selection, Offline Mode, and optional integrations. Terminal mappings are in **Settings → Integrations**.
 
-For Herdr, prompts may show the requesting pane's workspace/tab, a distinct title, and working directory. Empty titles and titles that are whitespace-equivalent to the displayed command are omitted using case-sensitive equality (not substring or prefix matching); this comparison does not alter either source value. This best-effort, untrusted context is display-only: it never changes authorization scopes or remembered decisions and does not establish ownership or permission evidence. No pane output, transcripts, or agent session files are read; unavailable or ambiguous metadata leaves the base prompt usable.
+## Security
 
-Most behavior is configurable in Settings: launch at login, global hotkey, shortcuts, clipboard clearing, sync cadence, Pass CLI source/version, security preferences, Offline Mode, terminal-host integrations, and optional SSH/Run proxy settings.
+Quick Access keeps search metadata in an encrypted local database and fetches live secrets through Proton's official CLI. Selected offline copies are the only persisted exception for fetched item content. Remembered Run command text is a separate exception and can contain credentials supplied in arguments.
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/images/settings-general.png" alt="General settings with launch at login, global hotkey, and language options" width="340"><br><sub>General: launch at login, Quick Access hotkey, language</sub></td>
-    <td align="center"><img src="docs/images/settings-shortcuts.png" alt="Shortcuts settings with configurable keyboard shortcuts for item actions" width="340"><br><sub>Shortcuts: customize copy and Large Type shortcuts</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/settings-security.png" alt="Security settings with clipboard, search clearing, concealment, auto-lock, and AutoFill app associations" width="340"><br><sub>Security: clipboard handling, auto-lock, AutoFill app associations</sub></td>
-    <td align="center"><img src="docs/images/settings-offline.png" alt="Offline settings with vault selection, selected-item counts, item management, and removal of all offline data" width="340"><br><sub>Offline: select vaults, manage cached items, remove offline data</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/settings-cli.png" alt="Pass CLI settings with sync cadence, CLI source/version, and saved personal access token controls" width="340"><br><sub>Pass CLI: sync cadence, source/version, saved token controls</sub></td>
-    <td align="center"><img src="docs/images/settings-ssh.png" alt="SSH settings with proxy enablement, socket paths, and filtering options" width="340"><br><sub>SSH: proxy enablement, socket paths, filtering, remembered decisions</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/settings-run.png" alt="Run settings with run proxy enablement and profiles" width="340"><br><sub>Run: proxy enablement and secret-injection profiles</sub></td>
-    <td align="center"><img src="docs/images/settings-integrations.png" alt="Integrations settings with automatic Herdr detection, pane-details controls, and custom terminal-host mappings" width="340"><br><sub>Integrations: Herdr pane details and custom terminal-host mappings</sub></td>
-  </tr>
-</table>
+Touch ID protection, auto-lock, concealed clipboard entries, and automatic clearing help limit everyday exposure. Local proxies use owner-only sockets, Run rejects unverified peers, and AutoFill authenticates both ends of its connection.
 
-## Requirements
+Security has limits. These controls cannot protect secrets from a compromised trusted process on an unlocked Mac. The [security policy](SECURITY.md) explains authorization, encryption, backup and deletion limits, and private vulnerability reporting.
 
-- macOS 15 or later for the menu-bar app; System AutoFill requires macOS 27 or later
-- A paid Proton Pass subscription with Pass CLI access
-- Touch ID for biometric prompts
+## Documentation
 
-Signed app releases include Proton's official Pass CLI fallback. A separate `pass-cli` install is optional.
+The main guides are:
 
-## Advanced docs
+- [Get started](docs/get-started.md)
+- [Troubleshoot login and sync](docs/troubleshooting.md)
+- [Proton Pass CLI reference](docs/pass-cli.md)
+- [Offline Mode reference](docs/offline-mode.md)
+- [System AutoFill reference](docs/autofill.md)
+- [Backup and deletion limits](SECURITY.md#backup-and-deletion)
+- [Contribute and build from source](CONTRIBUTING.md)
+- [Coding-agent instructions](AGENTS.md)
 
-- [Troubleshooting](docs/troubleshooting.md) — sync diagnostics, skipped items, and direct `pass-cli` inspection commands.
-- [Proton Pass CLI integration](docs/pass-cli.md) — bundled CLI, CLI selection order, PAT support, provenance, and checksum verification.
-- [SSH Agent Proxy](docs/ssh-agent-proxy.md) — Touch-ID-gated SSH signing setup and behavior.
-- [Run Proxy and qa-run](docs/run-proxy.md) — command secret injection setup and behavior.
-- [Backup and restore scripts](scripts/README.md) — same-Mac rollback instructions and Keychain limitations.
-- [Security policy](SECURITY.md) — vulnerability reporting and security posture summary.
+## About the project
 
-## Why this exists
+I built Quick Access for myself and my wife after moving from 1Password to Proton Pass. It started as a way to make our daily password use more convenient and to learn Swift and macOS development. I hope it makes your Mac a little more useful, too.
 
-I built this for myself and my wife after moving from 1Password to Proton Pass — and as a way to learn Swift and macOS development. If it is useful to you too, that is a nice bonus.
+Bug reports, ideas, documentation improvements, and code contributions are welcome. The [contributor guide](CONTRIBUTING.md) explains how to build the app and send a pull request.
 
-💛 **Like this project?** You can [sponsor it on GitHub](https://github.com/sponsors/CiTroNaK), or sign up for Proton with my [referral link](https://pr.tn/ref/DRHZ4WW3) — you get 2 weeks of a paid plan, and I get a small reward if you subscribe.
+If you find Quick Access useful, you can [sponsor the project](https://github.com/sponsors/CiTroNaK). My [Proton referral link](https://pr.tn/ref/DRHZ4WW3) gives you two weeks of a paid plan and gives me a reward if you subscribe.
 
-## Building from source
-
-```bash
-make build      # Release build
-make install    # Build, inject bundled CLI helpers, copy to /Applications, and launch
-xcodebuild -scheme "Quick Access for Pass" -configuration Debug build
-xcodebuild -scheme "Quick Access for Pass" test
-```
-
-Requires Xcode 26+.
-
-## Contributing
-
-Contributions welcome.
-
-- [CONTRIBUTING.md](CONTRIBUTING.md) — workflow and expectations
-- [AGENTS.md](AGENTS.md) — guidance for coding agents
-
-## Disclaimer
-
-Not affiliated with, endorsed by, or associated with Proton AG. Proton Pass is a trademark of Proton AG.
+Quick Access is not affiliated with or endorsed by Proton AG. Proton Pass is a trademark of Proton AG.
 
 ## License
 
-[MIT](LICENSE)
-
-Uses [SQLCipher](https://www.zetetic.net/sqlcipher/) (BSD), [GRDB.swift](https://github.com/groue/GRDB.swift) (MIT), and bundled copies of Proton's official [Proton Pass CLI](https://github.com/protonpass/pass-cli) release binaries (GPL-3.0). See [Proton Pass CLI integration](docs/pass-cli.md) for bundled CLI version, source, and checksums.
+Quick Access uses the [MIT license](LICENSE). It uses [SQLCipher](https://www.zetetic.net/sqlcipher/) under BSD and [GRDB.swift](https://github.com/groue/GRDB.swift) under MIT. Bundled [Proton Pass CLI](https://github.com/protonpass/pass-cli) binaries use GPL-3.0. The [CLI provenance reference](docs/pass-cli.md#provenance) lists their sources and checksums.

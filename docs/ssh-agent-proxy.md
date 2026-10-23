@@ -1,93 +1,56 @@
-# SSH Agent Proxy
+# Authorize SSH signing with Touch ID
 
-The SSH Agent Proxy is an optional integration that places a Touch ID authorization gate between SSH clients and Proton Pass's SSH agent.
+Use SSH Agent Proxy to require authorization when a local app asks Proton Pass's SSH agent to sign. This integration is optional and does not export private keys.
 
-It is useful when Proton Pass stores SSH keys and you want local apps such as Terminal, Git clients, or GUI Git tools to request approval before a key signs an SSH challenge.
-
-## What it does
-
-Quick Access listens on:
-
-```text
-~/.ssh/quick-access-agent.sock
-```
-
-It proxies requests to Proton Pass's SSH agent, normally at:
-
-```text
-~/.ssh/proton-pass-agent.sock
-```
-
-Identity-listing requests pass through transparently. Signing requests are intercepted so Quick Access can identify the requesting process, show an authorization prompt, and apply remembered decisions.
-
-## Setup
+## Enable the proxy
 
 1. Open **Settings → SSH**.
 2. Enable **Enable SSH proxy**.
-3. Add this to `~/.ssh/config`:
+3. Add the following entry to `~/.ssh/config`:
 
 ```sshconfig
 Host *
-     IdentityAgent "~/.ssh/quick-access-agent.sock"
+	IdentityAgent "~/.ssh/quick-access-agent.sock"
 ```
 
-4. Start a command that uses SSH, such as `git fetch`.
-5. Approve the Touch ID prompt when Quick Access asks whether the app may use the key.
+4. Start an SSH operation, such as `git fetch` in an SSH-backed repository.
+5. Approve the request when Quick Access shows its authorization prompt.
 
-## Prompt context
+Proton Pass's agent must be running and have the required keys. Quick Access listens at `~/.ssh/quick-access-agent.sock` and normally forwards to `~/.ssh/proton-pass-agent.sock`.
 
-Quick Access resolves the requesting process so the prompt can show the app and command context when available. This helps distinguish a terminal command from a GUI app request.
+Identity listing passes through. Signing requires a decision. A matching cached approval can avoid another prompt, while a cached denial rejects the request.
 
-### Shared terminal-host presentation
+## Limit exposed vaults
 
-In **Settings → Integrations**, configure supported-app options and custom executable-to-display-name mappings shared by SSH and Run prompts. Herdr auto-detection runs at startup and when its executable appears in captured requester ancestry, without running discovery candidates. It is enabled on first detection. You can edit its name, disable it, or turn off **Show Herdr pane details**; saved opt-out and edits survive rediscovery/restart and temporarily unavailable installations. **Add Custom Terminal…** opens an editor where you can paste an absolute or `~`-relative executable path (including paths with spaces), or optionally choose a file. Adding a mapping only records filesystem input; custom mappings are never executed for enrichment. A custom mapping of the same executable suppresses automatic Herdr activation, even if disabled. Existing identified macOS apps take precedence.
+In **Settings → SSH**, select the vaults that the proxy can expose. Use this filter when unrelated vaults contain SSH keys you do not want clients to see.
 
-Herdr prompts can display a bounded, one-line workspace/tab, optional distinct pane title, and working-directory context after a best-effort match to the requesting pane. An empty title or a title that is whitespace-equivalent to the command text shown in the prompt is omitted using case-sensitive equality, not substring or prefix matching; comparison does not replace or alter the original command or title. Metadata is untrusted and display-only, stays in memory for that prompt, and does not change the requesting app identity, command/host cache context, key fingerprint, or remembered decision. These display hints do not establish process ownership or permission evidence. The SSH-only **Show command for apps** setting stays separate and retains its existing behavior.
+## Review approvals and denials
 
-The base prompt and countdown appear immediately. Lookup is attempted once only for a displayed eligible prompt, with a total 750 ms budget. Missing, stale, disabled, ambiguous, or slow metadata falls back to the base header; disabling or changing configuration clears details. Quick Access reads only allowlisted routing hints and read-only Herdr metadata, not pane output, transcripts, or agent session files.
+1. Open **Settings → SSH → Manage SSH decisions…**.
+2. Review the requesting app, command or host context, key fingerprint, and expiration.
+3. Use **Remove** on a decision you no longer want.
+4. Use **Done** or Escape to close the sheet.
 
-The prompt supports remembered approvals and denials, each with the selected duration. This avoids repeated Touch ID prompts for a workflow you have already approved or intentionally blocked.
+Both approvals and denials can be remembered for a selected duration. The short in-memory session cache and persistent decisions use the same app, command or host, and key context. A different command or host approval cannot override a matching denial.
 
-## Remembered decisions and session cache
+## Review BatchMode probes
 
-Quick Access uses two layers to reduce prompt fatigue:
+For noninteractive requests such as `ssh -o BatchMode=yes`, review SSH probe decisions in the main SSH settings. BatchMode probes are denied by default and handled separately from ordinary authorization prompts. Decisions are keyed by fingerprint and host.
 
-- A short in-memory session cache for repeated requests during multi-step operations.
-- Persistent remembered decisions keyed by app, command/host context, and key fingerprint.
+## Adjust requester details
 
-Both layers use the same authorization context, including for queued requests. An approval for another command or host cannot override a matching remembered denial.
+Use **Settings → Integrations** for terminal names and optional Herdr pane details. Use **Show command for apps** in SSH settings for the separate per-app command-display behavior.
 
-Open **Settings → SSH → Manage SSH decisions…** to review remembered approvals and denials in a separate management sheet. Each decision retains its context, key fingerprint, expiration, and Remove action. Use **Done** or Escape to close the sheet. SSH probe decisions remain in the main SSH settings.
+The prompt remains usable without extra metadata. Display labels and pane details never change authorization or remembered decisions. See [Terminal-host context](terminal-hosts.md) for lookup limits and privacy rules.
 
-## BatchMode handling
+## Restore missing keys or blocked signing
 
-Non-interactive SSH probes often use `ssh -o BatchMode=yes`. Quick Access treats BatchMode requests separately so background probes do not unexpectedly open normal authorization prompts.
+1. Confirm **Enable SSH proxy** is on.
+2. Check that `IdentityAgent` names `~/.ssh/quick-access-agent.sock`.
+3. Confirm Proton Pass's agent is running and has keys available.
+4. Check the SSH status row in Settings.
+5. Review vault filters and remembered denials.
 
-BatchMode decisions are keyed by key fingerprint and host. Settings include controls for reviewing these decisions.
+If a GUI app differs from Terminal, review that app's command-display and remembered-decision settings. Do not assume a terminal approval covers the GUI app.
 
-## Vault filtering
-
-If you have multiple Proton Pass vaults, **Settings → SSH** can limit which vaults are exposed through the proxy. Use this to keep unrelated keys out of SSH agent responses.
-
-## Troubleshooting
-
-If SSH cannot see your keys:
-
-1. Confirm **Settings → SSH → Enable SSH proxy** is on.
-2. Confirm `~/.ssh/config` points `IdentityAgent` to `~/.ssh/quick-access-agent.sock`.
-3. Confirm Proton Pass's own SSH agent is running and has keys available.
-4. Check the SSH status row in Quick Access settings.
-5. Clear remembered decisions if an old deny decision is blocking a workflow.
-
-If a GUI app behaves differently from Terminal, review the per-app command-display and remembered-decision settings in **Settings → SSH**.
-
-## Security notes
-
-- The proxy socket is local and owner-only.
-- Signing requests are gated by Touch ID unless covered by a remembered authorization decision; remembered denials reject the request without prompting.
-- Key material remains with Proton Pass's SSH agent; Quick Access gates access to signing rather than exporting private keys.
-
-## Related docs
-
-- [README](../README.md)
-- [Security policy](../SECURITY.md)
+The sockets are local and owner-only. Proton Pass's agent retains key material. Quick Access authorizes signing rather than copying private keys. See the [security policy](../SECURITY.md) for the shared authorization and requester-presentation limits.

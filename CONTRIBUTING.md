@@ -1,154 +1,158 @@
-# Contributing to Quick Access for Pass
+# Contribute to Quick Access for Pass
 
-Thanks for your interest in contributing.
+Use this guide to build the app, test a change, and open a pull request. Read [AGENTS.md](AGENTS.md) for the full architecture and repository constraints.
 
-This guide covers contribution workflow and expectations. For agent-specific repository instructions, see [AGENTS.md](AGENTS.md).
+## Build the app
 
-## Getting Started
+1. Fork the repository and clone your fork.
+2. Open `Quick Access for Pass.xcodeproj` in Xcode.
+3. Select the **Quick Access for Pass** scheme.
+4. Build and run with `⌘R`.
 
-1. Fork the repository and clone your fork
-2. Open `Quick Access for Pass.xcodeproj` in Xcode 26+
-3. Build and run (`⌘R`) — the app appears as a menu-bar icon
+The app appears in the menu bar. A separate Pass CLI installation is not required to build or test. Runtime secret access needs a working CLI session.
+
+Use these commands from the repository root:
 
 ```bash
-# Build (Release)
+# Build Release.
 make build
 
-# Build (Debug)
+# Build Debug.
 xcodebuild -scheme "Quick Access for Pass" -configuration Debug build
 
-# Run tests
+# Run the default test suite.
 xcodebuild -scheme "Quick Access for Pass" test
 ```
 
-You do not need `pass-cli` installed to build or run tests. It is only required for runtime functionality.
+Use Xcode 27 for the current CI toolchain. Keep source compatible with Xcode 26.6, which CodeQL requires. The [CI workflow](.github/workflows/ci.yml) uses the `xcode-27` preview runner. The [CodeQL workflow](.github/workflows/codeql.yml) selects Xcode 26.6 on `macos-26` because traced extraction does not support Xcode 27 or macOS 27.
 
-`make install` bundles the CLI and reuses the built app's signing certificate for both the bundled CLI and the host app. This preserves Xcode's certificate selection and keeps the host signer consistent with its embedded provisioning profile, even when Keychain contains multiple certificates with the same name. Automatic selection uses the certificate fingerprint to avoid encoding issues with accented names. An unsigned or ad-hoc-signed build requires an explicit override. To override selection, use `SIGN_IDENTITY="<certificate fingerprint or signing identity>" make install`; the override must match the host's provisioning profile and remain consistent with the embedded AutoFill extension's signing setup.
+## Install a development build
 
-## Submitting Changes
+`make install` builds the app, adds the bundled helpers, copies the app to `/Applications`, and launches it. Run that command only when you intend to replace your installed app.
 
-1. Create a branch from `main`
-2. Make your changes and add or update tests where applicable
-3. Update docs when behavior, architecture, setup, or security expectations change
-4. Ensure tests pass: `xcodebuild -scheme "Quick Access for Pass" test`
-5. Open a pull request against `main`
+The install step reuses the built host's signing certificate for the CLI helpers and host app. Automatic selection uses the certificate fingerprint, which avoids ambiguity between same-name certificates and encoding problems in accented names.
 
-### PR Title Conventions
-
-We use [Conventional Commits](https://www.conventionalcommits.org/) for PR titles:
-
-| Prefix | Use for |
-|---|---|
-| `feat:` | New feature |
-| `fix:` | Bug fix |
-| `docs:` | Documentation only |
-| `refactor:` | Code change that neither fixes a bug nor adds a feature |
-| `test:` | Adding or updating tests |
-| `chore:` | Build process, CI, or tooling changes |
-| `perf:` | Performance improvements |
-| `security:` | Security hardening |
-
-Example: `feat: add Large Type display for selected values`
-
-## Continuous Integration
-
-Tests run automatically on every PR via GitHub Actions. CI tests and release builds use GitHub's `xcode-27` preview runner and its default Xcode 27 toolchain. This image is currently a public preview and may have stability or queueing limitations. CodeQL stays on `macos-26` with Xcode 26.6 explicitly selected: [CodeQL traced extraction does not support Xcode 27/macOS 27](https://github.blog/changelog/2026-10-19-codeql-changes-for-macos-27-xcode-27-and-swift-6-4/). Keep source compatible with Xcode 26.6 for Swift analysis. Each Xcode selection step logs the installed version. Linux-only release jobs remain on `ubuntu-latest`. CI must pass before merging. It builds and tests without Apple signing secrets.
-
-### Release signing secrets
-
-The tag-triggered release workflow requires these repository secrets:
-
-- `APPLE_CERTIFICATE_P12` and `APPLE_CERTIFICATE_PASSWORD` — the Developer ID Application certificate and its password.
-- `APPLE_PROVISIONING_PROFILE` — base64 of the regenerated host Developer ID profile named `Quick Access for Pass - Developer ID`.
-- `APPLE_AUTOFILL_PROVISIONING_PROFILE` — base64 of the extension Developer ID profile named `Quick Access AutoFill - Developer ID`.
-- `APPLE_TEAM_ID`, `APPLE_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` — existing notarization credentials.
-- `HOMEBREW_TAP_TOKEN` — existing Homebrew update token.
-
-Encode each provisioning profile without line wrapping before adding it as a GitHub repository secret:
+For an unsigned or ad-hoc build, provide an explicit identity:
 
 ```bash
-base64 < profile.provisionprofile | tr -d '\n'
+SIGN_IDENTITY="<certificate fingerprint or signing identity>" make install
 ```
 
-The workflow reads profile names from the installed profiles, maps both bundle IDs during export, and verifies the signed host and embedded AutoFill extension before notarization. `APPLE_PROFILE_NAME` is no longer used.
+Use an identity that matches the host provisioning profile and the embedded AutoFill extension's signing configuration.
 
-## Code Guidelines
+## Prepare a change
 
-- **Swift 6 strict concurrency** — use `actor` for shared mutable state, `@MainActor` for UI and orchestration, and `Sendable` models for cross-actor data.
-- **Thin composition root** — keep `AppDelegate` focused on wiring; orchestration belongs in `SyncCoordinator`, `SSHProxyCoordinator`, `RunProxyCoordinator`, and `HealthCheckCoordinator`.
-- **No secrets on disk** — ordinary database tables store metadata only. Sync may temporarily load full item content from `pass-cli` to derive metadata; selected actions fetch current values on demand. Offline snapshots are the sole persisted-secret exception: users explicitly select individual items or whole vaults; fixtures must cover manual-only authorization without requiring a whole-vault selection, and must keep offline data out of SSH/Run proxies and the extension.
-- **Offline release authority has one owner** — repositories and the database own persisted selection authority and release proofs; the database-owned release authority orders non-secret invalidation against final release, while `SecretReleaseGuard` owns lifecycle validation. Catalog mutation fixtures are test-only; production must not bypass audited repository/database writers.
-- **Run proxy clients must be verified** — maintain `PeerVerifier` protections; unverified local peers must stay rejected.
-- **AutoFill remains IPC-only** — protocol v3 may expose at most 20 in-memory, non-secret candidates to the extension. The host alone owns descriptor and app-association storage, the database, Keychain, Pass CLI, unlock UI, and secret resolution; never add those capabilities to the extension.
-- **Tests use Swift Testing** — use `@Suite`, `@Test`, `#expect`, and `#require`, not XCTest.
-- **Single external dependency** — [GRDB.swift](https://github.com/groue/GRDB.swift) via Swift Package Manager.
-- **Accessibility first** — icon-only buttons need `.accessibilityLabel`, decorative images need `.accessibilityHidden(true)`, selection uses `.accessibilityAddTraits(.isSelected)`, and state changes should announce via `AccessibilityNotification.Announcement`.
-- **Keep docs current** — update `README.md`, `SECURITY.md`, and `AGENTS.md` when relevant.
+1. Create a branch from `main`.
+2. Add or update regression tests for the behavior you change.
+3. Keep shared mutable state in an `actor` and UI orchestration on `@MainActor`.
+4. Use `Sendable` values across actor boundaries.
+5. Keep `AppDelegate` focused on composition rather than lifecycle logic.
+6. Update documentation when behavior, setup, architecture, or security guarantees change.
 
-## Localization
+Use Swift Testing with `@Suite`, `@Test`, `#expect`, and `#require`. Do not add XCTest tests. Prefer real implementations with controlled inputs over broad mocks. Use the existing GRDB.swift dependency rather than adding a package without discussion.
 
-`Quick Access for Pass/Resources/Localizable.xcstrings` is the single English/Czech catalog. Both the host and AutoFill extension compile it into their own bundles; keep extension resource membership when editing the project. Do not duplicate the catalog or load translations from the installed host app.
+For accessibility, label icon-only buttons with `.accessibilityLabel`. Hide decorative images with `.accessibilityHidden(true)`. Mark selection with `.accessibilityAddTraits(.isSelected)` and announce asynchronous state changes with `AccessibilityNotification.Announcement`.
 
-Translate visible text, accessibility labels/help, announcements, statuses, and presented errors. Prefer generated `LocalizedStringResource` symbols for new messages, with manual extraction state and translator comments for interpolated values. Native controls and runtime `String` values need explicit localization; `Text(String)` does not localize them automatically. Preserve usernames, titles, domains, commands, and other user/technical values verbatim. Honor the view locale when formatting dynamic presentation or updating AppKit controls.
+## Preserve secret and authorization boundaries
 
-Use catalog plural forms rather than English suffixes, and test Czech `one`/`few`/`other` with counts 0, 1, 2, and 5. Preserve printf argument identities and types, including positional arguments. English literal keys may use source-language fallback; Czech units must be nonempty and marked translated.
+Keep fetched Pass content out of ordinary database tables, FTS, logs, and presentation metadata. Sync may hold full CLI items temporarily to derive metadata. Ordinary live actions fetch values on demand.
 
-After building both targets, verify the catalog against compiler extraction and actual compiled `.strings`/`.stringsdict` resources in both bundles:
+Persist selected offline secrets only in encrypted `offlineSnapshots`. Cover individual selection without whole-vault consent in tests. Keep snapshots out of SSH and Run proxies. The AutoFill extension may receive a requested password or TOTP value through the verified host broker, but never cache access or diagnostics.
+
+Keep selection authority and release proofs in the repository and database. Use the database-owned release authority for invalidation ordering and `SecretReleaseGuard` for final lifecycle validation. Put catalog-mutation fixture helpers in the test target only.
+
+Retain `PeerVerifier` checks for Run clients. Keep the AutoFill extension IPC-only. The host owns Pass CLI, unlock UI, Keychain access, storage, and resolution. Protocol v3 allows at most 20 in-memory, non-secret candidate records.
+
+Remembered Run command text is a separate persistence exception. Caller-supplied arguments can contain credentials. Preserve the encrypted-table restriction and do not describe that text as redacted or secret-free.
+
+Read [SECURITY.md](SECURITY.md) before changing these boundaries.
+
+## Add reliable tests
+
+Use in-memory `DatabaseManager` instances for persistence logic. Use a temporary encrypted pool when a test must verify `DatabasePool` scheduling.
+
+Keep test load separate from security deadlines:
+
+- Use `FixtureSetupExecutor` when synchronous database setup causes measured contention. Keep test bodies parallel and preserve encryption, migrations, deadlines, and assertions.
+- When a fake AutoFill clock is needed, drive its watchdog sleeper with the same `ManualDeadlineClock`. Keep native CLI deadline tests on real time.
+- Observe delayed diagnostics after the deadline-bound operation returns, not inside its result path.
+- For native deadline fixtures, use `CLIRunnerTestTaskExecutor` when needed to keep caller continuations off a busy cooperative pool. Forward the original absolute deadline. Do not replace `MainActor` isolation or production executors.
+- Give native timeout fixtures a finite exit path. Do not busy-spin or leave inherited pipe writers running. After TERM, use a small builtin write to cross an output cap rather than requiring a child launch or large transfer.
+- Keep AppKit rendering on `MainActor` and move expensive pure pixel comparisons off the UI thread. Inject outside-click monitoring instead of consuming desktop input.
+
+Add regressions for migrations, concurrency, recovery, and security changes. For SSH or Run changes, cover probes and lifecycle behavior.
+
+### Test keyboard focus
+
+The hosted search-focus test needs exclusive access to an unlocked desktop. Run it alone, without interacting with other apps:
+
+```bash
+TEST_RUNNER_QA_RUN_FOCUS_UI_TESTS=1 xcodebuild -scheme "Quick Access for Pass" test \
+	-only-testing:"Quick Access for Pass Tests/SearchFocusRequestTests"
+```
+
+Keep deterministic focus-retry and native field-editor checks in the default suite.
+
+### Test AutoFill
+
+Use injected fakes or temporary fixtures. Never access real credentials, Keychain items, or the production database.
+
+Cover the 20-candidate limit, nonempty typed global search, and explicit host-local app associations. Keep offline resolution in the host broker and keep selection, source, and cache diagnostics out of the extension.
+
+For a release change, have the owner validate an isolated account with non-production fixtures. Cover Safari, a native app, exact-subdomain ranking before parent domains, typed global search, and association opt-in. Also cover repeat ranking, host unlock, Cancel, an unavailable host, and a passkey request that displays the password and TOTP picker. Do not inspect or record credential values.
+
+## Localize interface changes
+
+Use `Quick Access for Pass/Resources/Localizable.xcstrings` as the shared English and Czech catalog. Keep its resource membership in both targets. Do not duplicate the catalog or load translations from an installed host app.
+
+Localize visible text, native placeholders, accessibility labels and help, announcements, statuses, and presented errors. Prefer generated `LocalizedStringResource` symbols for new messages. Add manual extraction state and translator comments for interpolated values.
+
+Localize native controls and runtime `String` values explicitly. `Text(String)` does not localize them automatically. Preserve titles, usernames, domains, commands, and technical values verbatim. Pass the view locale to formatters and native-control updates.
+
+Use catalog plural forms, not English suffixes. Test English and Czech counts 0, 1, 2, and 5. Preserve printf argument positions and types. Keep Czech units nonempty and marked translated. Do not change global locale preferences in tests.
+
+Build both targets and keep `LocalizationBundleTests` plus native-control, formatter, accessibility, and value-preservation tests. Compiler extraction alone misses runtime strings.
+
+The expected standard validator and fixture suite are absent from this checkout. When those files are present, run:
 
 ```bash
 xcodebuild -scheme "Quick Access for Pass" -derivedDataPath build/ build
 python3 -m unittest discover -s scripts/tests -p 'test_verify_localizations.py'
 python3 scripts/verify-localizations.py \
-  --catalog "Quick Access for Pass/Resources/Localizable.xcstrings" \
-  --stringsdata-root build/Build/Intermediates.noindex \
-  --app "build/Build/Products/Debug/Quick Access for Pass.app"
+	--catalog "Quick Access for Pass/Resources/Localizable.xcstrings" \
+	--stringsdata-root build/Build/Intermediates.noindex \
+	--app "build/Build/Products/Debug/Quick Access for Pass.app"
 ```
 
-CI runs this gate after building. It cannot discover raw strings that bypass compiler extraction: keep runtime locale tests for native controls, dynamic formatting, accessibility, and value preservation as well as `LocalizationBundleTests` for independent bundle lookup.
+Report missing validation tools as a limitation. A few compiled-string checks do not replace catalog, compiler-extraction, and independent-bundle validation.
 
-## Project Layout
+## Open a pull request
 
-```text
-Quick Access for Pass/
-├── Quick Access for Pass/           # Main app target
-│   ├── Environment/                # SwiftUI environment plumbing
-│   ├── Extensions/                 # Utility extensions and defaults keys
-│   ├── Models/                     # Sendable data models
-│   ├── Services/                   # Business logic
-│   │   ├── Concurrency/            # Small concurrency helpers
-│   │   ├── Health/                 # Health probing + auto-heal
-│   │   ├── Logging/                # AppLogger
-│   │   ├── RunProxy/               # Run proxy subsystem
-│   │   ├── SSHAgent/               # SSH agent proxy subsystem
-│   │   └── Security/               # Peer verification and related security code
-│   ├── ViewModels/                 # UI state and actions
-│   └── Views/                      # SwiftUI + AppKit UI
-├── qa-run/                         # Bundled CLI helper for Run Proxy
-└── Quick Access for Pass Tests/    # Swift Testing suite
+1. Run the full test command and report every failure.
+2. Run `git diff --check`.
+3. Review the changed code and documentation.
+4. Open a pull request against `main`.
+
+Use a Conventional Commits title, such as `fix: preserve offline copies after a failed refresh`. Use `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `perf:`, or `security:` to describe the change.
+
+Keep the description short. State what changed, why, and how you checked it. Link long reports instead of pasting logs. Do not describe a focused test pass as a passing full suite. CI must pass before merge.
+
+## Configure release signing
+
+For the tag-triggered [release workflow](.github/workflows/release.yml), configure these repository secrets:
+
+- `APPLE_CERTIFICATE_P12` and `APPLE_CERTIFICATE_PASSWORD` for the Developer ID Application certificate.
+- `APPLE_PROVISIONING_PROFILE` for the host profile named `Quick Access for Pass - Developer ID`.
+- `APPLE_AUTOFILL_PROVISIONING_PROFILE` for the extension profile named `Quick Access AutoFill - Developer ID`.
+- `APPLE_TEAM_ID`, `APPLE_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` for notarization.
+- `HOMEBREW_TAP_TOKEN` for the Homebrew update.
+
+Encode each provisioning profile without line wrapping:
+
+```bash
+base64 < profile.provisionprofile | tr -d '\n'
 ```
 
-## Testing Notes
+Use the installed profile names. The workflow maps both bundle IDs during export and checks the signed host and extension before notarization. Do not use the retired `APPLE_PROFILE_NAME` secret.
 
-- Use in-memory `DatabaseManager` instances for persistence tests
-- When profiling shows synchronous database fixture construction causing contention, use `FixtureSetupExecutor` to bound that setup work. Test bodies remain parallel; do not weaken encryption, migrations, security deadlines, or assertions to accommodate fixture load.
-- Prefer real implementations with controlled inputs over broad mocking
-- Keep fixture scheduling separate from security deadlines: when substituting an AutoFill clock, drive its watchdog sleeper from the same clock (`ManualDeadlineClock`), while retaining real-time native CLI deadline tests. Observe delayed diagnostics after the deadline-bound operation returns, never inside its result path.
-- Deadline-sensitive native fixtures may use the test-owned `CLIRunnerTestTaskExecutor` to keep caller/default-actor continuations off the busy cooperative pool. Keep real deadlines unchanged and forward the original absolute deadline through every native layer; executor preference must not replace `MainActor` isolation or production CLI executors.
-- Native timeout fixtures must have a finite escape without busy-spinning or leaving inherited writers. Arrange overflow so only a small builtin write crosses the accepted cap after TERM; do not require a child launch or a large transfer to fit inside termination grace.
-- Keep AppKit rendering on `MainActor`, but run expensive, pure pixel comparisons off the UI thread. Panel tests should inject outside-click monitoring rather than consume live desktop input.
-- The hosted search keyboard-focus integration test requires exclusive desktop focus and is opt-in: other parallel tests can activate windows or delay the main actor beyond its production focus deadline. Run it alone on an unlocked desktop, without interacting with other apps:
-  ```bash
-  TEST_RUNNER_QA_RUN_FOCUS_UI_TESTS=1 xcodebuild -scheme "Quick Access for Pass" test \
-    -only-testing:"Quick Access for Pass Tests/SearchFocusRequestTests"
-  ```
-  The deterministic focus-retry and native field-editor checks remain in the default suite.
-- Add regression tests for migration changes, concurrency fixes, health/recovery logic, and security-sensitive behavior
-- If you change SSH or Run proxy behavior, update or add probe/lifecycle tests as needed
-- AutoFill tests must use injected fakes or temporary/in-memory fixtures only; never access real credentials, Keychain items, or the real database. Candidate metadata stays capped at 20 and memory-only; test typed global search only after non-empty input and explicit host-local native-app association behavior. Offline AutoFill fallback is host-broker-only; the extension must never receive selection/source/cache diagnostics.
-- For an AutoFill release change, complete owner-operated validation on an isolated account with non-production fixtures. Cover Safari and a native app, exact subdomain-before-parent ranking, typed global search, explicit association opt-in and repeat ranking, host unlock, Cancel, unavailable host, and a passkey request that shows password/TOTP picker content rather than a blank panel. Do not inspect or record credential values.
-
-## Documentation
-
-- [README.md](README.md) — user-facing overview and setup
-- [SECURITY.md](SECURITY.md) — security reporting and posture
-- [AGENTS.md](AGENTS.md) — coding-agent instructions for this repository
+For project structure and coordinator responsibilities, see [AGENTS.md](AGENTS.md#project-layout). For private vulnerability reports, use the [security policy](SECURITY.md#reporting-a-vulnerability) rather than a public issue.

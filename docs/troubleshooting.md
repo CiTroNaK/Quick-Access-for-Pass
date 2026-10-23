@@ -1,155 +1,117 @@
-# Troubleshooting
+# Troubleshoot login and sync
 
-This page collects practical checks for common Quick Access for Pass issues.
+Use these checks when Quick Access cannot sign in, sync an item, or copy a value. Keep command output private. CLI item output can contain passwords, notes, TOTP seeds, and other secrets.
 
-## Find the `pass-cli` Quick Access is using
+## Find the selected CLI
 
-Quick Access chooses a system `pass-cli` first, then falls back to the
-bundled helper in signed app releases. You can see the selected source in
-**Settings → Pass CLI**.
+1. Open **Settings → Pass CLI**.
+2. Check the selected source, version, and executable path.
+3. Use that executable for diagnosis, not whichever `pass-cli` your shell finds.
 
-If the signed app is installed in `/Applications` and Quick Access is using the
-bundled CLI, run the matching helper directly:
+With **Auto (recommended)**, an installed CLI takes precedence over the bundled fallback. A custom path has no fallback. See the [selection reference](pass-cli.md#cli-selection-order).
 
-```bash
-APP="/Applications/Quick Access for Pass.app"
-
-# Apple Silicon Macs
-"$APP/Contents/Helpers/pass-cli-arm64" --version
-
-# Intel Macs
-"$APP/Contents/Helpers/pass-cli-x86_64" --version
-```
-
-To pick the right helper automatically:
+If Settings selects a bundled CLI, use its versioned resource path. Set `VERSION` to the selected version and change `APP` if needed:
 
 ```bash
 APP="/Applications/Quick Access for Pass.app"
+VERSION="2.5.1"
 
 if [ "$(uname -m)" = "arm64" ]; then
-  PASS_CLI="$APP/Contents/Helpers/pass-cli-arm64"
+	PASS_CLI="$APP/Contents/Resources/ProtonPassCLI/$VERSION/pass-cli-arm64"
 else
-  PASS_CLI="$APP/Contents/Helpers/pass-cli-x86_64"
+	PASS_CLI="$APP/Contents/Resources/ProtonPassCLI/$VERSION/pass-cli-x86_64"
 fi
 
 "$PASS_CLI" --version
 ```
 
-If you installed Quick Access somewhere else, replace the `APP` value with the
-actual app path.
+For an installed or custom CLI, assign `PASS_CLI` to the exact path shown in Settings.
 
-## Sync completed with skipped items
+## Restore login
 
-Quick Access stores only metadata locally and fetches secrets from Proton Pass
-through `pass-cli`. During sync, a malformed or newly unsupported item shape can
-fail to decode while the rest of the vault still syncs. In that case the main
-Quick Access panel stays usable and the right sync-status area shows **Show sync
-errors**.
+If the panel shows **Login**, select it and complete the browser flow. You can also use **Settings → Pass CLI → Log In to Proton Pass CLI…**.
 
-Click **Show sync errors** to open the sync diagnostics window. The window is
-separate from the main Quick Access panel, so it stays visible if you close the
-main panel. If a later sync succeeds while the diagnostics window is open, the
-window stays open, marks the issue as resolved, and keeps the last diagnostics
-available for copying or reporting.
+If a saved-token attempt fails, use **Update PAT** or choose browser login explicitly. Do not assume a local decryption error means the token expired.
 
-Use **Copy Inspect Command** first. It copies a ready-to-run command that uses
-the same `pass-cli` executable Quick Access selected, including the bundled
-helper path when the bundled CLI is active.
+For **Local CLI session could not be decrypted**, use the offered **Reset CLI Session and Log In…** action. Read its shared-session warning before confirming. Cancelling leaves the session unchanged. Avoid deleting CLI files or keys yourself.
 
-For a skipped item with a vault `share_id` and `item_id`, the copied command
-looks like:
+The [authentication reference](pass-cli.md#personal-access-token-support) explains automatic token recovery, browser repair, and cases that do not allow cleanup.
 
-```bash
-"$PASS_CLI" item view \
-  --share-id="<share_id>" \
-  --item-id="item-7" \
-  --output json
-```
+## Inspect a skipped item
 
-The `=` form is intentional: some Proton Pass IDs can begin with `-`, and
-binding option values with `--share-id=...` / `--item-id=...` prevents
-`pass-cli` from interpreting those IDs as new command-line flags.
+A malformed or unsupported item can fail to decode while the rest of the vault syncs. The panel remains usable and shows **Show sync errors**.
 
-The copied report still includes technical summaries for support, for example:
+1. Open **Show sync errors**.
+2. Find the skipped-item row.
+3. Select **Copy Inspect Command**.
+4. Review the command before pasting it into Terminal.
+5. Run the command locally and inspect the reported field.
 
-```text
-vault=Personal share_id=<share_id> index=7 item_id=item-7 \
-  path=items.Index 7.content reason=expected String
-```
+The copied command uses the selected CLI, including its bundled version path. With an item ID, it opens that item by `share_id` and `item_id`. Without an ID, it lists the vault and names the zero-based array index to inspect.
 
-Use the command output to inspect the item, then fix the item in Proton Pass or
-with `pass-cli`. If the item looks valid but Quick Access still skips it, share
-the sync error message and a redacted copy of the CLI JSON output with the
-Quick Access developer so the parser can be fixed. The **Copy & Report** button
-in the sync diagnostics window is the easiest way to start that report.
-
-Redact secrets, one-time codes, recovery codes, notes, URLs, usernames, email
-addresses, and any other private data before sharing.
-
-If editing the item does not help, another option is to recreate the item or
-create a duplicate in Proton Pass and check whether the new copy syncs. Be
-careful not to delete anything important: verify the replacement contains every
-field, note, attachment, passkey, and 2FA detail you still need before removing
-or archiving the original item.
-
-### 1. Inspect the item from Quick Access
-
-Open **Show sync errors**, find the affected skipped-item row in the sync
-diagnostics window, then click **Copy Inspect Command**. Paste the copied
-command into Terminal.
-
-If the item ID was available, the command opens the exact item by `share_id` and
-`item_id`. If the item ID was not available, the command lists the vault JSON
-and includes a comment telling you which zero-based item index to inspect.
-
-### 2. Manual fallback commands
-
-If you need to build the command yourself, prefer `share_id` plus `item_id`:
+A typical command is:
 
 ```bash
 "$PASS_CLI" item view \
-  --share-id="<share_id>" \
-  --item-id="item-7" \
-  --output json
+	--share-id="<share_id>" \
+	--item-id="item-7" \
+	--output json
 ```
 
-If the skipped summary does not include `item_id`, list the vault in JSON and
-inspect the reported `index`:
+Keep the `=` between each option and its value. Proton IDs can start with `-`, and separate arguments can be mistaken for options.
+
+If only an array index is available, inspect it without writing the JSON to a temporary file:
 
 ```bash
 "$PASS_CLI" item list \
-  --share-id="<share_id>" \
-  --output json > /tmp/pass-items.json
-jq '.items[7]' /tmp/pass-items.json
+	--share-id="<share_id>" \
+	--output json | jq '.items[7]'
 ```
 
-The index is zero-based because it comes from the JSON array returned by
-`pass-cli item list`.
+This command requires `jq` and prints private item data in Terminal. Index 7 refers to the eighth item in that returned JSON array.
 
-### 3. Fix the item
+## Correct the item
 
-Most sync skips are caused by an item field that `pass-cli` returned in an
-unexpected shape. The copied report includes `path=` and `reason=` to identify
-the field that failed to parse.
+Use the report's `path=` and `reason=` fields to find the parsing problem. A report can include:
 
-Fix the item in the Proton Pass app or web UI, then run sync again from Quick
-Access. For fields that Proton Pass CLI can update, you can also use:
+```text
+vault=Personal share_id=<share_id> index=7 item_id=item-7 path=items.Index 7.content reason=expected String
+```
+
+1. Correct the field in Proton Pass.
+2. Run sync again in Quick Access.
+3. If the item still fails, prepare a redacted report rather than deleting the original.
+
+For a non-sensitive field supported by the CLI, you can use:
 
 ```bash
 "$PASS_CLI" item update \
-  --vault-name "Personal" \
-  --item-id="item-7" \
-  --field "title=Corrected title"
+	--vault-name "Personal" \
+	--item-id="item-7" \
+	--field "title=Corrected title"
 ```
 
-Be careful when writing secrets in shell commands: commands can be stored in
-shell history. Prefer the Proton Pass UI for sensitive edits unless you know
-your shell history setup is safe.
+For sensitive edits, prefer the Proton Pass UI. Shell history can retain command-line values.
 
-## Copy diagnostics for support
+If recreating or duplicating the item resolves the problem, verify the replacement before removing or archiving the original. Check every field, note, attachment, passkey, and two-factor detail you need.
 
-For sync errors or skipped items, open **Show sync errors** and use **Copy
-Report** in the sync diagnostics window. Review the copied text for anything
-sensitive before sharing it. Quick Access sanitizes common tokens, login URLs,
-email addresses, `pass://` URIs, and home-directory paths, but you should still
-inspect the report first.
+## Check an unavailable alias email
+
+**Copy Alias** needs a nonblank top-level `alias_email` from Pass CLI 2.4.0 or later. It does not fall back to the title or nested `Alias.email`.
+
+If the app shows **Alias email is unavailable.**, check the selected CLI version and inspect the item locally. The failed action leaves the clipboard and panel unchanged.
+
+An old selected offline alias refreshes on ordinary sync once usable email evidence is available. If you need to force that selected item's refresh, use **Retry** in **Settings → Offline**. See [Offline Mode](offline-mode.md#content-revisions).
+
+## Share diagnostics safely
+
+1. Open **Show sync errors**.
+2. Select **Copy Report**, or use **Copy & Report** to begin a report.
+3. Review the text and any CLI JSON before sharing.
+4. Remove secrets and private identifiers.
+
+Remove passwords, TOTP seeds and codes, recovery codes, notes, URLs, usernames, email addresses, and other private data. Diagnostic sanitization covers common tokens, login URLs, email addresses, `pass://` URIs, and home paths, but does not replace your review.
+
+The diagnostics window stays open if you close the search panel. A later successful sync marks the issue resolved and keeps the last diagnostics available.
+
+For a suspected security vulnerability, use [private security reporting](../SECURITY.md#reporting-a-vulnerability), not a public support issue.
