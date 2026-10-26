@@ -51,6 +51,15 @@ final class QuickAccessViewModel {
     let openURL: URLOpener
     private var searchTask: Task<Void, Never>?
     private var clearSearchTask: Task<Void, Never>?
+    var folderLocationsByItemID: [String: FolderLocationPresentation] = [:]
+    var folderAvailability: FolderFeatureAvailability = .checking
+    let folderLocationLoader: FolderLocationLoader
+    @ObservationIgnored var folderLocationsTask: Task<Void, Never>?
+    @ObservationIgnored var folderFeatureObservationTask: Task<Void, Never>?
+    @ObservationIgnored var folderLocationsStamp: FolderFeatureStamp?
+    @ObservationIgnored var folderObservedStamp: FolderFeatureStamp?
+    @ObservationIgnored var folderResultsQuery: String?
+    @ObservationIgnored var folderLoadGeneration = 0
     var inFlightCopy: Task<Void, Never>?
     var inFlightLargeType: Task<Void, Never>?
     var inFlightOfflineOperation: Task<Void, Never>?
@@ -76,7 +85,8 @@ final class QuickAccessViewModel {
         },
         openURL: @escaping URLOpener = { url in
             NSWorkspace.shared.open(url)
-        }
+        },
+        folderLocationLoader: FolderLocationLoader? = nil
     ) {
         self.searchService = searchService
         self.cliService = cliService
@@ -90,6 +100,9 @@ final class QuickAccessViewModel {
         self.largeTypePresentation = largeTypePresentation
         self.writeStringToPasteboard = writeStringToPasteboard
         self.openURL = openURL
+        self.folderLocationLoader = folderLocationLoader ?? { itemIDs in
+            try await searchService.loadFolderLocations(for: itemIDs)
+        }
         if let secretResolver {
             self.secretResolver = secretResolver
         } else if let fetchItem {
@@ -101,11 +114,19 @@ final class QuickAccessViewModel {
             guard let self, let item = self.detailItem else { return }
             self.reconcileDetailSelection(for: item)
         }
+        startObservingFolderFeature()
+    }
+
+    deinit {
+        folderLocationsTask?.cancel()
+        folderFeatureObservationTask?.cancel()
     }
 
     // MARK: - Search
 
     private func scheduleSearch() {
+        invalidateFolderLocations()
+        folderResultsQuery = nil
         searchTask?.cancel()
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(100))
@@ -115,6 +136,8 @@ final class QuickAccessViewModel {
     }
 
     func performSearch(query: String) {
+        invalidateFolderLocations()
+        folderResultsQuery = nil
         detailItem = nil
         isShowingSkippedSyncItems = false
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
@@ -127,6 +150,8 @@ final class QuickAccessViewModel {
             items = try searchService.search(query: query)
             selectedIndex = 0
             errorMessage = nil
+            folderResultsQuery = query
+            refreshFolderLocations()
         } catch {
             syncError = nil
             syncProgress = nil

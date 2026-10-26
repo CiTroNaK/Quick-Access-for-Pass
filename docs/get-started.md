@@ -43,6 +43,10 @@ For a saved personal access token or an unreadable CLI session, see [Pass CLI au
 
 To choose a field, press `→` to open the item details. Press `⇧Return` on a value to show it in Large Type.
 
+<p align="center">
+  <img src="images/large-type.png" alt="A selected value displayed in Large Type" width="640">
+</p>
+
 The [shortcut reference](../README.md#search-and-copy) lists the default keys. Change action shortcuts in **Settings → Shortcuts**.
 
 ## Enable optional integrations

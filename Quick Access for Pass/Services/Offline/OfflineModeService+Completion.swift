@@ -13,13 +13,9 @@ extension OfflineModeService {
 
     /// A scope is blocked before yielding. Drain only short metadata ownership,
     /// never fetch lifetimes; revoke persisted authority before cancellation/join.
-    func revoke(_ scope: WorkScope, mutation: @Sendable () async throws -> Void) async throws {
-        let releaseScope: OfflineReleaseMutationScope
-        switch scope {
-        case .item(let id): releaseScope = .itemID(id)
-        case .vault(let id): releaseScope = .vaultOnly(vaultID: id)
-        case .all: releaseScope = .all
-        }
+    func revoke(_ scope: WorkScope, removingCoverage: OfflineAutomaticCoverage? = nil,
+                mutation: @Sendable () async throws -> Void) async throws {
+        let releaseScope = releaseMutationScope(for: scope, removingCoverage: removingCoverage)
         let authority = repository.releaseAuthority
         let admission = authority.beginMutation(releaseScope)
         defer { authority.finishMutation(admission, outcome: .admissionFinished) }
@@ -31,22 +27,18 @@ extension OfflineModeService {
         while permits.values.contains(where: { scope.overlaps($0.scope) || scope.overlaps(.vault($0.vaultID)) }) {
             await withCheckedContinuation { permitDrainWaiters.append($0) }
         }
-        // Only vault deselection needs survivor metadata. Capture it after
+        // Automatic-policy deselection needs survivor metadata. Capture it after
         // promotions drain and before mutation; read failure must delete nothing.
         // Conflicting admissions stay blocked throughout this transaction boundary.
         let survivors: Set<OfflineSnapshotKey>
-        if case .vault(let vaultID) = scope {
-            do {
-                survivors = Set(try await repository.offlineItemSelections().filter {
-                    $0.vaultId == vaultID && $0.isManuallySelected
-                }.map {
-                    OfflineSnapshotKey(vaultId: $0.vaultId, itemId: $0.itemId,
-                                       schemaVersion: OfflineSnapshotLimits.schemaVersion)
-                })
-            } catch { throw Error.persistenceFailed }
-        } else {
-            survivors = []
-        }
+        do {
+            switch releaseScope {
+            case .vaultOnly(let vaultID): survivors = try await repository.selectionKeysSurviving(removal: .vault(vaultID))
+            case .folderOnly(let vaultID, let folderID):
+                survivors = try await repository.selectionKeysSurviving(removal: .folder(vaultID: vaultID, folderID: folderID))
+            default: survivors = []
+            }
+        } catch { throw Error.persistenceFailed }
         do { try await mutation() } catch { throw Error.persistenceFailed }
         let scheduler = self.scheduler
         if case .all = scope {
@@ -60,6 +52,25 @@ extension OfflineModeService {
         let revoked = Set(knownKeys.filter { scope.contains($0) && !survivors.contains($0) })
         await scheduler?.invalidate(revoked)
         submittedKeys.subtract(revoked)
+    }
+
+    /// Derives metadata-only revocation intent synchronously, before admission can yield.
+    private func releaseMutationScope(
+        for scope: WorkScope, removingCoverage: OfflineAutomaticCoverage?
+    ) -> OfflineReleaseMutationScope {
+        var releaseScope: OfflineReleaseMutationScope
+        switch scope {
+        case .item(let id): releaseScope = .itemID(id)
+        case .vault(let id): releaseScope = .vaultOnly(vaultID: id)
+        case .all: releaseScope = .all
+        }
+        if let removingCoverage {
+            switch removingCoverage {
+            case .vault(let id): releaseScope = .vaultOnly(vaultID: id)
+            case .folder(let id, let folder): releaseScope = .folderOnly(vaultID: id, folderID: folder)
+            }
+        }
+        return releaseScope
     }
 
     func prepareForMetadataReset() async throws {

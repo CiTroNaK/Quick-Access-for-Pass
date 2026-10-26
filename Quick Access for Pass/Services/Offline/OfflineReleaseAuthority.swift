@@ -9,36 +9,84 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
         var proof: OfflineReleaseProof?
         var isValid = true
         var isConsumed = false
-        var requiresManualSelection = false
+        var coverageRestrictions = OfflineCoverageRestrictions()
         var requiredItemType: ItemType?
         var committedPromotionGeneration: UUID?
+        var unboundAutomaticPromotion: OfflineAutomaticPromotion?
 
         mutating func apply(_ scope: OfflineReleaseMutationScope) {
             guard isValid else { return }
-            if let proof {
+            // Bound snapshot-specific invalidation remains revision/digest specific.
+            if let proof, case .snapshot = scope {
                 if scope.matches(proof) { isValid = false }
                 return
             }
-            switch scope.preBindConstraint(for: key) {
-            case .none:
-                break
-            case .invalidate:
-                isValid = false
-            case .requiresManualSelection:
-                requiresManualSelection = true
-            case .itemType(let type):
-                if let requiredItemType, requiredItemType != type { isValid = false } else { requiredItemType = type }
+            apply(scope.preBindConstraint(for: key))
+            if let proof {
+                self.proof = restrictingCoverage(of: proof)
+                if !coverageRestrictions.allows(proof) || (requiredItemType != nil && requiredItemType != proof.itemType) {
+                    isValid = false
+                }
+            }
+            if let promotion = unboundAutomaticPromotion {
+                unboundAutomaticPromotion = OfflineAutomaticPromotion(key: key, selectionGeneration: promotion.selectionGeneration,
+                    coverage: coverageRestrictions.permittedSources(promotion.coverage, vaultID: key.vaultId))
             }
         }
 
-        func advancingPromotion(_ proof: OfflineReleaseProof) -> OfflineReleaseProof {
-            guard committedPromotionGeneration == proof.selectionGeneration else { return proof }
-            return Self.manuallySelected(proof)
+        /// Applies only bounded value constraints, under the caller's existing mutex acquisition.
+        private mutating func apply(_ constraint: OfflineReleaseMutationScope.PreBindConstraint) {
+            switch constraint {
+            case .none: break
+            case .invalidate: isValid = false
+            case .excludesVault: coverageRestrictions.excludeVault()
+            case .excludesFolder(let id): coverageRestrictions.excludeFolder(id)
+            case .itemType(let type): require(type)
+            case .itemTypeAndFolders(let type, let ids):
+                require(type)
+                coverageRestrictions.restrictFolders(to: ids)
+            }
+        }
+
+        func restrictingCoverage(of proof: OfflineReleaseProof) -> OfflineReleaseProof {
+            proof.replacingCoverage(coverageRestrictions.permittedSources(proof.automaticCoverage, vaultID: key.vaultId))
+        }
+
+        private mutating func require(_ type: ItemType) {
+            if let requiredItemType, requiredItemType != type { isValid = false } else { requiredItemType = type }
+        }
+
+        mutating func advancingPromotion(_ proof: OfflineReleaseProof) -> OfflineReleaseProof {
+            var result = proof
+            if let promotion = unboundAutomaticPromotion {
+                guard promotion.selectionGeneration == proof.selectionGeneration else {
+                    isValid = false
+                    return proof
+                }
+                result = proof.replacingCoverage(proof.automaticCoverage.union(promotion.coverage))
+                unboundAutomaticPromotion = nil
+            }
+            if committedPromotionGeneration == proof.selectionGeneration { result = Self.manuallySelected(result) }
+            return result
+        }
+
+        mutating func promote(_ promotion: OfflineAutomaticPromotion) {
+            guard isValid else { return }
+            if let proof {
+                guard proof.selectionGeneration == promotion.selectionGeneration else { return }
+                self.proof = proof.replacingCoverage(proof.automaticCoverage.union(promotion.coverage))
+            } else if let previous = unboundAutomaticPromotion, previous.selectionGeneration == promotion.selectionGeneration {
+                unboundAutomaticPromotion = OfflineAutomaticPromotion(key: key, selectionGeneration: promotion.selectionGeneration,
+                    coverage: previous.coverage.union(promotion.coverage))
+            } else {
+                unboundAutomaticPromotion = promotion
+            }
+            // Apply the gain now, never replay it after a subsequent revocation.
+            coverageRestrictions.admitCommittedGain(promotion.coverage, vaultID: key.vaultId)
         }
 
         static func manuallySelected(_ proof: OfflineReleaseProof) -> OfflineReleaseProof {
-            OfflineReleaseProof(identity: proof.identity, selectionGeneration: proof.selectionGeneration,
-                                isManuallySelected: true, itemType: proof.itemType, ciphertextDigest: proof.ciphertextDigest)
+            proof.replacingCoverage(proof.automaticCoverage, manuallySelected: true)
         }
     }
 
@@ -66,8 +114,8 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
             guard var record = state.captures[capture.registrationID], record.isValid,
                   !record.isConsumed else { throw OfflineReleaseError.revoked }
             let effective = record.advancingPromotion(proof)
-            guard effective.identity.key == record.key,
-                  !record.requiresManualSelection || effective.isManuallySelected,
+            guard record.isValid, effective.identity.key == record.key,
+                  record.coverageRestrictions.allows(effective),
                   record.requiredItemType == nil || record.requiredItemType == effective.itemType,
                   record.proof == nil || record.proof == effective,
                   !state.pending.values.contains(where: { $0.matches(effective) }) else {
@@ -75,7 +123,7 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
                 state.captures[capture.registrationID] = record
                 throw OfflineReleaseError.revoked
             }
-            record.proof = effective
+            record.proof = record.restrictingCoverage(of: effective)
             state.captures[capture.registrationID] = record
         }
     }
@@ -87,7 +135,8 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
             guard var record = state.captures[capture.registrationID], record.isValid,
                   !record.isConsumed, let initial = record.proof else { throw OfflineReleaseError.revoked }
             let effective = record.advancingPromotion(proof)
-            guard initial.identity == effective.identity,
+            guard record.isValid, record.coverageRestrictions.allows(effective),
+                  initial.identity == effective.identity,
                   initial.ciphertextDigest == effective.ciphertextDigest,
                   initial.selectionGeneration == effective.selectionGeneration,
                   initial.itemType == effective.itemType,
@@ -97,7 +146,7 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
                 state.captures[capture.registrationID] = record
                 throw OfflineReleaseError.revoked
             }
-            record.proof = effective
+            record.proof = record.restrictingCoverage(of: effective)
             state.captures[capture.registrationID] = record
         }
         return OfflineReleaseCapability(capture: capture)
@@ -120,7 +169,7 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
         guard mutation.authority === self else { return }
         state.withLock { state in
             guard state.pending[mutation.registrationID] != nil else { return }
-            if case .committed(let promotions) = outcome {
+            if case .committed(let promotions, let automaticPromotions) = outcome {
                 for promotion in promotions {
                     for (captureID, var record) in state.captures where record.key == promotion.key {
                         if let proof = record.proof {
@@ -134,6 +183,14 @@ nonisolated final class OfflineReleaseAuthority: Sendable {
                         }
                         state.captures[captureID] = record
                     }
+                }
+                // Catalog-sized results were keyed outside this lock; visit only active captures here.
+                for (captureID, var record) in state.captures {
+                    guard let promotion = automaticPromotions[record.key] else { continue }
+                    record.promote(promotion)
+                    // A later commit cannot erase an independently pending revocation.
+                    for scope in state.pending.values { record.apply(scope) }
+                    state.captures[captureID] = record
                 }
             }
             state.pending.removeValue(forKey: mutation.registrationID)

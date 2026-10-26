@@ -11,13 +11,13 @@ nonisolated extension OfflineSnapshotRepository {
     ) async throws -> [OfflineSyncWork] {
         try Task.checkCancellation()
         guard capture.operation.isCurrent else { return [] }
-        // Small fallback rechecks project only requested IDs, retaining all captured vault evidence
-        // for each ID. Large initial planning keeps constant bindings rather than an unbounded IN list.
+        // Small fallback/writer rechecks project only requested IDs, including all captured vault evidence.
         let itemIDs: Set<String>? = metadataProofs.count <= OfflineSyncPublicationLimits.items ? Set(metadataProofs.keys.map(\.itemId)) : nil
         return try await database.reader.read { db in
             try Self.syncWork(capture: capture, metadataProofs: metadataProofs, sourceTimes: sourceTimes,
                               allowMembershipExpansion: allowMembershipExpansion,
-                              contentRefreshCandidates: contentRefreshCandidates, itemIDs: itemIDs, in: db)
+                              contentRefreshCandidates: contentRefreshCandidates, itemIDs: itemIDs,
+                              folderFeatureGate: folderFeatureGate, in: db)
         }
     }
 
@@ -25,9 +25,11 @@ nonisolated extension OfflineSnapshotRepository {
     static func syncWork(
         capture: OfflineSyncCapture, metadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof],
         sourceTimes: [String: Date], allowMembershipExpansion: Bool,
-        contentRefreshCandidates: Set<OfflineSnapshotKey> = [], itemIDs: Set<String>? = nil, in db: Database
+        contentRefreshCandidates: Set<OfflineSnapshotKey> = [], itemIDs: Set<String>? = nil,
+        folderFeatureGate: FolderFeatureGate? = nil, in db: Database
     ) throws -> [OfflineSyncWork] {
         guard capture.operation.isCurrent, itemIDs?.isEmpty != true, try hasSyncCapture(capture, in: db) else { return [] }
+        let stamp = folderFeatureGate?.supportedStamp()
         let ids = itemIDs?.sorted()
         let placeholders = ids.map { Array(repeating: "?", count: $0.count).joined(separator: ",") }
         let knownFilter = placeholders.map { " AND itemID IN (\($0))" } ?? ""
@@ -39,13 +41,18 @@ nonisolated extension OfflineSnapshotRepository {
         let descriptors = Dictionary(grouping: inputs, by: {
             OfflineSnapshotKey(vaultId: $0.vaultID, itemId: $0.itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion)
         })
+        let folderFilter = placeholders.map { " AND fm.itemId IN (\($0))" } ?? ""
         let rowFilter = placeholders.map { " AND i.id IN (\($0))" } ?? ""
-        let rows = try Row.fetchAll(db, sql: syncPlanningSQL + rowFilter + " ORDER BY i.vaultId, i.id", arguments: arguments)
-        let work = try rows.compactMap { raw -> OfflineSyncWork? in
+        let planningArguments = StatementArguments([capture.id.uuidString] + (ids ?? []) + [capture.id.uuidString] + (ids ?? []))
+        let rows = try Row.fetchAll(db, sql: syncPlanningSQL(folderFilter: folderFilter) + rowFilter + " ORDER BY i.vaultId, i.id",
+                                   arguments: planningArguments)
+        let work = try rows.compactMap { raw -> (work: OfflineSyncWork, folderDependent: Bool)? in
             let row = try OfflineSyncPlanningRow(raw)
             guard let proof = metadataProofs[row.key], proof.operationID == capture.operation.id,
-                  row.matches(proof, descriptors: descriptors[row.key] ?? []),
-                  let ownership = row.ownership(known: known[row.item.id], allowExpansion: allowMembershipExpansion) else { return nil }
+                  row.matches(proof, descriptors: descriptors[row.key] ?? []) else { return nil }
+            let freshFolder = row.matchesFolder(proof, stamp: stamp)
+            guard let ownership = row.ownership(known: known[row.item.id], allowExpansion: allowMembershipExpansion,
+                                                freshFolder: freshFolder) else { return nil }
             let source = sourceTimes[row.item.id].flatMap { time in
                 time.timeIntervalSince1970.isFinite && time == proof.item.modifyTime ? time : nil
             }
@@ -55,11 +62,14 @@ nonisolated extension OfflineSnapshotRepository {
                 } == true
                 && contentRefreshCandidates.contains(row.key)
             guard requiresContentRefresh || !row.canSkip(source: source, proof: proof) else { return nil }
-            return OfflineSyncWork(key: row.key, shareID: row.shareID, itemType: row.item.itemType,
-                                   metadataProof: proof, ownership: ownership, capturedPendingRequestID: nil,
-                                   expectedSourceModifyTime: source, requiresContentRefresh: requiresContentRefresh)
+            let candidate = OfflineSyncWork(key: row.key, shareID: row.shareID, itemType: row.item.itemType,
+                metadataProof: proof, ownership: ownership, capturedPendingRequestID: nil,
+                expectedSourceModifyTime: source, requiresContentRefresh: requiresContentRefresh)
+            return (candidate, row.requiresFolderEvidence(for: ownership))
         }
-        return capture.operation.isCurrent ? work : []
+        guard capture.operation.isCurrent else { return [] }
+        let supported = stamp.map { folderFeatureGate?.isCurrent($0) == true } ?? false
+        return work.compactMap { !$0.folderDependent || supported ? $0.work : nil }
     }
 
     static func hasSyncCapture(_ capture: OfflineSyncCapture, in db: Database) throws -> Bool {
@@ -68,12 +78,27 @@ nonisolated extension OfflineSnapshotRepository {
             """, arguments: [capture.id.uuidString, capture.operation.id.uuidString, capture.lifecycleGeneration.uuidString]) ?? false
     }
 
-    private static let syncPlanningSQL = """
+    private static func syncPlanningSQL(folderFilter: String) -> String {
+        """
+        WITH capturedFolderCoverage AS (
+            SELECT fm.vaultId, fm.itemId, p.folderId, p.policyGeneration,
+                   ROW_NUMBER() OVER (PARTITION BY fm.vaultId, fm.itemId ORDER BY fa.depth, p.folderId) AS priority
+            FROM offlineSyncCaptureFolders c
+            JOIN offlineFolders p ON p.vaultId = c.vaultId AND p.folderId = c.folderId AND p.policyGeneration = c.policyGeneration
+            JOIN folderAncestors fa ON fa.vaultId = p.vaultId AND fa.ancestorId = p.folderId
+            JOIN folderItemMemberships fm ON fm.vaultId = fa.vaultId AND fm.folderId = fa.folderId
+            WHERE c.captureId = ? \(folderFilter)
+        )
         SELECT i.*, v.shareId AS currentShareID,
                o.itemId IS NOT NULL AS hasSelectedRow, COALESCE(o.isManuallySelected, 0) AS currentManual,
                o.selectionGeneration AS currentSelectionGeneration, o.requestGeneration AS currentRequestGeneration,
                o.metadataGeneration AS currentMetadataGeneration, o.pendingRequestId AS currentPendingRequestID,
                p.policyGeneration AS currentPolicyGeneration, c.policyGeneration AS capturedPolicyGeneration,
+               f.folderId AS capturedFolderID, f.policyGeneration AS capturedFolderPolicyGeneration,
+               \(OfflineSelectionSQL.folderCoverage(for: .item)) AS currentFolderCoverage,
+               fs.reconciliationStatus AS currentFolderStatus, fs.observationId AS currentFolderObservationID,
+               fs.membershipGeneration AS currentFolderMembershipGeneration,
+               fs.selectionGeneration AS currentFolderSelectionGeneration, fs.probeRevision AS currentFolderProbeRevision,
                EXISTS(SELECT 1 FROM offlineItemExclusions x WHERE x.itemId = i.id AND x.vaultId = i.vaultId) AS currentExcluded,
                o.cacheStatus, s.contentRevision, s.schemaVersion AS snapshotSchemaVersion, s.snapshotRevision,
                length(s.keyFingerprint) AS fingerprintLength, length(s.encryptedPayload) AS payloadLength,
@@ -82,9 +107,12 @@ nonisolated extension OfflineSnapshotRepository {
         LEFT JOIN offlineItems o ON o.itemId = i.id AND o.vaultId = i.vaultId
         LEFT JOIN offlineVaults p ON p.vaultId = i.vaultId
         LEFT JOIN offlineSyncCaptureVaults c ON c.captureID = ? AND c.vaultID = i.vaultId
+        LEFT JOIN capturedFolderCoverage f ON f.vaultId = i.vaultId AND f.itemId = i.id AND f.priority = 1
+        LEFT JOIN folderCatalogState fs ON fs.vaultId = i.vaultId
         LEFT JOIN offlineSnapshots s ON s.itemId = i.id AND s.vaultId = i.vaultId
         WHERE i.state = 'Active'
         """
+    }
 }
 
 /// All decoded values are ordinary metadata; ciphertext is never selected by the planner.
@@ -107,7 +135,17 @@ nonisolated private struct OfflineSyncPlanningRow {
         return Dictionary(grouping: actual, by: \.identityKey) == Dictionary(grouping: proof.descriptorInputs, by: \.identityKey)
     }
 
-    func ownership(known entries: [Row]?, allowExpansion: Bool) -> OfflineSyncOwnership? {
+    func matchesFolder(_ proof: OfflineSyncedMetadataProof, stamp: FolderFeatureStamp?) -> Bool {
+        guard let stamp, let folder = proof.folderCatalogProof else { return false }
+        return folder.vaultID == item.vaultId && folder.stamp == stamp
+            && (raw["currentFolderStatus"] as String?) == "fresh"
+            && folder.observationID == uuid("currentFolderObservationID")
+            && folder.membershipGeneration == uuid("currentFolderMembershipGeneration")
+            && stamp.selectionGeneration == uuid("currentFolderSelectionGeneration")
+            && stamp.probeRevision == uuid("currentFolderProbeRevision")
+    }
+
+    func ownership(known entries: [Row]?, allowExpansion: Bool, freshFolder: Bool) -> OfflineSyncOwnership? {
         guard isNull("currentPendingRequestID") else { return nil }
         let known = entries?.first
         if let entries, entries.count != 1 { return nil }
@@ -116,24 +154,39 @@ nonisolated private struct OfflineSyncPlanningRow {
             let pending: DatabaseValue = known["pendingRequestID"]
             guard pending.isNull else { return nil }
             let selected: DatabaseValue = known["selectionGeneration"]
-            if !selected.isNull { return selectedOwnership(known) }
+            if !selected.isNull { return selectedOwnership(known, freshFolder: freshFolder) }
             let wasEligible: Bool = known["wasEligibleForVaultSelection"]
             let wasExcluded: Bool = known["isExcluded"]
             guard wasEligible, !wasExcluded else { return nil }
         }
-        guard !(raw["hasSelectedRow"] as Bool), allowExpansion, !(raw["currentExcluded"] as Bool),
-              let policy = uuid("capturedPolicyGeneration"), policy == uuid("currentPolicyGeneration") else { return nil }
-        return .vaultMember(policyGeneration: policy, wasKnownEligible: known != nil)
+        guard !(raw["hasSelectedRow"] as Bool), allowExpansion, !(raw["currentExcluded"] as Bool) else { return nil }
+        if let policy = matchingVaultPolicy { return .vaultMember(policyGeneration: policy, wasKnownEligible: known != nil) }
+        guard freshFolder, let folderID: String = raw["capturedFolderID"], let policy = uuid("capturedFolderPolicyGeneration"),
+              let membership = uuid("currentFolderMembershipGeneration") else { return nil }
+        return .folderMember(folderID: folderID, policyGeneration: policy, membershipGeneration: membership, wasKnownEligible: known != nil)
     }
 
-    private func selectedOwnership(_ known: Row) -> OfflineSyncOwnership? {
+    private var matchingVaultPolicy: UUID? {
+        guard let policy = uuid("capturedPolicyGeneration"), policy == uuid("currentPolicyGeneration") else { return nil }
+        return policy
+    }
+
+    func requiresFolderEvidence(for ownership: OfflineSyncOwnership) -> Bool {
+        switch ownership {
+        case .selected: !(raw["currentManual"] as Bool) && matchingVaultPolicy == nil
+        case .vaultMember: false
+        case .folderMember: true
+        }
+    }
+
+    private func selectedOwnership(_ known: Row, freshFolder: Bool) -> OfflineSyncOwnership? {
         let hasSelectedRow: Bool = raw["hasSelectedRow"]
         guard hasSelectedRow, let selection = uuid("currentSelectionGeneration"),
               let request = uuid("currentRequestGeneration"), let metadata = uuid("currentMetadataGeneration"),
               selection == Self.uuid("selectionGeneration", in: known), request == Self.uuid("requestGeneration", in: known) else { return nil }
         if !(raw["currentManual"] as Bool) {
-            guard !(raw["currentExcluded"] as Bool), let policy = uuid("capturedPolicyGeneration"),
-                  policy == uuid("currentPolicyGeneration") else { return nil }
+            guard !(raw["currentExcluded"] as Bool),
+                  matchingVaultPolicy != nil || (freshFolder && (raw["currentFolderCoverage"] as Bool)) else { return nil }
         }
         return .selected(selectionGeneration: selection, requestGeneration: request, metadataGeneration: metadata)
     }

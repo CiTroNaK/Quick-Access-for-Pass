@@ -4,7 +4,8 @@ import GRDB
 nonisolated extension DatabaseManager {
     /// Evidence is produced before this transaction commits, never reconstructed by a later read.
     static func offlineMetadataProofs(
-        items: [PassItem], vaults: [PassVault], descriptors: [AutoFillDescriptorInput], operationID: UUID?, in db: Database
+        items: [PassItem], vaults: [PassVault], descriptors: [AutoFillDescriptorInput], operationID: UUID?,
+        folderCatalogProofsByVaultID: [String: FolderCatalogAdmissionProof] = [:], in db: Database
     ) throws -> [OfflineSnapshotKey: OfflineSyncedMetadataProof] {
         guard let operationID else { return [:] }
         let incomingItems = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest })
@@ -29,7 +30,8 @@ nonisolated extension DatabaseManager {
             let key = OfflineSnapshotKey(vaultId: item.vaultId, itemId: item.id, schemaVersion: OfflineSnapshotLimits.schemaVersion)
             if selectedKeys.contains(key), generations[key] == nil { continue }
             proofs[key] = OfflineSyncedMetadataProof(operationID: operationID, item: item, shareID: vault.shareId,
-                                                     descriptorInputs: inputsByItem[key] ?? [], metadataGeneration: generations[key])
+                                                     descriptorInputs: inputsByItem[key] ?? [], metadataGeneration: generations[key],
+                                                     folderCatalogProof: folderCatalogProofsByVaultID[item.vaultId])
         }
         return proofs
     }

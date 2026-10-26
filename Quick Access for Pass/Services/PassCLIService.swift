@@ -4,16 +4,15 @@ import os
 typealias SyncProgressHandler = @Sendable (SyncProgressPresentation) async -> Void
 
 actor PassCLIService {
-    private nonisolated let selectionStore: OSAllocatedUnfairLock<PassCLISelection>
+    nonisolated let folderFeatureGate: FolderFeatureGate
     private let resolver: PassCLIResolver
     private let timeoutSeconds: Double = 300
     private static let secretOutputLimit = (4 * 1024 * 1024) + (4 * 1024)
     private let runner: any CLIRunning
-    private var capabilitiesCache: (path: String, value: PassCLICapabilities)?
-    private var capabilitiesTask: (path: String, task: Task<PassCLICapabilities, Never>)?
+    private var capabilitiesTask: (probe: FolderCapabilityProbe, task: Task<PassCLICapabilities, Never>)?
 
     nonisolated var cliSelection: PassCLISelection {
-        selectionStore.withLock { $0 }
+        folderFeatureGate.selection
     }
 
     nonisolated var cliPath: String {
@@ -27,11 +26,7 @@ actor PassCLIService {
     @discardableResult
     nonisolated func updateCLISelection(preference: PassCLISelectionPreference, customPath: String?) -> Bool {
         let resolved = resolver.resolve(preference: preference, customPath: customPath)
-        return selectionStore.withLock { selection in
-            guard selection != resolved else { return false }
-            selection = resolved
-            return true
-        }
+        return folderFeatureGate.updateSelection(resolved)
     }
 
     @discardableResult
@@ -44,7 +39,7 @@ actor PassCLIService {
     }
 
     nonisolated func updateCLIPath(_ path: String) {
-        selectionStore.withLock { $0 = .custom(path: path) }
+        folderFeatureGate.updateSelection(.custom(path: path))
     }
 
     init(
@@ -60,7 +55,7 @@ actor PassCLIService {
         }()
         let resolvedCustomPath = customPath ?? cliPath
         let resolved = resolver.resolve(preference: resolvedPreference, customPath: resolvedCustomPath)
-        self.selectionStore = OSAllocatedUnfairLock(initialState: resolved)
+        self.folderFeatureGate = FolderFeatureGate(selection: resolved)
         self.resolver = resolver
         self.runner = runner
     }
@@ -162,31 +157,52 @@ actor PassCLIService {
 
     // MARK: - CLI Capabilities
 
+    /// Establishes current capability before optional pre-fetch offline capture.
+    /// Explicit preparation always reprobes, including replacements at the same path.
+    func prepareFolderSync() async -> FolderFeatureStamp? {
+        guard !Task.isCancelled else { return nil }
+        let probe = folderFeatureGate.beginProbe()
+        _ = await probeCapabilities(probe)
+        guard !Task.isCancelled,
+              let stamp = folderFeatureGate.supportedStamp(),
+              stamp.selectionGeneration == probe.selectionGeneration,
+              stamp.probeRevision == probe.revision else { return nil }
+        return stamp
+    }
+
     private func capabilities(for selection: PassCLISelection) async -> PassCLICapabilities {
-        let executablePath = selection.path
-        if let cache = capabilitiesCache, cache.path == executablePath {
-            return cache.value
+        let snapshot = folderFeatureGate.selectionSnapshot()
+        guard snapshot.selection == selection else { return PassCLICapabilities(version: nil) }
+        if let cached = folderFeatureGate.confirmedCapabilities(for: selection, generation: snapshot.generation) {
+            return cached
         }
-        if let inFlight = capabilitiesTask, inFlight.path == executablePath {
+        if let inFlight = capabilitiesTask, inFlight.probe.selectionGeneration == snapshot.generation {
             return await inFlight.task.value
         }
+        let probe = folderFeatureGate.beginProbe()
+        guard probe.selection == selection, probe.selectionGeneration == snapshot.generation else {
+            return PassCLICapabilities(version: nil)
+        }
+        return await probeCapabilities(probe)
+    }
 
+    private func probeCapabilities(_ probe: FolderCapabilityProbe) async -> PassCLICapabilities {
         let runner = self.runner
-        let timeoutSeconds = self.timeoutSeconds
+        // Version is metadata-only but must not delay ordinary sync for its 300-second content budget.
         let task = Task<PassCLICapabilities, Never> {
             do {
                 let data = try await runner.run(
-                    executablePath: executablePath, arguments: ["--version"], timeout: timeoutSeconds
+                    executablePath: probe.selection.path, arguments: ["--version"], timeout: 5
                 )
                 return PassCLICapabilities(rawVersionString: String(bytes: data, encoding: .utf8))
             } catch {
                 return PassCLICapabilities(version: nil)
             }
         }
-        capabilitiesTask = (path: executablePath, task: task)
+        capabilitiesTask = (probe: probe, task: task)
         let value = await task.value
-        if cliPath == executablePath { capabilitiesCache = (path: executablePath, value: value) }
-        if capabilitiesTask?.path == executablePath { capabilitiesTask = nil }
+        folderFeatureGate.confirm(capabilities: value, for: probe)
+        if capabilitiesTask?.probe == probe { capabilitiesTask = nil }
         return value
     }
 
@@ -279,6 +295,7 @@ actor PassCLIService {
 
 extension PassCLIService {
     func fetchAllItems(
+        folderFeatureStamp: FolderFeatureStamp? = nil,
         progress: SyncProgressHandler? = nil
     ) async throws -> CLISyncFetchResult {
         let selection = cliSelection
@@ -299,18 +316,43 @@ extension PassCLIService {
             var skippedItems: [SkippedSyncItem] = []
             var presenceUncertainties: [SyncItemPresenceUncertainty] = []
             var provenance: [String: CLISnapshotContentProvenance] = [:]
+            var memberships: [String: [String: CLIFolderMembership]] = [:]
             for try await batch in group {
                 items.append(contentsOf: batch.result.items.map { (item: $0, vaultId: batch.vaultID) })
                 skippedItems.append(contentsOf: batch.result.skippedItems)
                 presenceUncertainties.append(batch.result.presenceUncertainty)
                 provenance[batch.vaultID] = batch.result.contentProvenance
+                memberships[batch.vaultID] = batch.result.folderMembershipEvidence
             }
-            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties, provenance: provenance)
+            return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties,
+                    provenance: provenance, memberships: memberships)
         }
+        // Separate metadata-only commands are sequential, adding no unbounded vault fan-out.
+        var folderCatalogs: [String: FolderCatalogFetchOutcome] = [:]
+        for vault in vaults {
+            try Task.checkCancellation()
+            folderCatalogs[vault.vaultId] = await fetchFolderCatalog(
+                vault: vault, memberships: syncResult.memberships[vault.vaultId],
+                selection: selection, stamp: folderFeatureStamp
+            )
+        }
+        try Task.checkCancellation()
         return CLISyncFetchResult(
             vaults: vaults, items: syncResult.items, skippedItems: syncResult.skippedItems,
             presenceUncertainties: syncResult.presenceUncertainties,
-            contentProvenanceByVaultID: syncResult.provenance
+            contentProvenanceByVaultID: syncResult.provenance,
+            folderCatalogsByVaultID: folderCatalogs
+        )
+    }
+
+    /// Narrow metadata runner access for the folder extension; no actor internals exposed.
+    func folderListData(shareID: String, selection: PassCLISelection, stamp: FolderFeatureStamp) async throws -> Data {
+        guard folderFeatureGate.isCurrent(stamp), cliSelection == selection else { throw FolderCatalogError.incompleteEvidence }
+        try Task.checkCancellation()
+        return try await runner.run(
+            executablePath: selection.path,
+            arguments: ["folder", "list", "--share-id=\(shareID)", "--output", "json"],
+            timeout: timeoutSeconds, maximumOutputBytes: FolderCatalogLimits.maximumOutputBytes
         )
     }
 }

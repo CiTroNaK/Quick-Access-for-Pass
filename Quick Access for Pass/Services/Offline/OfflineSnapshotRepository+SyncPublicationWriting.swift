@@ -3,13 +3,14 @@ import GRDB
 
 nonisolated extension OfflineSnapshotRepository {
     /// Original operation-produced proofs are rechecked, not replaced with a later projection.
-    static func ownedSyncWork(_ work: [OfflineSyncWork], capture: OfflineSyncCapture, in db: Database) throws -> [OfflineSnapshotKey: OfflineSyncWork] {
+    static func ownedSyncWork(_ work: [OfflineSyncWork], capture: OfflineSyncCapture,
+                              folderFeatureGate: FolderFeatureGate? = nil, in db: Database) throws -> [OfflineSnapshotKey: OfflineSyncWork] {
         let proofs = Dictionary(work.map { ($0.key, $0.metadataProof) }, uniquingKeysWith: { first, _ in first })
         let times = Dictionary(work.compactMap { candidate in candidate.expectedSourceModifyTime.map { (candidate.key.itemId, $0) } },
                                uniquingKeysWith: { first, _ in first })
         let current = try syncWork(capture: capture, metadataProofs: proofs, sourceTimes: times, allowMembershipExpansion: true,
                                    contentRefreshCandidates: Set(work.filter(\.requiresContentRefresh).map(\.key)),
-                                   itemIDs: Set(work.map { $0.key.itemId }), in: db)
+                                   itemIDs: Set(work.map { $0.key.itemId }), folderFeatureGate: folderFeatureGate, in: db)
         let byKey = Dictionary(uniqueKeysWithValues: current.map { ($0.key, $0) })
         var owned: [OfflineSnapshotKey: OfflineSyncWork] = [:]
         for candidate in work {
@@ -21,10 +22,12 @@ nonisolated extension OfflineSnapshotRepository {
     }
 
     static func sameSyncWork(_ lhs: OfflineSyncWork, _ rhs: OfflineSyncWork) -> Bool {
-        lhs.requiresContentRefresh == rhs.requiresContentRefresh && lhs.key == rhs.key && lhs.ownership == rhs.ownership && lhs.shareID == rhs.shareID && lhs.itemType == rhs.itemType
+        lhs.requiresContentRefresh == rhs.requiresContentRefresh && lhs.key == rhs.key
+            && lhs.ownership == rhs.ownership && lhs.shareID == rhs.shareID && lhs.itemType == rhs.itemType
             && lhs.capturedPendingRequestID == rhs.capturedPendingRequestID && lhs.expectedSourceModifyTime == rhs.expectedSourceModifyTime
             && lhs.metadataProof.operationID == rhs.metadataProof.operationID && lhs.metadataProof.shareID == rhs.metadataProof.shareID
             && lhs.metadataProof.metadataGeneration == rhs.metadataProof.metadataGeneration
+            && lhs.metadataProof.folderCatalogProof == rhs.metadataProof.folderCatalogProof
             && lhs.metadataProof.item.hasSameSourceMetadata(as: rhs.metadataProof.item)
             && lhs.metadataProof.item.modifyTime == rhs.metadataProof.item.modifyTime
             && Dictionary(grouping: lhs.metadataProof.descriptorInputs, by: \.identityKey)
@@ -64,7 +67,7 @@ nonisolated extension OfflineSnapshotRepository {
                                  work.key.itemId, work.key.vaultId, selection.uuidString, request.uuidString, metadata.uuidString])
             guard db.changesCount == 1 else { throw OfflinePersistenceError.persistenceFailed }
             return metadata
-        case .vaultMember:
+        case .vaultMember, .folderMember:
             let metadata = UUID()
             try db.execute(sql: """
                 INSERT INTO offlineItems

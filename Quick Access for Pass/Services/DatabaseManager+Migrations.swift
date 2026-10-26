@@ -9,6 +9,7 @@ nonisolated extension DatabaseManager {
         registerMigrations(&migrator)
         registerIncrementalOfflineMigration(&migrator)
         registerOfflineSnapshotContentMigration(&migrator)
+        registerFolderMigration(&migrator)
         try migrator.migrate(writer)
     }
 

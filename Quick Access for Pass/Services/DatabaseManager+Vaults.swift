@@ -6,6 +6,7 @@ nonisolated struct MetadataSynchronizationResult: Sendable {
     let descriptors: [AutoFillCredentialDescriptor]
     let didDeleteOfflineData: Bool
     let offlineMetadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof]
+    let folderCatalogProofsByVaultID: [String: FolderCatalogAdmissionProof]
 }
 
 // MARK: - Vault Operations
@@ -97,7 +98,7 @@ nonisolated extension DatabaseManager {
                 descriptors: descriptors,
                 presenceUncertainties: presenceUncertainties,
                 beforeDescriptorWrite: beforeDescriptorWrite,
-                in: db
+                trackFolders: self.tracksFolderMetadata(recordingEvidence: false), in: db
             ).descriptors
             return OfflineMutationUpdate(value: value, manualPromotions: [])
         }
@@ -109,12 +110,25 @@ nonisolated extension DatabaseManager {
         items: [PassItem],
         descriptors: [AutoFillDescriptorInput],
         presenceUncertainties: [SyncItemPresenceUncertainty] = [],
+        folderCatalogsByVaultID: [String: FolderCatalogFetchOutcome] = [:],
+        folderFeatureGate: FolderFeatureGate? = nil,
         operation: SyncOperationToken? = nil,
         beforeDescriptorWrite: @escaping @Sendable () throws -> Void = {}
     ) async throws -> MetadataSynchronizationResult {
+        var folderReplacements: [String: OfflineFolderMetadataReplacement] = [:]
+        if let gate = folderFeatureGate {
+            let itemIDs = Dictionary(grouping: items, by: \.vaultId).mapValues { Set($0.map(\.id)) }
+            for vault in vaults {
+                if case .complete(let catalog) = folderCatalogsByVaultID[vault.id],
+                   catalog.vaultID == vault.id, catalog.shareID == vault.shareId,
+                   Set(catalog.itemMemberships.keys) == itemIDs[vault.id, default: []], gate.isCurrent(catalog.stamp) {
+                    folderReplacements[vault.id] = OfflineFolderMetadataReplacement(catalog)
+                }
+            }
+        }
         let scope = OfflineReleaseMutationScope.replaceMetadata(OfflineMetadataReplacement(
             vaultIDs: Set(vaults.map(\.id)), itemsByID: Self.offlineIncomingIdentities(items),
-            presenceUncertainties: presenceUncertainties))
+            presenceUncertainties: presenceUncertainties, folderCatalogs: folderReplacements))
         return try await writeOfflineMutation(submissionScope: scope) { db in
             // Writer-transaction admission, not a pre-await freshness check.
             // Once admitted, this transaction finishes before any replacement
@@ -123,7 +137,9 @@ nonisolated extension DatabaseManager {
             let value = try Self.writeSyncedMetadata(
                 vaults: vaults, items: items, descriptors: descriptors,
                 presenceUncertainties: presenceUncertainties, operationID: operation?.id,
-                beforeDescriptorWrite: beforeDescriptorWrite, in: db
+                beforeDescriptorWrite: beforeDescriptorWrite,
+                trackFolders: self.tracksFolderMetadata(recordingEvidence: !folderCatalogsByVaultID.isEmpty),
+                folderCatalogsByVaultID: folderCatalogsByVaultID, folderFeatureGate: folderFeatureGate, in: db
             )
             return OfflineMutationUpdate(value: value, manualPromotions: [])
         }
@@ -150,10 +166,15 @@ nonisolated extension DatabaseManager {
         presenceUncertainties: [SyncItemPresenceUncertainty] = [],
         operationID: UUID? = nil,
         beforeDescriptorWrite: @Sendable () throws -> Void = {},
+        trackFolders: Bool = false,
+        folderCatalogsByVaultID: [String: FolderCatalogFetchOutcome] = [:],
+        folderFeatureGate: FolderFeatureGate? = nil,
         in db: Database
     ) throws -> MetadataSynchronizationResult {
         // Counts and source comparisons stay in the committing transaction.
         let offlineSelectionsBefore = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineItems") ?? 0
+        let folderBaseline = trackFolders ? try storedFolderMetadata(in: db) : [:]
+        let folderPoliciesBefore = trackFolders ? (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineFolders") ?? 0) : 0
         let existingItems = Dictionary(uniqueKeysWithValues: try PassItem.fetchAll(db).map { ($0.id, $0) })
         var changed = try writeChangedVaults(vaults, in: db)
         let incomingVaultIDs = Set(vaults.map(\.id))
@@ -162,6 +183,12 @@ nonisolated extension DatabaseManager {
         )
         changed.formUnion(try syncItems(items, retainingAbsentIDs: retainedItemIDs, existing: existingItems, in: db))
         try pruneInvalidOfflineSelections(in: db)
+        var folderResult = trackFolders ? try writeFolderCatalogs(folderCatalogsByVaultID, vaults: vaults,
+            baseline: folderBaseline, gate: folderFeatureGate, in: db) : FolderCatalogWriteResult()
+        if trackFolders {
+            // Reconcile after the new hierarchy/memberships commit, not against retained UI metadata.
+            try db.execute(sql: "DELETE FROM offlineItems AS o WHERE NOT \(OfflineSelectionSQL.effectiveSelection)")
+        }
         try beforeDescriptorWrite()
         changed.formUnion(try syncAutoFillDescriptors(descriptors, in: db))
         let existingVaultIDs = try String.fetchAll(db, sql: "SELECT id FROM vaults")
@@ -174,12 +201,18 @@ nonisolated extension DatabaseManager {
             .order(Column("serviceIdentifier").asc, Column("vaultID").asc, Column("itemID").asc, Column("username").asc)
             .fetchAll(db)
         let offlineSelectionsAfter = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineItems") ?? 0
+        if trackFolders {
+            let folderPoliciesAfter = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM offlineFolders") ?? 0
+            folderResult.didDeleteOfflineData = folderPoliciesAfter < folderPoliciesBefore
+        }
         return MetadataSynchronizationResult(
             descriptors: storedDescriptors,
-            didDeleteOfflineData: offlineSelectionsAfter < offlineSelectionsBefore,
+            didDeleteOfflineData: offlineSelectionsAfter < offlineSelectionsBefore || folderResult.didDeleteOfflineData,
             offlineMetadataProofs: try offlineMetadataProofs(
-                items: items, vaults: vaults, descriptors: descriptors, operationID: operationID, in: db
-            )
+                items: items, vaults: vaults, descriptors: descriptors, operationID: operationID,
+                folderCatalogProofsByVaultID: folderResult.proofsByVaultID, in: db
+            ),
+            folderCatalogProofsByVaultID: folderResult.proofsByVaultID
         )
     }
 

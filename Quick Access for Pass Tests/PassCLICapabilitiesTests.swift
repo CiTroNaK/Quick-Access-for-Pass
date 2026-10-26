@@ -42,6 +42,16 @@ struct PassCLICapabilitiesTests {
         #expect(capabilities.supportsShowSecrets == expected)
     }
 
+    @Test("folders require CLI 2.5.0 or newer", arguments: [
+        ("2.4.2", false), ("2.5.0", true), ("2.5.1", true),
+        ("2.6.0", true), ("3.0.0", true), ("garbage", false), ("", false)
+    ])
+    func foldersRequire250(raw: String, expected: Bool) {
+        #expect(PassCLICapabilities(rawVersionString: raw).supportsFolders == expected)
+        #expect(!PassCLICapabilities(version: nil).supportsFolders)
+        #expect(PassCLICapabilities.minimumFoldersVersion == PassCLIVersion(major: 2, minor: 5, patch: 0))
+    }
+
     @Test("parses capabilities from raw version string")
     func parsesFromRawVersionString() {
         let capabilities = PassCLICapabilities(rawVersionString: "Proton Pass CLI 2.3.3 (abcdef)")

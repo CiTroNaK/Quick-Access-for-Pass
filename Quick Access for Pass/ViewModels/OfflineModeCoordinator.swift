@@ -47,6 +47,7 @@ nonisolated protocol OfflineModeServicing: OfflineInitializationProviding {
     func makeAvailableOffline(item: PassItem, shareId: String) async throws
     func removeOfflineItem(itemId: String) async throws
     func selectWholeVault(_ selected: Bool, vaultID: String) async throws
+    func selectFolder(_ selected: Bool, folderID: String, vaultID: String, featureStamp: FolderFeatureStamp?) async throws
     func updateSelectionObservation(generation: UUID, status: OfflineSelectionObservationStatus) async
     func keepOfflineIndividually(_ item: PassItem) async throws
     func retrySelectedCopies(vaultID: String?) async throws
@@ -60,6 +61,9 @@ nonisolated protocol OfflineModeServicing: OfflineInitializationProviding {
 }
 
 nonisolated extension OfflineModeServicing {
+    func selectFolder(_ selected: Bool, folderID: String, vaultID: String, featureStamp: FolderFeatureStamp?) async throws {
+        throw OfflineModeService.Error.selectionSuspended
+    }
     func retryOfflineItem(itemID: String, vaultID: String) async throws -> OfflineItemRetryResult { .unavailable }
 }
 
@@ -73,6 +77,7 @@ final class OfflineModeCoordinator {
         case missingCurrentVaultSelection
         case observationUnavailable
         case operationInProgress
+        case folderSupportUnavailable
 
         var errorDescription: String? {
             switch self {
@@ -82,6 +87,8 @@ final class OfflineModeCoordinator {
                 String(localized: "Offline status is unavailable. Retry offline setup before selecting new items.")
             case .operationInProgress:
                 String(localized: "The offline selection changed or another operation is in progress. Retry offline status and try again.")
+            case .folderSupportUnavailable:
+                String(localized: "Folder data is unavailable. Sync with Pass CLI 2.5.0 or newer to select folders.")
             }
         }
     }
@@ -89,6 +96,9 @@ final class OfflineModeCoordinator {
     let service: any OfflineModeServicing
     let observation: any OfflineCatalogObserving
     private let shareIDForVault: @Sendable (String) -> String?
+    private let folderFeatureGate: FolderFeatureGate?
+    private var folderAvailability: FolderFeatureAvailability = .checking
+    @ObservationIgnored private var folderFeatureObservationTask: Task<Void, Never>?
     var observationTask: Task<Void, Never>?
     var observationGeneration = UUID()
     var observationIsFresh = false
@@ -118,12 +128,26 @@ final class OfflineModeCoordinator {
     init(
         service: any OfflineModeServicing,
         observation: any OfflineCatalogObserving,
-        shareIDForVault: @escaping @Sendable (String) -> String?
+        shareIDForVault: @escaping @Sendable (String) -> String?,
+        folderFeatureGate: FolderFeatureGate? = nil
     ) {
         self.service = service
         self.observation = observation
         self.shareIDForVault = shareIDForVault
+        self.folderFeatureGate = folderFeatureGate
+        if let gate = folderFeatureGate {
+            folderAvailability = gate.availability
+            let updates = gate.updates()
+            folderFeatureObservationTask = Task { [weak self] in
+                for await _ in updates {
+                    guard !Task.isCancelled else { break }
+                    self?.folderAvailability = gate.availability
+                }
+            }
+        }
     }
+
+    deinit { folderFeatureObservationTask?.cancel() }
 
     /// Pure snapshot lookup; it never registers an item or performs I/O.
     func availability(for item: PassItem) -> OfflineItemAvailability {
@@ -269,7 +293,7 @@ final class OfflineModeCoordinator {
         purgeOperationID == nil && vaultOperationIDs.isEmpty && itemMutationIDs.isEmpty
     }
 
-    /// Whether current observed policy derives this item from a vault selection rather than manual intent.
+    /// Whether a usable item inherits vault/folder coverage rather than independent manual intent.
     func shouldOfferKeepOfflineIndividually(_ itemID: String) -> Bool {
         guard let policy = snapshot.policyByItemID[itemID] else { return false }
         let hasUsableCopy: Bool
@@ -277,7 +301,8 @@ final class OfflineModeCoordinator {
         case .available?, .stale?: hasUsableCopy = true
         default: hasUsableCopy = false
         }
-        return hasUsableCopy && !policy.isManuallySelected && !policy.isExcluded && policy.vaultSelection != nil
+        return hasUsableCopy && !policy.isManuallySelected && !policy.isExcluded
+            && (policy.vaultSelection != nil || !policy.folderSelections.isEmpty)
     }
 
     /// Whether current observed vault-derived selection may be promoted without secret work.
@@ -288,7 +313,8 @@ final class OfflineModeCoordinator {
               let policy = snapshot.policyByItemID[itemID],
               vaultOperationIDs[policy.key.vaultId] == nil,
               purgeOperationID == nil else { return false }
-        return !policy.isManuallySelected && !policy.isExcluded && policy.vaultSelection != nil
+        return !policy.isManuallySelected && !policy.isExcluded
+            && (policy.vaultSelection != nil || !policy.folderSelections.isEmpty)
     }
 
     /// Consumes one metadata emission from the owned observation stream.
@@ -300,5 +326,67 @@ final class OfflineModeCoordinator {
             uniqueKeysWithValues: presentation.itemGroups.flatMap(\.items).map { ($0.itemId, $0.vaultId) }
         )
         onDetailSelectionInputsChanged?()
+    }
+}
+
+extension OfflineModeCoordinator {
+    var folderRowsByVaultID: [String: [OfflineFolderSettingsRow]] { snapshot.folderRowsByVaultID }
+
+    /// Presentation only, including empty folders and retained catalogs; never selection or release authority.
+    func hasFolders(in vaultID: String) -> Bool {
+        snapshot.folderRowsByVaultID[vaultID]?.isEmpty == false
+    }
+
+    var folderPresentationAvailability: FolderFeatureAvailability {
+        _ = folderAvailability
+        return folderFeatureGate?.availability ?? .unavailable
+    }
+
+    /// UI readiness only. The service/repository still revalidate actual writer admission.
+    func folderDiscoveryIsCurrent(vaultID: String) -> Bool {
+        guard let gate = folderFeatureGate, snapshot.folderCatalogStatusByVaultID[vaultID] == .fresh,
+              let stamp = snapshot.folderCatalogStampsByVaultID[vaultID] else { return false }
+        return gate.isCurrent(stamp)
+    }
+
+    /// Committed display context only. Never use this lookup as writer or secret-release authority.
+    func selectionPolicy(for itemID: String) -> OfflineItemPolicy? {
+        snapshot.policyByItemID[itemID]
+    }
+
+    func folderLocation(for itemID: String) -> FolderLocationPresentation? {
+        guard folderPresentationAvailability == .supported else { return nil }
+        return snapshot.folderLocationsByItemID[itemID]
+    }
+
+    func canSelectFolder(folderID: String, vaultID: String) -> Bool {
+        canMakeNewSelections && purgeOperationID == nil && vaultOperationIDs[vaultID] == nil
+            && folderDiscoveryIsCurrent(vaultID: vaultID)
+            && snapshot.folderRowsByVaultID[vaultID]?.contains(where: { $0.folderID == folderID }) == true
+    }
+
+    func canDeselectFolder(folderID: String, vaultID: String) -> Bool {
+        purgeOperationID == nil && vaultOperationIDs[vaultID] == nil && itemMutationIDs.isEmpty
+            && snapshot.folderRowsByVaultID[vaultID]?.contains(where: { $0.folderID == folderID && $0.isSelected }) == true
+    }
+
+    func setFolderSelected(_ selected: Bool, folderID: String, vaultID: String) async throws {
+        let stamp = selected ? folderFeatureGate?.supportedStamp() : nil
+        if selected {
+            guard stamp != nil, folderDiscoveryIsCurrent(vaultID: vaultID) else { throw Error.folderSupportUnavailable }
+            guard canMakeNewSelections else { throw Error.observationUnavailable }
+            guard canSelectFolder(folderID: folderID, vaultID: vaultID) else { throw Error.operationInProgress }
+        } else if !canDeselectFolder(folderID: folderID, vaultID: vaultID) { return }
+        let operationID = UUID()
+        vaultOperationIDs[vaultID] = operationID
+        onDetailSelectionInputsChanged?()
+        defer {
+            if vaultOperationIDs[vaultID] == operationID {
+                vaultOperationIDs.removeValue(forKey: vaultID)
+                onDetailSelectionInputsChanged?()
+            }
+        }
+        try await service.selectFolder(selected, folderID: folderID, vaultID: vaultID, featureStamp: stamp)
+        try Task.checkCancellation()
     }
 }

@@ -50,6 +50,8 @@ mkdir -p "$HOME/.local/bin"
 
 4. Save the following wrapper as `~/.local/bin/gh`:
 
+### Wrapper: ~/.local/bin/gh
+
 ```bash
 #!/bin/bash
 set -eu
@@ -84,9 +86,27 @@ chmod +x "$HOME/.local/bin/gh"
 
 If the real command is absent, `qa-run` reports a resolution failure rather than recursively invoking the wrapper.
 
-For Heroku, create a separate `heroku-cli` profile and a `~/.local/bin/heroku` wrapper. Use the same script with this final line:
+For Heroku, create a separate `heroku-cli` profile and save this complete wrapper as `~/.local/bin/heroku`:
+
+### Wrapper: ~/.local/bin/heroku
 
 ```bash
+#!/bin/bash
+set -eu
+
+QA_RUN="/Applications/Quick Access for Pass.app/Contents/Helpers/qa-run"
+SHIM_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+RETAINED_PATH_ENTRIES=()
+# The extra delimiter retains a final empty PATH entry.
+IFS=: read -r -a PATH_ENTRIES <<< "${PATH-}:"
+for PATH_ENTRY in "${PATH_ENTRIES[@]}"; do
+	PATH_ENTRY_DIR="$(CDPATH= cd -- "${PATH_ENTRY:-.}" 2>/dev/null && pwd -P)" || PATH_ENTRY_DIR=""
+	if [[ "$PATH_ENTRY_DIR" != "$SHIM_DIR" ]]; then
+		RETAINED_PATH_ENTRIES+=("$PATH_ENTRY")
+	fi
+done
+PATH_WITHOUT_SHIM="$(IFS=:; printf '%s' "${RETAINED_PATH_ENTRIES[*]}")"
+
 exec env PATH="$PATH_WITHOUT_SHIM" "$QA_RUN" --profile heroku-cli -- heroku "$@"
 ```
 

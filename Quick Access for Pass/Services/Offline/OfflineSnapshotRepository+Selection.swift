@@ -91,7 +91,8 @@ nonisolated extension OfflineSnapshotRepository {
                     key: OfflineSnapshotKey(vaultId: vaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
                     isManuallySelected: (row["isManuallySelected"] as Int) == 1,
                     vaultSelection: selected,
-                    isExcluded: (row["isExcluded"] as Int) == 1
+                    isExcluded: (row["isExcluded"] as Int) == 1,
+                    folderSelections: try Self.folderSelections(itemID: itemID, vaultID: vaultID, in: db)
                 )
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
@@ -114,6 +115,8 @@ nonisolated extension OfflineSnapshotRepository {
                       let rawGeneration: String = row["selectionGeneration"],
                       let generation = UUID(uuidString: rawGeneration),
                       let status: String = row["cacheStatus"] else { return nil }
+                let key = OfflineSnapshotKey(vaultId: currentVaultID, itemId: currentItemID, schemaVersion: OfflineSnapshotLimits.schemaVersion)
+                guard try permitsSelectedContentFetch(for: key, in: db) else { return nil }
                 let intent: OfflineSnapshotWorkIntent
                 switch status {
                 case OfflineCacheStatus.cached.rawValue, OfflineCacheStatus.failed.rawValue:
@@ -123,10 +126,7 @@ nonisolated extension OfflineSnapshotRepository {
                 default: return nil
                 }
                 return makeCandidate(
-                    key: OfflineSnapshotKey(
-                        vaultId: currentVaultID, itemId: currentItemID, schemaVersion: OfflineSnapshotLimits.schemaVersion
-                    ),
-                    shareID: shareID, modifyTime: modifyTime, type: type, intent: intent
+                    key: key, shareID: shareID, modifyTime: modifyTime, type: type, intent: intent
                 )
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
@@ -134,10 +134,21 @@ nonisolated extension OfflineSnapshotRepository {
     func workCandidates(vaultID: String?, includeNewSelections: Bool, refreshExisting: Bool) async throws -> [OfflineSnapshotWorkCandidate] {
         do {
             return try await database.reader.read { db in
+                var freshFolderVaults: Set<String> = []
+                if let gate = folderFeatureGate, let stamp = gate.supportedStamp(), includeNewSelections || refreshExisting {
+                    let vaults = try String.fetchAll(db, sql: """
+                        SELECT vaultId FROM folderCatalogState WHERE reconciliationStatus = 'fresh'
+                        AND selectionGeneration = ? AND probeRevision = ?
+                        """, arguments: [stamp.selectionGeneration.uuidString, stamp.probeRevision.uuidString])
+                    if gate.isCurrent(stamp) { freshFolderVaults = Set(vaults) }
+                }
                 let rows = try Row.fetchAll(db, sql: """
                     SELECT i.id AS itemId, i.vaultId, i.modifyTime, i.itemType, v.shareId,
-                           o.selectionGeneration, o.cacheStatus,
+                           o.selectionGeneration, o.cacheStatus, o.isManuallySelected,
                            vs.policyGeneration,
+                           \(OfflineSelectionSQL.nearestFolderPolicy(.id)) AS folderID,
+                           \(OfflineSelectionSQL.nearestFolderPolicy(.generation)) AS folderGeneration,
+                           \(OfflineSelectionSQL.effectiveSelection) AS isEffective,
                            EXISTS(SELECT 1 FROM offlineItemExclusions x WHERE x.itemId = i.id AND x.vaultId = i.vaultId) AS isExcluded
                     FROM items i JOIN vaults v ON v.id = i.vaultId
                     LEFT JOIN offlineItems o ON o.itemId = i.id AND o.vaultId = i.vaultId
@@ -149,45 +160,54 @@ nonisolated extension OfflineSnapshotRepository {
                     guard let itemID: String = row["itemId"], let currentVaultID: String = row["vaultId"],
                           let shareID: String = row["shareId"], let modifyTime: Date = row["modifyTime"],
                           let rawType: String = row["itemType"], let type = ItemType(rawValue: rawType) else { return nil }
-                    let selectedAt: String? = row["selectionGeneration"]
-                    let selectionGeneration = selectedAt.flatMap(UUID.init(uuidString:))
-                    let policyGeneration = (row["policyGeneration"] as String?).flatMap(UUID.init(uuidString:))
-                    let excluded = (row["isExcluded"] as Int? ?? 0) == 1
-                    let cacheStatus: String? = row["cacheStatus"]
-                    if let selectionGeneration {
-                        let canRefresh = cacheStatus == OfflineCacheStatus.cached.rawValue
-                            || cacheStatus == OfflineCacheStatus.failed.rawValue
-                        if refreshExisting && canRefresh {
-                            return makeCandidate(
-                                key: OfflineSnapshotKey(vaultId: currentVaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
-                                shareID: shareID,
-                                modifyTime: modifyTime, type: type,
-                                intent: .refresh(selectionGeneration: selectionGeneration)
-                            )
-                        }
-                        let needsMaterialization = cacheStatus == OfflineCacheStatus.notCached.rawValue
-                            || cacheStatus == OfflineCacheStatus.unavailable.rawValue
-                        if includeNewSelections && needsMaterialization {
-                            return makeCandidate(
-                                key: OfflineSnapshotKey(vaultId: currentVaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
-                                shareID: shareID,
-                                modifyTime: modifyTime, type: type,
-                                intent: .materialize(selectionGeneration: selectionGeneration)
-                            )
-                        }
-                        return nil
-                    }
-                    guard selectedAt == nil, includeNewSelections, !excluded, let policyGeneration else { return nil }
+                    guard let intent = workIntent(
+                        for: row, vaultID: currentVaultID, freshFolderVaults: freshFolderVaults,
+                        includeNewSelections: includeNewSelections, refreshExisting: refreshExisting
+                    ) else { return nil }
                     return makeCandidate(
                         key: OfflineSnapshotKey(vaultId: currentVaultID, itemId: itemID, schemaVersion: OfflineSnapshotLimits.schemaVersion),
-                                shareID: shareID,
-                        modifyTime: modifyTime, type: type,
-                        intent: .vaultMaterialize(policyGeneration: policyGeneration)
+                        shareID: shareID, modifyTime: modifyTime, type: type, intent: intent
                     )
                 }
             }
         } catch { throw OfflinePersistenceError.persistenceFailed }
     }
+    /// Interprets metadata from the current read frame; it does not authorize a later fetch or publication.
+    private func workIntent(
+        for row: Row, vaultID: String, freshFolderVaults: Set<String>,
+        includeNewSelections: Bool, refreshExisting: Bool
+    ) -> OfflineSnapshotWorkIntent? {
+        let selectedAt: String? = row["selectionGeneration"]
+        let selectionGeneration = selectedAt.flatMap(UUID.init(uuidString:))
+        let policyGeneration = (row["policyGeneration"] as String?).flatMap(UUID.init(uuidString:))
+        let excluded = (row["isExcluded"] as Int? ?? 0) == 1
+        let cacheStatus: String? = row["cacheStatus"]
+        if let selectionGeneration {
+            let independent = (row["isManuallySelected"] as Int) == 1 || policyGeneration != nil
+            guard (row["isEffective"] as Int) == 1,
+                  independent || freshFolderVaults.contains(vaultID) else { return nil }
+            let canRefresh = cacheStatus == OfflineCacheStatus.cached.rawValue
+                || cacheStatus == OfflineCacheStatus.failed.rawValue
+            if refreshExisting && canRefresh {
+                return .refresh(selectionGeneration: selectionGeneration)
+            }
+            let needsMaterialization = cacheStatus == OfflineCacheStatus.notCached.rawValue
+                || cacheStatus == OfflineCacheStatus.unavailable.rawValue
+            if includeNewSelections && needsMaterialization {
+                return .materialize(selectionGeneration: selectionGeneration)
+            }
+            return nil
+        }
+        // A malformed stored generation must not become a new automatic selection.
+        guard selectedAt == nil, includeNewSelections, !excluded else { return nil }
+        if let policyGeneration {
+            return .vaultMaterialize(policyGeneration: policyGeneration)
+        }
+        guard freshFolderVaults.contains(vaultID), let folderID: String = row["folderID"],
+              let raw: String = row["folderGeneration"], let generation = UUID(uuidString: raw) else { return nil }
+        return .folderMaterialize(folderID: folderID, policyGeneration: generation)
+    }
+
     private func makeCandidate(
         key: OfflineSnapshotKey, shareID: String, modifyTime: Date,
         type: ItemType, intent: OfflineSnapshotWorkIntent

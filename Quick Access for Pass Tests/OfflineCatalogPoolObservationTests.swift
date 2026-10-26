@@ -32,6 +32,46 @@ struct OfflineCatalogPoolObservationTests {
         #expect(writerProjections.withLock { $0 } == 0)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func emptyPoolObservesFolderGraphPolicyMembershipAndDiscoveryStatus() async throws {
+        let pool = try OfflineCatalogPoolFixture(seedCatalog: false)
+        defer { pool.remove() }
+        #expect(pool.database.writer is DatabasePool)
+        var iterator = OfflineCatalogObservation(database: pool.database).snapshots().makeAsyncIterator()
+        let initial = try #require(try await iterator.next())
+        #expect(initial.folderRowsByVaultID.isEmpty)
+        let writerProjections = Mutex(0)
+        try await pool.database.writer.writeWithoutTransaction { db in
+            db.trace { event in
+                if case .statement(let statement) = event,
+                   statement.sql.contains("AS hasUsableSnapshot") || statement.sql.contains("0 AS recordKind") {
+                    writerProjections.withLock { $0 += 1 }
+                }
+            }
+        }
+        defer { pool.database.writer.writeWithoutTransaction { $0.trace(options: []) } }
+        let fixture = try await OfflineFolderFixture.make(database: pool.database)
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"]?.count == 4 }
+        try await fixture.synchronize(parentName: "Renamed")
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"]?.contains { $0.path == "Renamed / Child" } == true }
+        try await fixture.synchronize(childParent: "other")
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"]?.contains { $0.path == "Other / Child" } == true }
+        let selection = try #require(try await fixture.select("other"))
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"]?.contains { $0.folderID == "child" && $0.coveringAncestorID == "other" } == true }
+        try await fixture.cache(selection)
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"]?.contains { $0.folderID == "other" && $0.usableCount == 1 } == true }
+        try await fixture.synchronize(memberships: ["item": .folder("parent"), "other-item": .folder("other"), "root-item": .root], childParent: "other")
+        _ = try await next(&iterator) { $0.policyByItemID["item"] == nil && $0.folderRowsByVaultID["vault"]?.contains { $0.folderID == "other" && $0.usableCount == 0 } == true }
+        _ = try await fixture.select("other", selected: false)
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"]?.allSatisfy { !$0.isSelected } == true }
+        try await fixture.synchronize(failure: true)
+        _ = try await next(&iterator) { $0.folderCatalogStatusByVaultID["vault"] == .deferred }
+        try await fixture.synchronize(memberships: ["item": .root, "other-item": .root, "root-item": .root],
+                                      deletingFolders: ["parent", "child", "other", "empty"])
+        _ = try await next(&iterator) { $0.folderRowsByVaultID["vault"] == [] && $0.folderCatalogStatusByVaultID["vault"] == .fresh }
+        #expect(writerProjections.withLock { $0 } == 0)
+    }
+
     /// A stable observation region must include dependencies even when no selections exist yet.
     @Test(.timeLimit(.minutes(1)))
     func observesEveryCatalogDependencyStartingEmpty() async throws {
@@ -98,7 +138,7 @@ extension OfflineCatalogPoolObservationTests {
         let pool = try OfflineCatalogPoolFixture(seedCatalog: false)
         defer { pool.remove() }
         #expect(pool.database.writer is DatabasePool)
-        #expect(try await pool.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM grdb_migrations") } == 16)
+        #expect(try await pool.database.reader.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM grdb_migrations") } == 17)
         let handle = try FileHandle(forReadingFrom: pool.root.appendingPathComponent("catalog.db"))
         let header = try handle.read(upToCount: 16)
         try handle.close()

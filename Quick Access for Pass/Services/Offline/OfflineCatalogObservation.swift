@@ -18,7 +18,9 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
                     // region lets pool readers coalesce refetches off the writer queue.
                     let observation = ValueObservation.tracking(regions: [
                         Table("items"), Table("vaults"), Table("offlineItems"),
-                        Table("offlineVaults"), Table("offlineItemExclusions"), Table("offlineSnapshots")
+                        Table("offlineVaults"), Table("offlineItemExclusions"), Table("offlineSnapshots"),
+                        Table("folders"), Table("folderAncestors"), Table("folderItemMemberships"),
+                        Table("offlineFolders"), Table("folderCatalogState")
                     ]) { db in
                         try Self.presentation(in: db)
                     }
@@ -43,11 +45,15 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
     /// Reads every presentation field in one connection. The payload is tested only by
     /// existence, schema/revision metadata, and length; it is never selected or decoded.
     static func presentation(in db: Database) throws -> OfflinePresentationSnapshot {
-        let selectedVaultIDs = Set(try String.fetchAll(db, sql: "SELECT vaultId FROM offlineVaults"))
-        let vaultMetadata = try Row.fetchAll(db, sql: "SELECT id, name FROM vaults")
+        let vaultMetadata = try Row.fetchAll(db, sql: """
+            SELECT v.id, v.name, p.vaultId AS selectedVaultID
+            FROM vaults v LEFT JOIN offlineVaults p ON p.vaultId = v.id
+            """)
+        let selectedVaultIDs = Set(vaultMetadata.compactMap { $0["selectedVaultID"] as String? })
         let rows = try Self.catalogRows(in: db)
+        let folders = try OfflineFolderPresentation.read(in: db)
 
-        let projection = try Self.projectItems(rows)
+        let projection = try Self.projectItems(rows, folders: folders)
         let itemRows = projection.rows
         let policyByItemID = projection.policies
         let availabilityByItemID = projection.availability
@@ -86,7 +92,11 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
             itemGroups: itemGroups,
             selectedVaultIDs: selectedVaultIDs,
             policyByItemID: policyByItemID,
-            availabilityByItemID: availabilityByItemID
+            availabilityByItemID: availabilityByItemID,
+            folderRowsByVaultID: folders.settingsRows(items: displayRows.map(\.row)),
+            folderCatalogStatusByVaultID: folders.statusesByVaultID,
+            folderCatalogStampsByVaultID: folders.stampsByVaultID,
+            folderLocationsByItemID: folders.locationsByItemID
         )
     }
 
@@ -96,7 +106,7 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
         var availability: [String: OfflineItemAvailability] = [:]
     }
 
-    private static func projectItems(_ rows: [Row]) throws -> ItemProjection {
+    private static func projectItems(_ rows: [Row], folders: OfflineFolderPresentation) throws -> ItemProjection {
         var itemRows: [(row: OfflineItemSettingsRow, isProvisional: Bool)] = []
         var availabilityByItemID: [String: OfflineItemAvailability] = [:]
         var policyByItemID: [String: OfflineItemPolicy] = [:]
@@ -128,7 +138,8 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
                 key: key,
                 isManuallySelected: isManuallySelected,
                 vaultSelection: policyGeneration.map { OfflineVaultSelection(vaultID: vaultID, generation: $0) },
-                isExcluded: isExcluded
+                isExcluded: isExcluded,
+                folderSelections: folders.policies(for: itemID)
             )
             let availability = Self.availability(status: status, hasUsableSnapshot: hasUsableSnapshot, refreshedAt: refreshedAt)
             availabilityByItemID[itemID] = availability
@@ -189,11 +200,7 @@ nonisolated struct OfflineCatalogObservation: OfflineCatalogObserving, Sendable 
             JOIN vaults v ON v.id = o.vaultId
             LEFT JOIN offlineVaults vsel ON vsel.vaultId = o.vaultId
             WHERE i.state = 'Active'
-              AND (o.isManuallySelected = 1 OR
-                   (vsel.vaultId IS NOT NULL AND NOT EXISTS(
-                       SELECT 1 FROM offlineItemExclusions x
-                       WHERE x.itemId = o.itemId AND x.vaultId = o.vaultId
-                   )))
+              AND (\(OfflineSelectionSQL.effectiveSelection))
             """,
             arguments: [
                 OfflineSnapshotLimits.schemaVersion,

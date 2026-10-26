@@ -1,10 +1,16 @@
 import SwiftUI
 
 struct OfflineSettingsTab: View {
+    private enum ManagerSheet: Hashable, Identifiable {
+        case items
+        case folders(vaultID: String)
+        var id: Self { self }
+    }
+
     @Environment(\.offlineModeCoordinator) private var coordinator
     @Environment(\.locale) private var locale
     @State private var isRemoveAllConfirmationPresented = false
-    @State private var isItemsManagerPresented = false
+    @State private var activeManager: ManagerSheet?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -20,9 +26,14 @@ struct OfflineSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .sheet(isPresented: $isItemsManagerPresented) {
+        .sheet(item: $activeManager) { manager in
             if let coordinator {
-                OfflineItemsManagerView(coordinator: coordinator)
+                switch manager {
+                case .items:
+                    OfflineItemsManagerView(coordinator: coordinator)
+                case .folders(let vaultID):
+                    OfflineFoldersManagerView(coordinator: coordinator, initialVaultID: vaultID)
+                }
             }
         }
         .onChange(of: coordinator?.observationErrorMessage) { _, message in
@@ -49,9 +60,24 @@ struct OfflineSettingsTab: View {
     @ViewBuilder
     private func offlineVaultSection(_ coordinator: OfflineModeCoordinator) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Offline vaults")
+            Text("Offline vaults and folders")
                 .font(.body)
-            offlineSelectionExplanation
+            Text("Choose whole vaults, folders, or individual items to keep offline.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup("How offline access works") {
+                VStack(alignment: .leading, spacing: 8) {
+                    offlineSelectionExplanation
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.caption)
+            if let message = FolderSettingsLocalization.capabilityMessage(coordinator.folderPresentationAvailability, locale: locale) {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if coordinator.requiresInitializationRetry {
                 Text("Offline access could not be initialized. Live access and removal remain available.")
                     .font(.caption)
@@ -76,26 +102,52 @@ struct OfflineSettingsTab: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(coordinator.vaults) { vault in
-                    SettingsLayout.settingsRow(label: Text(verbatim: vault.vaultName)) {
-                        Toggle(vault.vaultName, isOn: Binding(
-                            get: { vault.isSelected },
-                            set: { selected in
-                                Task { await selectWholeVault(selected, vaultID: vault.id) }
-                            }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled((!vault.isSelected && !coordinator.canMakeNewSelections)
-                            || (vault.isSelected && !coordinator.canDeselectVault(vault.id)))
-                        .accessibilityValue(vaultStatus(for: vault))
-                    }
+                    vaultSelectionRow(vault, coordinator: coordinator)
                 }
             }
         }
     }
 
+    private func vaultSelectionRow(_ vault: OfflineVaultSettingsRow, coordinator: OfflineModeCoordinator) -> some View {
+        let folderCount = (coordinator.folderRowsByVaultID[vault.id] ?? []).filter(\.isSelected).count
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: vault.vaultName)
+                    .lineLimit(1).truncationMode(.middle).help(vault.vaultName)
+                Text(FolderSettingsLocalization.folderSelections(count: folderCount, locale: locale))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(FolderSettingsLocalization.counts(selected: vault.selectedCount, usable: vault.usableCount, locale: locale))
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .help(vaultStatus(for: vault))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if coordinator.hasFolders(in: vault.id) {
+                Button("Manage folders…") { activeManager = .folders(vaultID: vault.id) }
+                    .disabled(coordinator.folderPresentationAvailability != .supported && folderCount == 0)
+                    .accessibilityHint(FolderSettingsLocalization.text("Manage offline folders in \(vault.vaultName)", locale: locale))
+                    .fixedSize()
+            }
+            Toggle(vault.vaultName, isOn: Binding(
+                get: { vault.isSelected },
+                set: { selected in Task { await selectWholeVault(selected, vaultID: vault.id) } }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .fixedSize()
+            .disabled((!vault.isSelected && !coordinator.canMakeNewSelections)
+                || (vault.isSelected && !coordinator.canDeselectVault(vault.id)))
+            .accessibilityValue(vaultStatus(for: vault))
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+    }
+
     private var offlineSelectionExplanation: some View {
         Group {
+            Text("Selecting a folder includes subfolders and future items after a complete sync. Turning it off keeps independent selections.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Text("""
                 Selecting a vault stores encrypted offline copies of all its items on this Mac. \
                 New items added to selected vaults will also become available offline after syncing.
@@ -145,7 +197,7 @@ struct OfflineSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
             Button("Manage offline items…") {
-                isItemsManagerPresented = true
+                activeManager = .items
             }
         }
     }
@@ -212,7 +264,10 @@ struct OfflineSettingsTab: View {
         }
     }
 
-    private func vaultStatus(for vault: OfflineVaultSettingsRow) -> String {
+}
+
+private extension OfflineSettingsTab {
+    func vaultStatus(for vault: OfflineVaultSettingsRow) -> String {
         guard let lastRefreshedAt = vault.lastRefreshedAt else {
             return String(localized: "\(vault.selectedCount) selected, \(vault.usableCount) usable", locale: locale)
         }

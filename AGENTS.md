@@ -184,12 +184,39 @@ file/Keychain cleanup is permitted.
 
 Offline catalog presentation uses a set-based item-metadata projection and an
 explicit constant observation region so production `DatabasePool` refreshes can
-run off the writer queue. Keep all six catalog dependencies covered (items,
-vaults, offline selections, whole-vault policies, exclusions, and snapshot
-usability metadata), including when observation starts empty. Never reintroduce
+run off the writer queue. Keep all eleven catalog dependencies covered (items,
+vaults, offline selections, whole-vault policies, exclusions, snapshot usability
+metadata, folders, ancestor closure, folder memberships, folder policies, and
+folder discovery state), including when observation starts empty. Never reintroduce
 per-item reads, fetch snapshot payload bytes into presentation, or use displayed
 state as release authority. Test pool scheduling with a temporary encrypted pool;
-in-memory queue tests cannot verify that optimization.
+in-memory queue tests cannot verify that optimization. Folder paths/counts/policy
+badges and fresh/deferred discovery status are metadata-only presentation, never
+admission or release proofs. Preserve the fixed three-read catalog projection and
+one set-based metadata read per search batch. Search keeps its existing vault
+label and a separate subordinate folder pill; folder names never enter FTS,
+ranking, filtering, or SSH scope. Reject stale asynchronous label results after
+query/probe/executable changes, and check the shared gate plus the exact load
+stamp again when rendering. Omit root/unresolved paths, keep literal names and
+full accessible/help paths, and truncate the folder pill before primary text.
+
+Offline Settings uses the same active-CLI 2.5.0+ gate plus committed discovery
+stamps for new folder actions. Keep the coordinator async-throwing and localize
+fixed errors/announcements at the view locale boundary. Keep main Settings compact:
+folder trees live in a bounded native manager sheet, with its footer outside the
+scrolling list. Its local folder-name/path filter and Selected only projection
+are presentation-only exceptions to the search restrictions above; neither may
+alter Quick Access or item-manager matching, row policy fields, or action targets.
+Retain ancestor context by stable IDs/depth, not parsed path separators. Checkboxes
+apply immediately; closing detaches feedback, not service-owned work. Tree row
+bodies consume metadata and callbacks only; inherited-only controls must not write
+child intent or revoke ancestors. On unsupported/checking state, keep the manager
+available for existing explicit policies, reset filters, hide unselected discovery
+rows and expose every explicit selected policy regardless of collapsed branches.
+Preserve independent child/manual intent,
+ordinary item-manager matching (no folder matching), and removal/purge while
+new folder work is unavailable. Paths and policy descriptions remain literal
+presentation context, never authority or secret-bearing payloads.
 
 Incremental ordinary sync obtains optional metadata-only capture authority before
 fetching full list content; absent/not-ready admission must not fail metadata sync
@@ -221,7 +248,7 @@ policy and performs no offline-content conversion or ordinary-data wipe.
 
 ## Database Schema
 
-`DatabaseManager` currently defines **16 migrations**:
+`DatabaseManager` currently defines **17 migrations**:
 
 - **v1**
   - `vaults`
@@ -272,6 +299,19 @@ policy and performs no offline-content conversion or ordinary-data wipe.
   - the codec certifies only the leading requirements satisfied by the actual validated payload; aliases currently require revision 1 (nonblank top-level `alias_email`), all other types require 0
   - already-selected snapshots below their type's requirement can refresh during ordinary sync after unambiguous sufficient-content evidence; equal or newer revisions add no refresh reason. Missing connectivity/login/supporting CLI defers work without manual Retry, a launch job or an app-wide completion flag; revision metadata is not authorization
   - leaves encrypted payload schema 1, AAD, existing ciphertext and Keychain policy unchanged; reads no old payloads/keys and performs no conversion, key access during migration, global forced sync or ordinary-data wipe
+
+- **v17**
+  - adds metadata-only `folders`, bounded self-inclusive `folderAncestors`, `folderItemMemberships`, and `folderCatalogState`, keyed by stable vault/folder identity
+  - adds explicit recursive policy rows in `offlineFolders` and metadata-only pre-fetch evidence in `offlineSyncCaptureFolders`; capture children cascade only with their capture, not live policies/catalog rows
+  - commits validated folder catalog and original item/share proofs in the ordinary metadata transaction. Display renames retain membership generation; structural/membership changes advance it. Failed/unsupported/stale evidence marks expansion deferred without deleting retained folder authority
+  - folder additions require a fresh committed observation matching the shared active-CLI 2.5.0+ selection/probe stamp at writer admission; cached release/removal is independent. The connection-local monotonic folder-tracking flag only avoids extra SQL before any catalog exists; it is never authorization and is restored from persisted state on reopen
+  - runtime coverage is manual selection, or non-excluded whole-vault/selected-folder ancestry. Removing a parent/vault retains independent child/manual/folder coverage; explicit folder re-selection clears only subtree exclusions. Reconcile moves/deletion in the metadata writer, not presentation
+  - bound and pre-bind release constraints accumulate metadata-only coverage removals and hierarchy changes. Permission gains are commit-confirmed and selection-generation-bound; never revive invalid captures or erase other pending revocations. Key gains outside the authority lock and visit only active captures inside it
+  - retained folder authority permits cached release/removal, not new folder-only content fetches/publication when discovery is deferred or the gate is unsupported/checking. Independent manual/whole-vault fetch authority remains unchanged
+  - explicit selection/materialization/Retry tokens retain metadata-only folder admission captured with reservation: exact catalog observation/membership/stamp plus original covering policy generations. Revalidate this inside the publication writer; never substitute a later discovery or policy promotion. Originally independent manual/vault requests require no folder proof. This is in-memory provenance, not a schema or encrypted-content change
+  - sync captures folder policy generations before full-content fetch. New folder members need an originally captured/current policy and the actual invocation's fresh committed observation/membership generation, rechecked at reader planning and writer publication; no retroactive readiness/selection or replacement proof. Existing selected rows retain exact selection/request ownership, including completed newer Retry. Full content remains in the caller-owned awaited frame and the existing bounded publisher
+  - the capture item's legacy-named `wasEligibleForVaultSelection` metadata flag covers active/non-excluded eligibility under originally captured vault or folder policies; captured-policy joins still distinguish their ownership. Small fallback/writer rechecks bound both folder and outer item projections, never per-item payload reads or expanded argument logs
+  - changes no existing rows, FTS definitions, encrypted payload schema/AAD or Keychain policy during migration; reads no snapshot payloads or keys and performs no conversion, forced sync or ordinary-data wipe
 
 ### Offline Mode Documentation Verification Checklist
 

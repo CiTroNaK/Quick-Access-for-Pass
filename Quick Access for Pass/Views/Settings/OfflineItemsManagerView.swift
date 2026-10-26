@@ -90,37 +90,61 @@ struct OfflineItemsManagerView: View {
         return identifier.isEmpty ? nil : identifier
     }
 
+    private func itemDetails(_ item: OfflineItemSettingsRow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+                .lineLimit(1)
+                .help(item.title)
+            if let identifier = Self.accountIdentifier(for: item.item) {
+                Text(identifier)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(identifier)
+                    .accessibilityLabel("Username or email: \(identifier)")
+            }
+            if let location = coordinator.folderLocation(for: item.itemId) {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder").accessibilityHidden(true)
+                    Text(verbatim: location.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help(location.path)
+                .accessibilityElement(children: .combine)
+            }
+            if let policy = coordinator.selectionPolicy(for: item.itemId) {
+                let context = FolderSettingsLocalization.itemPolicyDescription(policy, locale: locale)
+                Text(context)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(context)
+            }
+            if let lastRefreshedAt = item.lastRefreshedAt {
+                let timestamp = lastRefreshedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale))
+                let detail = String(localized: "\(item.itemType.displayName) · Last refreshed \(timestamp)")
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(detail)
+            } else {
+                Text(item.itemType.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func itemRow(_ item: OfflineItemSettingsRow) -> some View {
         HStack(spacing: 8) {
             Image(systemName: item.itemType.sfSymbol)
                 .foregroundStyle(item.itemType.tintColor)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .lineLimit(1)
-                    .help(item.title)
-                if let identifier = Self.accountIdentifier(for: item.item) {
-                    Text(identifier)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(identifier)
-                        .accessibilityLabel("Username or email: \(identifier)")
-                }
-                if let lastRefreshedAt = item.lastRefreshedAt {
-                    let timestamp = lastRefreshedAt.formatted(date: .abbreviated, time: .shortened)
-                    let detail = String(localized: "\(item.itemType.displayName) · Last refreshed \(timestamp)")
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(detail)
-                } else {
-                    Text(item.itemType.displayName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            itemDetails(item)
             Spacer()
             Text(statusLabel(for: item))
                 .font(.caption)
@@ -164,7 +188,8 @@ struct OfflineItemsManagerView: View {
         errorMessage = nil
         do {
             try await coordinator.keepOfflineIndividually(item.item)
-            report(String(localized: "\(item.title) will remain available offline when its vault is turned off."))
+            report(FolderSettingsLocalization.text(
+                "\(item.title) will remain available offline when its covering vault or folder is turned off.", locale: locale))
         } catch {
             report(String(localized: "Could not keep this item offline. Retry offline status and try again."), isError: true)
         }

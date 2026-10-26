@@ -106,7 +106,7 @@ extension OfflineModeService {
         let generation: UUID
         switch candidate.intent {
         case .materialize(let selected), .refresh(let selected): generation = selected
-        case .vaultMaterialize: return nil
+        case .vaultMaterialize, .folderMaterialize: return nil
         }
         guard let selection = try await repository.offlineItemSelection(itemId: candidate.key.itemId),
               selection.vaultId == candidate.key.vaultId, selection.isManuallySelected,
@@ -198,6 +198,26 @@ extension OfflineModeService {
         try? await submitCurrent(vaultID: vaultID, includeNew: true, refreshExisting: false)
     }
 
+    func selectFolder(_ selected: Bool, folderID: String, vaultID: String, featureStamp: FolderFeatureStamp?) async throws {
+        if !selected {
+            try await revoke(.vault(vaultID), removingCoverage: .folder(vaultID: vaultID, folderID: folderID)) { [repository] in
+                _ = try await repository.setFolderSelected(false, folderID: folderID, vaultID: vaultID, featureStamp: nil)
+            }
+            return
+        }
+        let permit = try grantPermit(scope: .vault(vaultID), vaultID: vaultID)
+        let lifecycle = lifecycleGeneration
+        do {
+            _ = try await repository.setFolderSelected(true, folderID: folderID, vaultID: vaultID, featureStamp: featureStamp)
+            releasePermit(permit)
+        } catch {
+            releasePermit(permit)
+            throw Error.persistenceFailed
+        }
+        guard lifecycle == lifecycleGeneration, permit.workGeneration == workGeneration, submissionsAllowed else { return }
+        try? await submitCurrent(vaultID: vaultID, includeNew: true, refreshExisting: false)
+    }
+
     func keepOfflineIndividually(_ item: PassItem) async throws {
         let permit = try grantPermit(scope: .item(item.id), vaultID: item.vaultId)
         defer { releasePermit(permit) }
@@ -245,7 +265,7 @@ extension OfflineModeService {
         switch candidate.intent {
         case .materialize(let generation), .refresh(let generation):
             return generation == owned.request.selectionGeneration ? owned.candidate : candidate
-        case .vaultMaterialize:
+        case .vaultMaterialize, .folderMaterialize:
             return candidate
         }
     }
@@ -313,6 +333,9 @@ extension OfflineModeService {
                                      manualWork: manualWork)
         case .vaultMaterialize(let generation):
             kind = .vaultSelection(policyGeneration: generation); selectionGeneration = nil
+            permit = try grantPermit(scope: .item(candidate.key.itemId), vaultID: candidate.key.vaultId)
+        case .folderMaterialize(let folderID, let generation):
+            kind = .folderSelection(folderID: folderID, policyGeneration: generation); selectionGeneration = nil
             permit = try grantPermit(scope: .item(candidate.key.itemId), vaultID: candidate.key.vaultId)
         }
         let request: OfflineRequestToken?

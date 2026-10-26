@@ -4,6 +4,7 @@ import os
 @MainActor
 final class SyncCoordinator {
     private let cliService: PassCLIService
+    var folderFeatureGate: FolderFeatureGate { cliService.folderFeatureGate }
     let databaseManager: DatabaseManager
     let identitySynchronizer: any AutoFillIdentitySynchronizing
     let offlineModeService: OfflineModeService?
@@ -69,19 +70,25 @@ final class SyncCoordinator {
     }
 
     private func performSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel) async {
+        // Metadata-only capability discovery must finish before optional pre-fetch admission.
+        // A failed/unknown version still permits ordinary metadata synchronization.
+        let folderFeatureStamp = await cliService.prepareFolderSync()
+        guard operation.isCurrent, !Task.isCancelled else { return }
         let capture = await offlineModeService?.captureForSync(operation: operation)
         if operation.isCurrent, !Task.isCancelled {
-            await performCapturedSync(operation: operation, viewModel: viewModel, capture: capture)
+            await performCapturedSync(operation: operation, viewModel: viewModel, capture: capture,
+                                      folderFeatureStamp: folderFeatureStamp)
         }
         // Explicitly joined on every return/error path, including cancelled native work.
         if let capture { await offlineModeService?.finishSyncCapture(capture) }
     }
 
-    private func performCapturedSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel, capture: OfflineSyncCapture?) async {
+    private func performCapturedSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel,
+                                     capture: OfflineSyncCapture?, folderFeatureStamp: FolderFeatureStamp?) async {
         var skippedItemsForDiagnostics: [SkippedSyncItem] = []
         var skippedDiagnosticFileURL: URL?
         do {
-            let fetchResult = try await cliService.fetchAllItems { progress in
+            let fetchResult = try await cliService.fetchAllItems(folderFeatureStamp: folderFeatureStamp) { progress in
                 await MainActor.run {
                     guard operation.isCurrent else { return }
                     viewModel.syncProgress = progress

@@ -6,18 +6,36 @@ nonisolated struct OfflineVaultSelection: Sendable, Equatable {
     let generation: UUID
 }
 
-/// Describes explicit item intent alongside any encompassing vault policy.
+/// Identifies one explicit recursive folder policy by stable, vault-scoped identity.
+nonisolated struct OfflineFolderSelection: Sendable, Equatable {
+    let vaultID: String
+    let folderID: String
+    let generation: UUID
+}
+
+/// Describes explicit item intent alongside encompassing vault and folder policies.
 nonisolated struct OfflineItemPolicy: Sendable, Equatable {
     let key: OfflineSnapshotKey
     let isManuallySelected: Bool
     let vaultSelection: OfflineVaultSelection?
     let isExcluded: Bool
+    let folderSelections: [OfflineFolderSelection]
+
+    init(key: OfflineSnapshotKey, isManuallySelected: Bool, vaultSelection: OfflineVaultSelection?,
+         isExcluded: Bool, folderSelections: [OfflineFolderSelection] = []) {
+        self.key = key
+        self.isManuallySelected = isManuallySelected
+        self.vaultSelection = vaultSelection
+        self.isExcluded = isExcluded
+        self.folderSelections = folderSelections
+    }
 }
 
 /// Identifies why selected metadata should produce or refresh a snapshot.
 nonisolated enum OfflineSnapshotWorkIntent: Sendable, Equatable {
     case materialize(selectionGeneration: UUID)
     case vaultMaterialize(policyGeneration: UUID)
+    case folderMaterialize(folderID: String, policyGeneration: UUID)
     case refresh(selectionGeneration: UUID)
 }
 

@@ -5,6 +5,27 @@ import Testing
 
 @Suite("OfflineCatalogObservation")
 struct OfflineCatalogObservationTests {
+    @Test(.timeLimit(.minutes(1)))
+    func emptyObservationProjectsFoldersAndTheirExplicitPolicy() async throws {
+        let fixture = try OfflineFolderFixture()
+        var iterator = OfflineCatalogObservation(database: fixture.database).snapshots().makeAsyncIterator()
+        let initial = try #require(try await iterator.next())
+        #expect(initial.folderRowsByVaultID.isEmpty)
+        try await fixture.synchronize()
+        var populated = try #require(try await iterator.next())
+        while populated.folderRowsByVaultID["vault"] == nil {
+            populated = try #require(try await iterator.next())
+        }
+        #expect(populated.folderRowsByVaultID["vault"]?.map(\.folderID) == ["empty", "other", "parent", "child"])
+        _ = try await fixture.select("parent")
+        var selected = try #require(try await iterator.next())
+        while selected.folderRowsByVaultID["vault"]?.contains(where: { $0.folderID == "parent" && $0.isSelected }) != true {
+            selected = try #require(try await iterator.next())
+        }
+        #expect(selected.folderRowsByVaultID["vault"]?.first { $0.folderID == "child" }?.coveringAncestorID == "parent")
+        #expect(selected.policyByItemID.isEmpty)
+    }
+
     @Test func manualSelectionProjectsWithoutWholeVaultPolicy() async throws {
         let fixture = try OfflineLifecycleFixture(itemIDs: ["item"])
         _ = try await fixture.repository.selectItemManually(itemID: "item", vaultID: "vault", shareID: "share")

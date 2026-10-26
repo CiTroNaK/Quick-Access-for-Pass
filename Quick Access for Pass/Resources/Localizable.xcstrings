@@ -1,6 +1,292 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Choose folders to keep offline" : {
+      "comment" : "Title of the bounded Offline folder-manager sheet; choosing a folder includes its descendants.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Vyberte složky pro offline přístup" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose folders to keep offline" } }
+      }
+    },
+    "Manage folders…" : {
+      "comment" : "Opens a bounded folder-selection sheet from a vault summary. Does not select the whole vault.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Spravovat složky…" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Manage folders…" } }
+      }
+    },
+    "Filter folders" : {
+      "comment" : "Native field label/placeholder for local folder-name/path filtering inside the folder manager only.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Filtrovat složky" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Filter folders" } }
+      }
+    },
+    "Selected only" : {
+      "comment" : "Folder-manager filter: show independently selected or inherited-covered folders and their ancestor context.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Pouze vybrané" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selected only" } }
+      }
+    },
+    "How offline access works" : {
+      "comment" : "Collapsed disclosure label containing existing Offline Mode guidance, not an authorization control.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Jak funguje offline přístup" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "How offline access works" } }
+      }
+    },
+    "Choose whole vaults, folders, or individual items to keep offline." : {
+      "comment" : "Concise Offline Settings introduction; longer existing guidance remains in a disclosure.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Pro offline přístup vyberte celé trezory, složky nebo jednotlivé položky." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose whole vaults, folders, or individual items to keep offline." } }
+      }
+    },
+    "Vault" : {
+      "comment" : "Native vault picker label in the Offline folder manager. Vault names themselves are user text and never localized.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Trezor" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Vault" } }
+      }
+    },
+    "This vault is no longer available." : {
+      "comment" : "The folder manager's stable selected vault disappeared from the live catalog; never silently retarget actions.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Tento trezor už není dostupný." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This vault is no longer available." } }
+      }
+    },
+    "No matching folders." : {
+      "comment" : "A local folder filter or Selected only found no matching rows, not a discovery failure.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Žádné odpovídající složky." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No matching folders." } }
+      }
+    },
+    "No selected folders in this vault." : {
+      "comment" : "Unsupported folder capability leaves no explicit folder policies to remove in the selected vault.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "V tomto trezoru nejsou vybrány žádné složky." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No selected folders in this vault." } }
+      }
+    },
+    "Folder selection updated." : {
+      "comment" : "Non-secret accessibility announcement after a folder policy action returns successfully while its sheet is still visible.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Výběr složek byl aktualizován." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Folder selection updated." } }
+      }
+    },
+    "Manage offline folders in %@" : {
+      "comment" : "Accessibility hint for Manage folders. The placeholder is a literal user-provided vault name; preserve it exactly.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Spravovat offline složky v trezoru %@" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Manage offline folders in %@" } }
+      }
+    },
+    "%lld folder selections" : {
+      "comment" : "Number of independent folder policies in the vault, not inherited folders or unique items. Integer placeholder; pluralize at 0/1/2/5 in both languages.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "variations" : { "plural" : {
+          "one" : { "stringUnit" : { "state" : "translated", "value" : "Vybraná složka: %lld" } },
+          "few" : { "stringUnit" : { "state" : "translated", "value" : "Vybrané složky: %lld" } },
+          "other" : { "stringUnit" : { "state" : "translated", "value" : "Vybraných složek: %lld" } }
+        } } },
+        "en" : { "variations" : { "plural" : {
+          "one" : { "stringUnit" : { "state" : "translated", "value" : "%lld folder selection" } },
+          "other" : { "stringUnit" : { "state" : "translated", "value" : "%lld folder selections" } }
+        } } }
+      }
+    },
+    "%lld folders shown" : {
+      "comment" : "Folder-manager count after local filtering, including ancestor context. Integer placeholder; not a selection or authorization count.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "variations" : { "plural" : {
+          "one" : { "stringUnit" : { "state" : "translated", "value" : "Zobrazena %lld složka" } },
+          "few" : { "stringUnit" : { "state" : "translated", "value" : "Zobrazeny %lld složky" } },
+          "other" : { "stringUnit" : { "state" : "translated", "value" : "Zobrazeno %lld složek" } }
+        } } },
+        "en" : { "variations" : { "plural" : {
+          "one" : { "stringUnit" : { "state" : "translated", "value" : "%lld folder shown" } },
+          "other" : { "stringUnit" : { "state" : "translated", "value" : "%lld folders shown" } }
+        } } }
+      }
+    },
+    "Folders require Pass CLI 2.5.0 or newer." : {
+      "comment" : "Offline folder selection capability floor; keep the literal minimum CLI version 2.5.0 unchanged.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Složky vyžadují Pass CLI 2.5.0 nebo novější." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Folders require Pass CLI 2.5.0 or newer." } }
+      }
+    },
+    "Folder support is not verified for the selected Pass CLI. Existing offline copies and removal remain available." : {
+      "comment" : "Folder capability is unknown or being checked for the active executable; cached access and removal remain usable.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Podpora složek pro vybrané Pass CLI není ověřena. Stávající offline kopie a jejich odebrání zůstávají dostupné." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Folder support is not verified for the selected Pass CLI. Existing offline copies and removal remain available." } }
+      }
+    },
+    "Folder data is unavailable. Sync with Pass CLI 2.5.0 or newer to select folders." : {
+      "comment" : "New folder selection needs a complete catalog bound to the currently verified CLI probe. Existing explicit selections can still be removed.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Údaje o složkách nejsou dostupné. Pro výběr složek synchronizujte pomocí Pass CLI 2.5.0 nebo novějšího." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Folder data is unavailable. Sync with Pass CLI 2.5.0 or newer to select folders." } }
+      }
+    },
+    "Included by %@" : {
+      "comment" : "Inherited offline folder coverage. The argument is an exact user-provided ancestor folder path; never translate or parse it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Zahrnuto složkou %@" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Included by %@" } }
+      }
+    },
+    "Selected independently; also included by %@" : {
+      "comment" : "An explicit child folder policy remains independent underneath ancestor coverage. The argument is the exact ancestor path.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Vybráno samostatně; zahrnuto také složkou %@" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selected independently; also included by %@" } }
+      }
+    },
+    "Selected independently; also included by selected vault" : {
+      "comment" : "An explicit folder selection survives turning off its encompassing vault selection.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Vybráno samostatně; zahrnuto také vybraným trezorem" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selected independently; also included by selected vault" } }
+      }
+    },
+    "Included by selected vault" : {
+      "comment" : "Folder contents inherit offline coverage from the whole-vault policy, not a new explicit folder selection.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Zahrnuto vybraným trezorem" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Included by selected vault" } }
+      }
+    },
+    "Included by selected folder" : {
+      "comment" : "Inherited offline coverage fallback when an ancestor's display path is unavailable; do not expose an opaque ID as a name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Zahrnuto vybranou složkou" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Included by selected folder" } }
+      }
+    },
+    "Selected independently" : {
+      "comment" : "Explicit folder offline policy, retained independently of ancestor or vault policies.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Vybráno samostatně" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selected independently" } }
+      }
+    },
+    "Not selected" : {
+      "comment" : "A folder has neither an explicit offline policy nor inherited coverage.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Nevybráno" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not selected" } }
+      }
+    },
+    "Offline vaults and folders" : {
+      "comment" : "Settings section containing whole-vault switches and a nested recursive folder selector.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Offline trezory a složky" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Offline vaults and folders" } }
+      }
+    },
+    "No folders in this vault." : {
+      "comment" : "A complete current folder discovery succeeded and the vault genuinely has no folders; not an error fallback.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "V tomto trezoru nejsou žádné složky." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No folders in this vault." } }
+      }
+    },
+    "Expand folder %@" : {
+      "comment" : "Accessible folder disclosure button label. Argument is the exact full user folder path.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Rozbalit složku %@" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Expand folder %@" } }
+      }
+    },
+    "Collapse folder %@" : {
+      "comment" : "Accessible folder disclosure button label. Argument is the exact full user folder path.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Sbalit složku %@" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Collapse folder %@" } }
+      }
+    },
+    "Expanded" : {
+      "comment" : "Accessible state of an expanded folder branch; not part of the user-provided name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Rozbaleno" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Expanded" } }
+      }
+    },
+    "Collapsed" : {
+      "comment" : "Accessible state of a collapsed folder branch; not part of the user-provided name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Sbaleno" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Collapsed" } }
+      }
+    },
+    "Includes subfolders and future items after a complete sync." : {
+      "comment" : "Accessibility hint on explicit recursive folder selection; future coverage requires successful authoritative sync.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Po úplné synchronizaci zahrnuje podsložky a budoucí položky." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Includes subfolders and future items after a complete sync." } }
+      }
+    },
+    "Selecting a folder includes subfolders and future items after a complete sync. Turning it off keeps independent selections." : {
+      "comment" : "Offline folder consent explanation; turning off an ancestor preserves explicit child-folder and individual-item policies.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Výběr složky po úplné synchronizaci zahrnuje podsložky a budoucí položky. Vypnutím zůstanou zachovány samostatné výběry." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Selecting a folder includes subfolders and future items after a complete sync. Turning it off keeps independent selections." } }
+      }
+    },
+    "Could not update offline folder settings. Sync and try again." : {
+      "comment" : "Fixed non-secret folder selection failure displayed and announced by Settings; never interpolate raw CLI/database errors.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Nastavení offline složky se nepodařilo změnit. Proveďte synchronizaci a zkuste to znovu." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not update offline folder settings. Sync and try again." } }
+      }
+    },
+    "%@ will remain available offline when its covering vault or folder is turned off." : {
+      "comment" : "Announcement after promoting a cached item to independent manual consent. Argument is the exact user-provided item title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "%@ zůstane dostupné offline i po vypnutí příslušného trezoru nebo složky." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ will remain available offline when its covering vault or folder is turned off." } }
+      }
+    },
     "" : {
       "shouldTranslate" : false
     },

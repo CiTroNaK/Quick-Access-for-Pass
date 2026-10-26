@@ -5,6 +5,22 @@ import Testing
 
 @Suite("Offline sync capture and freshness")
 struct OfflineSyncCaptureTests {
+    @MainActor
+    @Test("Folder capture evidence survives live policy/catalog deletion and ends with its capture", arguments: [false, true])
+    func folderCaptureLifetime(deleteCatalog: Bool) async throws {
+        let fixture = try await OfflineFolderSyncFixture.make()
+        let capture = try await fixture.folder.repository.beginSyncCapture(
+            operation: fixture.folder.database.beginSyncOperation(), lifecycleGeneration: UUID())
+        #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineSyncCaptureFolders") == 1)
+        if deleteCatalog { try await fixture.folder.synchronize(childParent: nil, deletingFolders: ["parent"]) }
+        else { _ = try await fixture.folder.select("parent", selected: false) }
+        #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineFolders") == 0)
+        #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineSyncCaptureFolders") == 1)
+        try await fixture.folder.repository.endSyncCapture(capture)
+        #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineSyncCaptureFolders") == 0)
+        await fixture.finish()
+    }
+
     @Test func selectedMissingCopyProducesGenerationBoundMetadataOnlyWork() async throws {
         let fixture = try OfflineSyncPlanningFixture()
         let selection = try await fixture.repository.selectItemManually(itemID: "item", vaultID: "vault", shareID: "share")

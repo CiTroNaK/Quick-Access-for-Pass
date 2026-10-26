@@ -15,12 +15,24 @@ nonisolated struct OfflineSyncedMetadataProof: Sendable {
     let shareID: String
     let descriptorInputs: [AutoFillDescriptorInput]
     let metadataGeneration: UUID?
+    let folderCatalogProof: FolderCatalogAdmissionProof?
+
+    init(operationID: UUID, item: PassItem, shareID: String, descriptorInputs: [AutoFillDescriptorInput],
+         metadataGeneration: UUID?, folderCatalogProof: FolderCatalogAdmissionProof? = nil) {
+        self.operationID = operationID
+        self.item = item
+        self.shareID = shareID
+        self.descriptorInputs = descriptorInputs
+        self.metadataGeneration = metadataGeneration
+        self.folderCatalogProof = folderCatalogProof
+    }
 }
 
-/// Existing selection ownership and future vault membership are deliberately distinct.
+/// Existing selection ownership and future automatic membership are deliberately distinct.
 nonisolated enum OfflineSyncOwnership: Sendable, Equatable {
     case selected(selectionGeneration: UUID, requestGeneration: UUID, metadataGeneration: UUID)
     case vaultMember(policyGeneration: UUID, wasKnownEligible: Bool)
+    case folderMember(folderID: String, policyGeneration: UUID, membershipGeneration: UUID, wasKnownEligible: Bool)
 }
 
 /// Metadata-only planned work. No fetched item, ciphertext or secret key is retained here.

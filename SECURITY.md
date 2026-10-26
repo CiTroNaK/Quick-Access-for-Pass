@@ -140,7 +140,11 @@ Offline Mode uses the host-only unified SQLCipher database outside App Group sto
 
 ### Consent and storage format
 
-Selection is opt-in by item or whole vault. Whole-vault selection includes future items after successful sync. Item removal creates an exclusion until re-selection. Turning off a vault preserves individual selections. **Keep offline individually** promotes a vault-only copy without refetching.
+Selection is opt-in by item, whole vault, or recursive folder. Vault and folder policies cover future descendants only after successful authoritative sync. Folder identities are stable and vault-scoped, never paths or display names. Item removal creates an exclusion until re-selection; explicit folder re-selection clears applicable subtree exclusions only. Turning off a vault or parent folder preserves independent child-folder and individual selections. **Keep offline individually** promotes a vault- or folder-derived usable copy without refetching.
+
+Folder discovery, new/expanded folder selection, and folder-only secret refresh require the actively selected Pass CLI at **2.5.0 or newer**, current capability evidence, and fresh invocation-bound committed catalog evidence. Unknown/checking/older executables and incomplete, stale, or failed discovery grant no new folder authority. They do not revoke already authorized cached access, explicit removal, or purge; independent manual/vault consent remains separate. Before-fetch capture generations, membership evidence, original selection/request ownership, bounded publication, and final release guards are revalidated below the UI. Displayed paths, counts, status, and badges never authorize work.
+
+Additive migration v17 adds six metadata-only folder/catalog/policy/capture tables. It does not convert existing selections or secrets, read payloads/keys, modify FTS, or change payload schema, AAD, ciphertext, or Keychain policy. Folder names are literal presentation metadata, not search matching/ranking/filtering or SSH scope.
 
 Migration v11 adds snapshots and request ownership. Migration v12 adds whole-vault generations, manual selection state, and exclusions. It preserves existing item selections and ciphertext without turning prior permission-only vault rows into whole-vault consent.
 
@@ -164,7 +168,7 @@ Explicit selection and Retry reserve metadata-only ownership before secret fetch
 
 Publication rechecks current ownership and identity, then atomically commits ciphertext, status, and the last successful refresh time. Failure preserves the previous complete snapshot and time, marked stale. Cancellation before commit can prevent publication. Late cancellation cannot reverse a committed transaction.
 
-Removal, vault deselection, and purge invalidate applicable selections and requests. Vault deselection keeps manual selections. Corruption cleanup is conditional on the captured snapshot revision and cannot delete a newer replacement.
+Removal, vault/folder deselection, and purge invalidate applicable selections and requests. Vault and ancestor deselection keep independent child-folder and manual selections. Corruption cleanup is conditional on the captured snapshot revision and cannot delete a newer replacement.
 
 Missing, locked, invalid, or mismatched keys and unsupported formats fail without resetting storage or rekeying.
 

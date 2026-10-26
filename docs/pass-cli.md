@@ -149,11 +149,29 @@ Preparation is sequential. A writer batch holds at most 32 items and 8 MiB of ci
 
 The caller awaits consumption and metadata-only cleanup. Shutdown closes admission, attempts persisted capture revocation, and joins active frames. Startup recovers unavailable-store metadata cleanup. Reset purges, joins frames, then clears ordinary metadata. Removal and purge do not wait for fetch or crypto preparation, though writer contention still applies.
 
-Offline access is opt-in by item or whole vault, including future items after successful sync. Exclusions persist until re-selection, and turning off a vault retains manual selections. Full secrets persist only in encrypted `offlineSnapshots` in the host-only database, protected by a separate device-bound key.
+Offline access is opt-in by item, whole vault, or recursive folder, including future descendants after successful complete sync. Exclusions persist until re-selection; turning off a vault or ancestor folder retains independent child-folder and manual selections. Full secrets persist only in encrypted `offlineSnapshots` in the host-only database, protected by a separate device-bound key.
 
 Authorized usable copies serve host copy and Large Type without live requests or connectivity probes. Otherwise, Quick Access uses Pass CLI. Verified host-broker password and TOTP requests are the only external offline integration. The extension receives no cache access or fallback diagnostics. SSH and Run never use snapshots.
 
 **Settings → Offline** lists copies and supports individual Retry, removal, and full purge. Bounded post-deletion WAL checkpoints run outside the transaction. They do not guarantee secure erase, cryptographic shredding, APFS snapshot removal, manual-backup removal, or forced-termination cleanup. The [offline security reference](../SECURITY.md#offline-storage-lifecycle-and-limits) defines those limits.
+
+## Folder metadata contract (CLI 2.5.0+)
+
+Folder discovery requires invocation-bound version evidence for the **actively selected executable at 2.5.0 or newer**. A pending, unrecognized or older version does not permit folder commands. The capability probe precedes optional offline capture; discovering support later does not retroactively authorize a fetch. Selection changes and superseding probes invalidate the earlier stamp, including replacement at the same path.
+
+The same gate controls separate search-result folder labels and new recursive Offline settings. No folder-name matching, ranking, filtering, or SSH scope is added. Downgrade or unknown/checking support disables discovery and new/expanded folder-only work, not existing authorized cached release, explicit deselection/removal, or purge. Settings discovery readiness also requires the committed catalog stamp; a verified version alone cannot revive stale discovery.
+
+Published [2.5.0 folder-list source](https://github.com/protonpass/pass-cli/blob/2.5.0/pass-cli/src/commands/folder/list.rs) and [2.5.1 folder-list source](https://github.com/protonpass/pass-cli/blob/2.5.1/pass-cli/src/commands/folder/list.rs) serialize a top-level array. `folder list --share-id=… --output json`, **without `--parent-id`**, provides the separate folder catalog. The [folder model](https://github.com/protonpass/pass-cli/blob/2.5.1/pass/src/domain/models/folder.rs) has this synthetic shape:
+
+```json
+[{"id":"folder-id","share_id":"share-id","parent_folder_id":null,"content":{"name":"Example folder"}}]
+```
+
+Both tags use the same fields; the root parent is explicitly null. The [2.5.0 item model](https://github.com/protonpass/pass-cli/blob/2.5.0/pass/src/domain/models/item/mod.rs) and [2.5.1 item model](https://github.com/protonpass/pass-cli/blob/2.5.1/pass/src/domain/models/item/mod.rs) declare `folder_id` with Serde `default` and omission when `None`. Omission/null therefore denotes root in this proven active-item response. Missing response/identity/state evidence, malformed IDs, duplicate identities, skipped items, cross-share references, dangling membership, orphan parents and cycles are not authoritative empty/root results. Folder membership is projected separately from the already fetched item list; no extra full-secret item-list request is made and the encrypted snapshot payload/AAD is unchanged. Internally gated embedded folder enrichment in item-list source is **not** the discovery contract.
+
+Defensive **app limits**, not claimed upstream restrictions, are 10,000 folders per vault, 64 levels (root folder level 1), 640,000 self-inclusive ancestry rows, and 8 MiB per folder-command output. Iterative validation checks count, depth and checked ancestry arithmetic before closure-row construction or writer admission. Folder commands add no unbounded vault fan-out. Failed, incomplete, over-budget or stale discovery is unavailable evidence: ordinary item synchronization still proceeds; it is not deletion authority for retained folder data or cached access.
+
+The checksum-matching bundled Apple Silicon 2.5.1 binary advertises this command and flags in `folder list --help`. Validation used only public source, help and synthetic fixtures, never authenticated vault contents. As above, public release contracts and matching checksums do not establish exact source-to-binary attestation or prove complete remote enumeration. This metadata contract does not expand the exact-version full-secret reuse allowlist.
 
 ## Provenance
 

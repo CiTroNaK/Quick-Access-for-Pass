@@ -29,7 +29,10 @@ extension QuickAccessView {
                     showDetailAtIndex: { index in
                         viewModel.selectedIndex = index
                         viewModel.showDetail()
-                    }
+                    },
+                    folderLocation: viewModel.folderLocation(for:),
+                    folderFeatureGate: viewModel.cliService.folderFeatureGate,
+                    folderFeatureStamp: viewModel.folderPresentationStamp
                 )
                 Divider()
                     .opacity(0.5)

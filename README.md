@@ -66,13 +66,19 @@ The default shortcuts are:
 **Settings → Shortcuts** contains the configurable action shortcuts.
 
 <p align="center">
-  <img src="docs/images/detail.png" alt="Item details with actions for individual fields" width="340">
-  <img src="docs/images/large-type.png" alt="A selected value displayed in Large Type" width="340">
+  <img src="docs/images/folders-in-results.png" alt="Search result showing separate vault and nested folder-path labels" width="340">
+  <img src="docs/images/folders-in-detail.png" alt="Item details showing a nested folder path beneath the subtitle and above the field actions" width="340">
 </p>
+
+Folder paths stay visible in search results and item details with verified support from the actively selected Pass CLI 2.5.0 or newer. Folder names do not affect search matching.
 
 ## Offline Mode
 
-Keep the items you need available when you cannot reach Proton Pass. Choose individual items or a whole vault. Vault selection includes future items after successful sync. Removing an item excludes it until you select it again, and turning off a vault keeps individual selections.
+Keep the items you need available when you cannot reach Proton Pass. Choose individual items, a whole vault, or a folder recursively in **Settings → Offline**. Vault and folder selection include future items after successful complete sync. Folder selection follows stable identities, including moves into or out of a selected subtree after sync. Removing an item excludes it until re-selection; turning off a vault or parent folder keeps independent child-folder and individual selections.
+
+Folder features require the **actively selected Pass CLI 2.5.0 or newer** and verified support. Quick Access keeps its vault label and adds a separate folder-path label in results and a compact read-only path beneath the item detail subtitle; root or unresolved items have no folder label. Folder names do not affect search matching, ranking, or filtering, and SSH filtering remains vault-only. With an older, unknown, or checking CLI, new folder selection/discovery is disabled, but existing authorized offline copies, explicit policy removal, and purge remain available.
+
+**Manage folders…** opens a fixed-size, scrollable folder manager from each compact vault row in Offline Settings. It includes a vault picker, local folder filter, and **Selected only** coverage view. Checkbox changes apply immediately; **Done** only closes the manager. The local folder filter does not change Quick Access or item-manager search.
 
 Authorized, usable copies support copy and Large Type without a live request or connectivity probe. Sync refreshes them. Without a usable copy, the app uses Pass CLI. **Settings → Offline** lets you review selected items, retry a refresh, remove one copy, or remove all offline data.
 

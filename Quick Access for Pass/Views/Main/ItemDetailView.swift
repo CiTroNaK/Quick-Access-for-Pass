@@ -86,6 +86,9 @@ struct ItemDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.body).fontWeight(.medium).lineLimit(1)
                 Text(itemSubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let location = viewModel.folderLocation(for: item.id), !location.path.isEmpty {
+                    folderPathLine(location.path)
+                }
             }
             Spacer()
             Button("Close", systemImage: "xmark", action: onBack)
@@ -96,6 +99,20 @@ struct ItemDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func folderPathLine(_ path: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "folder").accessibilityHidden(true)
+            Text(verbatim: path)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+        .help(path)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: path))
     }
 
     private var itemSubtitle: String {

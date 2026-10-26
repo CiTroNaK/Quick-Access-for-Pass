@@ -54,6 +54,8 @@ nonisolated struct CLIItemListParseResult: Sendable {
     let totalItemCount: Int
     let presenceUncertainty: SyncItemPresenceUncertainty
     let contentProvenance: CLISnapshotContentProvenance
+    /// Complete non-secret evidence only; nil defers folders without dropping ordinary items.
+    let folderMembershipEvidence: [String: CLIFolderMembership]?
 }
 
 nonisolated enum CLIItemListLossyParser {
@@ -72,18 +74,28 @@ nonisolated enum CLIItemListLossyParser {
         var hasUnidentifiedSkippedItems = false
         let decoder = JSONDecoder()
         var complete = contentProvenance == .completeJSONV1
+        var folderMemberships: [String: CLIFolderMembership] = [:]
+        var completeFolderMemberships = true
 
         for (index, rawItem) in rawItems.enumerated() {
             do {
                 let itemData = try JSONSerialization.data(withJSONObject: rawItem, options: [.fragmentsAllowed])
                 let item = try decoder.decode(CLIItem.self, from: itemData)
                 decodedItems.append(item)
+                let membership = folderMembership(from: rawItem)
+                if item.vaultId != vaultId || item.shareId != shareId || item.id.isEmpty
+                    || (rawItem as? [String: Any])?["state"] as? String != "Active"
+                    || membership == .unknown || folderMemberships[item.id] != nil {
+                    completeFolderMemberships = false
+                }
+                folderMemberships[item.id] = membership
                 if complete {
                     complete = item.vaultId == vaultId && item.shareId == shareId
                         && CLISnapshotContentProvenance.validatesShape(rawItem, of: item)
                 }
             } catch {
                 complete = false
+                completeFolderMemberships = false
                 if let id = itemId(from: rawItem), !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     skippedItemIDs.insert(id)
                 } else {
@@ -109,8 +121,20 @@ nonisolated enum CLIItemListLossyParser {
                 vaultID: vaultId, skippedItemIDs: skippedItemIDs,
                 hasUnidentifiedSkippedItems: hasUnidentifiedSkippedItems
             ),
-            contentProvenance: complete ? .completeJSONV1 : .unavailable
+            contentProvenance: complete ? .completeJSONV1 : .unavailable,
+            folderMembershipEvidence: completeFolderMemberships ? folderMemberships : nil
         )
+    }
+
+    /// Public 2.5.0/2.5.1 item JSON omits folder_id at root. This evidence is
+    /// consumed only with an invocation-bound 2.5+ stamp, never as secret provenance.
+    private static func folderMembership(from rawItem: Any) -> CLIFolderMembership {
+        guard let dictionary = rawItem as? [String: Any] else { return .unknown }
+        guard let value = dictionary["folder_id"], !(value is NSNull) else { return .root }
+        guard let id = value as? String, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .unknown
+        }
+        return .folder(id)
     }
 
     private static func rootObject(from data: Data) throws -> [String: Any] {

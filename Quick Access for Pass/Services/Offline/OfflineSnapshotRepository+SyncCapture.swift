@@ -14,7 +14,16 @@ nonisolated extension OfflineSnapshotRepository {
                 INSERT INTO offlineSyncCaptureVaults (captureID, vaultID, policyGeneration)
                 SELECT ?, vaultId, policyGeneration FROM offlineVaults
                 """, arguments: [capture.id.uuidString])
-            try db.execute(sql: Self.captureKnownItemsSQL, arguments: [capture.id.uuidString])
+            if let gate = folderFeatureGate, let stamp = gate.supportedStamp() {
+                try db.execute(sql: """
+                    INSERT INTO offlineSyncCaptureFolders (captureId, vaultId, folderId, policyGeneration)
+                    SELECT ?, vaultId, folderId, policyGeneration FROM offlineFolders
+                    """, arguments: [capture.id.uuidString])
+                if !gate.isCurrent(stamp) {
+                    try db.execute(sql: "DELETE FROM offlineSyncCaptureFolders WHERE captureId = ?", arguments: [capture.id.uuidString])
+                }
+            }
+            try db.execute(sql: Self.captureKnownItemsSQL, arguments: ["captureID": capture.id.uuidString])
             return capture
         }
     }
@@ -29,19 +38,23 @@ nonisolated extension OfflineSnapshotRepository {
     }
 
     private static var captureKnownItemsSQL: String {
-        let selected = "i.state = 'Active' AND (\(OfflineSelectionSQL.effectiveSelection))"
+        let capturedAutomatic = """
+            (EXISTS(SELECT 1 FROM offlineSyncCaptureVaults p WHERE p.captureID = :captureID AND p.vaultID = i.vaultId)
+             OR EXISTS(SELECT 1 FROM offlineSyncCaptureFolders f WHERE f.captureId = :captureID AND f.vaultId = i.vaultId))
+            """
+        let selected = "i.state = 'Active' AND (\(OfflineSelectionSQL.effectiveSelection)) AND (o.isManuallySelected = 1 OR \(capturedAutomatic))"
         return """
             INSERT INTO offlineSyncCaptureItems
             (captureID, vaultID, itemID, selectionGeneration, requestGeneration, pendingRequestID,
              isManuallySelected, isExcluded, wasEligibleForVaultSelection)
-            SELECT ?, i.vaultId, i.id,
+            SELECT :captureID, i.vaultId, i.id,
                    CASE WHEN \(selected) THEN o.selectionGeneration END,
                    CASE WHEN \(selected) THEN o.requestGeneration END,
                    CASE WHEN \(selected) THEN o.pendingRequestId END,
                    COALESCE(o.isManuallySelected, 0),
                    EXISTS(SELECT 1 FROM offlineItemExclusions x WHERE x.itemId = i.id AND x.vaultId = i.vaultId),
                    i.state = 'Active'
-                     AND EXISTS(SELECT 1 FROM offlineVaults p WHERE p.vaultId = i.vaultId)
+                     AND \(capturedAutomatic)
                      AND NOT EXISTS(SELECT 1 FROM offlineItemExclusions x WHERE x.itemId = i.id AND x.vaultId = i.vaultId)
             FROM items i LEFT JOIN offlineItems o ON o.itemId = i.id AND o.vaultId = i.vaultId
             """

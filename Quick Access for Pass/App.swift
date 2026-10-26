@@ -289,8 +289,6 @@ private extension AppDelegate {
         autoFillDatabaseURL = prepared.2
         autoFillSocketPath = prepared.3
 
-        let (offlineStorageMaintenance, offlineSnapshotRepository, offlineSnapshotCodec) = configureOfflineStorage(database: prepared.1)
-
         let rawClipboardTimeout = UserDefaults.standard.double(forKey: DefaultsKey.clipboardClearTimeout)
         let clipboardTimeout = rawClipboardTimeout > 0 ? rawClipboardTimeout : 30
         let cliPathOverride = UserDefaults.standard.string(forKey: DefaultsKey.cliPath)
@@ -305,6 +303,10 @@ private extension AppDelegate {
             customPath: cliPathOverride?.isEmpty == false ? cliPathOverride : nil
         )
         self.cliService = cliService
+        passCLIStatusStore.observeFolderAvailability(from: cliService.folderFeatureGate)
+        let (offlineStorageMaintenance, offlineSnapshotRepository, offlineSnapshotCodec) = configureOfflineStorage(
+            database: prepared.1, folderFeatureGate: cliService.folderFeatureGate
+        )
         let offlineModeService = OfflineModeService(
             repository: offlineSnapshotRepository,
             codec: offlineSnapshotCodec,
@@ -326,7 +328,7 @@ private extension AppDelegate {
         clipboardManager = ClipboardManager(autoClearSeconds: clipboardTimeout)
     }
 
-    private func configureOfflineStorage(database: DatabaseManager) -> (
+    private func configureOfflineStorage(database: DatabaseManager, folderFeatureGate: FolderFeatureGate) -> (
         OfflineStorageMaintenance, OfflineSnapshotRepository, OfflineSnapshotCodec
     ) {
         let offlineStorageMaintenance = OfflineStorageMaintenance(
@@ -334,7 +336,8 @@ private extension AppDelegate {
         )
         let offlineSnapshotRepository = OfflineSnapshotRepository(
             database: database,
-            maintenance: offlineStorageMaintenance
+            maintenance: offlineStorageMaintenance,
+            folderFeatureGate: folderFeatureGate
         )
         let offlineSnapshotCodec = OfflineSnapshotCodec(
             keyMaterialProvider: OfflineKeyMaterialStore(),
@@ -392,7 +395,8 @@ private extension AppDelegate {
                 observation: OfflineCatalogObservation(database: databaseManager!),
                 shareIDForVault: { vaultID in
                     try? searchService.vaultShareId(for: vaultID)
-                }
+                },
+                folderFeatureGate: cliService.folderFeatureGate
             )
         }
         self.offlineModeCoordinator = offlineModeCoordinator
@@ -537,6 +541,7 @@ private extension AppDelegate {
                 await self?.sshCoordinator?.reconcile()
                 await self?.runCoordinator?.reconcile()
                 if cliSelectionChanged {
+                    _ = await self?.cliService?.prepareFolderSync()
                     await self?.healthCoordinator?.refreshAll()
                 }
             }

@@ -11,7 +11,7 @@ nonisolated extension OfflineSnapshotRepository {
             let committed = try await database.writeOfflineMutation(
                 submissionScope: .keys(Set(candidates.map { $0.work.key })),
                 beforeWrite: { await prepareSyncPublicationSubmission() }, updates: { db in
-                    let result = try Self.publishSyncCandidates(candidates, capture: capture, in: db)
+                    let result = try Self.publishSyncCandidates(candidates, capture: capture, folderFeatureGate: folderFeatureGate, in: db)
                     return OfflineMutationUpdate(value: result, manualPromotions: [])
                 }
             )
@@ -34,7 +34,7 @@ nonisolated extension OfflineSnapshotRepository {
         do {
             // Status/owner cleanup retains the same usable snapshot; it must not revoke unrelated or current releases.
             try await database.writeOfflineMutation(submissionScope: .none) { db in
-                let owned = try Self.ownedSyncWork(work, capture: capture, in: db)
+                let owned = try Self.ownedSyncWork(work, capture: capture, folderFeatureGate: folderFeatureGate, in: db)
                 for candidate in owned.values { try Self.writeSyncFailure(candidate, in: db) }
                 return OfflineMutationUpdate(value: (), manualPromotions: [])
             }
@@ -69,9 +69,9 @@ nonisolated extension OfflineSnapshotRepository {
     }
 
     private static func publishSyncCandidates(
-        _ publications: [OfflineSyncPublication], capture: OfflineSyncCapture, in db: Database
+        _ publications: [OfflineSyncPublication], capture: OfflineSyncCapture, folderFeatureGate: FolderFeatureGate?, in db: Database
     ) throws -> Set<OfflineSnapshotKey> {
-        let owned = try ownedSyncWork(publications.map(\.work), capture: capture, in: db)
+        let owned = try ownedSyncWork(publications.map(\.work), capture: capture, folderFeatureGate: folderFeatureGate, in: db)
         guard !owned.isEmpty else { return [] }
         let targets = try syncReplaceableTargets(itemIDs: Set(owned.keys.map(\.itemId)), in: db)
         let epochs = Set(try Data.fetchAll(db, sql: "SELECT DISTINCT keyFingerprint FROM offlineSnapshots"))

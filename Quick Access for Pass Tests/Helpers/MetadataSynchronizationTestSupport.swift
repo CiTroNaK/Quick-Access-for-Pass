@@ -27,7 +27,9 @@ nonisolated final class MetadataWriteCounter: Sendable {
             db.trace { event in
                 guard case .statement(let statement) = event else { return }
                 let sql = statement.sql.replacingOccurrences(of: "\"", with: "").uppercased()
-                guard sql.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("SELECT ") else { return }
+                let shape = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+                // This fixed CTE is a SELECT-only planner; do not classify arbitrary WITH writes as reads.
+                guard shape.hasPrefix("SELECT ") || shape.hasPrefix("WITH CAPTUREDFOLDERCOVERAGE AS") else { return }
                 self.state.withLock {
                     $0.selects += 1
                     $0.shapes[sql, default: 0] += 1

@@ -4,6 +4,7 @@ import Foundation
 nonisolated struct PassCLICapabilities: Sendable, Equatable {
     static let minimumShowSecretsVersion = PassCLIVersion(major: 2, minor: 0, patch: 3)
     static let minimumSessionLockingVersion = PassCLIVersion(major: 2, minor: 2, patch: 2)
+    static let minimumFoldersVersion = PassCLIVersion(major: 2, minor: 5, patch: 0)
 
     /// The parsed active CLI version, or `nil` when version output is unavailable or invalid.
     let version: PassCLIVersion?
@@ -37,6 +38,12 @@ nonisolated struct PassCLICapabilities: Sendable, Equatable {
         default:
             .unavailable
         }
+    }
+
+    /// Whether the active CLI supports folder metadata commands.
+    var supportsFolders: Bool {
+        guard let version else { return false }
+        return version >= Self.minimumFoldersVersion
     }
 
     /// Whether the active CLI supports managed session locking.

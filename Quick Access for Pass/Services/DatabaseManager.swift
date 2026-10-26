@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Synchronization
 
 nonisolated final class DatabaseManager: Sendable {
     let writer: any DatabaseWriter
@@ -7,6 +8,16 @@ nonisolated final class DatabaseManager: Sendable {
     let offlineReleaseAuthority = OfflineReleaseAuthority()
     private let syncOperationAuthority = SyncOperationAuthority()
     let offlineMutationTesting: OfflineMutationTesting?
+    // Optimization only, never admission/release authority. Monotonic for this connection
+    // lifetime, so rollback/reset cannot incorrectly hide persisted folder dependencies.
+    private let folderMetadataTracking = Mutex(false)
+
+    func tracksFolderMetadata(recordingEvidence: Bool) -> Bool {
+        folderMetadataTracking.withLock { tracked in
+            if recordingEvidence { tracked = true }
+            return tracked
+        }
+    }
 
     /// Production initializer: opens encrypted database at the given path.
     init(path: String, passphrase: Data, offlineMutationTesting: OfflineMutationTesting? = nil) throws {
@@ -23,6 +34,10 @@ nonisolated final class DatabaseManager: Sendable {
         self.writer = pool
         self.reader = pool
         try Self.migrate(pool)
+        let hasFolderState = try pool.read { db in
+            try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM folderCatalogState)") ?? false
+        }
+        if hasFolderState { folderMetadataTracking.withLock { $0 = true } }
         try HardenedDatabaseFiles.protectDatabaseFiles(at: databaseURL)
     }
 

@@ -5,6 +5,22 @@ struct QuickAccessResultsList: View {
     let selectedIndex: Int
     let vaultName: (String) -> String
     let showDetailAtIndex: (Int) -> Void
+    let folderLocation: (String) -> FolderLocationPresentation?
+    let folderFeatureGate: FolderFeatureGate?
+    let folderFeatureStamp: FolderFeatureStamp?
+
+    init(items: [PassItem], selectedIndex: Int, vaultName: @escaping (String) -> String,
+         showDetailAtIndex: @escaping (Int) -> Void,
+         folderLocation: @escaping (String) -> FolderLocationPresentation? = { _ in nil },
+         folderFeatureGate: FolderFeatureGate? = nil, folderFeatureStamp: FolderFeatureStamp? = nil) {
+        self.items = items
+        self.selectedIndex = selectedIndex
+        self.vaultName = vaultName
+        self.showDetailAtIndex = showDetailAtIndex
+        self.folderLocation = folderLocation
+        self.folderFeatureGate = folderFeatureGate
+        self.folderFeatureStamp = folderFeatureStamp
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -17,7 +33,10 @@ struct QuickAccessResultsList: View {
                         ItemRowView(
                             item: item,
                             isSelected: items[safe: selectedIndex]?.id == item.id,
-                            vaultName: vaultName(item.vaultId)
+                            vaultName: vaultName(item.vaultId),
+                            folderLocation: folderLocation(item.id),
+                            folderFeatureGate: folderFeatureGate,
+                            folderFeatureStamp: folderFeatureStamp
                         )
                     }
                     .buttonStyle(.plain)

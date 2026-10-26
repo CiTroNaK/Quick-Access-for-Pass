@@ -5,6 +5,29 @@ import Testing
 
 @Suite("Incremental sync consumer bounds", .timeLimit(.minutes(1)))
 struct IncrementalOfflineSyncBoundsTests {
+    @MainActor
+    @Test("Folder publication keeps earlier bounded commits after later failure/cancellation", arguments: [false, true])
+    func folderBatchRetention(cancel: Bool) async throws {
+        let fixture = try await OfflineFolderSyncFixture.make()
+        let ids = (0..<65).map { String(format: "item-%03d", $0) }
+        await fixture.runner.setMemberships(Dictionary(uniqueKeysWithValues: ids.map { ($0, CLIFolderMembership.folder("child")) }))
+        if cancel {
+            try await fixture.sync(preparing: ["item-040"], whilePreparationHeld: {
+                fixture.coordinator.currentSyncCompletion?.cancel()
+            })
+        } else {
+            await fixture.codec.setFailures(["item-040"])
+            try await fixture.sync()
+        }
+        #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineSnapshots") == (cancel ? 32 : 64))
+        #expect(try await fixture.snapshot("item-000") != nil)
+        #expect(try await fixture.snapshot("item-040") == nil)
+        #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineSyncCaptures") == 0)
+        #expect(await fixture.codec.counts().peak == 1)
+        #expect(await fixture.runner.views().isEmpty)
+        await fixture.finish()
+    }
+
     @Test(arguments: [1, 40, 1300]) func fallbackRecheckNarrowsMetadataToOriginalProof(catalogSize: Int) async throws {
         let ids = (0..<catalogSize).map { String(format: "item-%03d", $0) }
         let (fixture, _) = try makeFixture(ids)
@@ -22,7 +45,10 @@ struct IncrementalOfflineSyncBoundsTests {
                                                         sourceTimes: [ids[0]: Date(timeIntervalSince1970: 2)], allowMembershipExpansion: false)
         let report = try counter.finish(on: fixture.database)
         #expect(work.count == 1)
-        let narrowed = report.selectShapes.filter { $0.key.hasPrefix("SELECT I.*,") && $0.key.contains("AND I.ID IN (?)") }
+        let narrowed = report.selectShapes.filter {
+            $0.key.hasPrefix("WITH CAPTUREDFOLDERCOVERAGE AS") && $0.key.contains("SELECT I.*,")
+                && $0.key.contains("AND I.ID IN (?)") && $0.key.contains("AND FM.ITEMID IN (?)")
+        }
         #expect(narrowed.values.reduce(0, +) == 1, "A per-copy fallback recheck must not project the whole unrelated catalog.")
         #expect(await fixture.codec.counts().prepared == 0)
         await fixture.service.finishSyncCapture(capture)

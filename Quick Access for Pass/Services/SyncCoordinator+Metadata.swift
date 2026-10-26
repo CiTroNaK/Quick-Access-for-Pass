@@ -11,6 +11,8 @@ extension SyncCoordinator {
             items: projection.items,
             descriptors: projection.descriptorInputs,
             presenceUncertainties: fetchResult.presenceUncertainties,
+            folderCatalogsByVaultID: fetchResult.folderCatalogsByVaultID,
+            folderFeatureGate: folderFeatureGate,
             operation: operation
         )
         // This registration happens only after the metadata transaction

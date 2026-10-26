@@ -1,5 +1,6 @@
 import AppKit
 import GRDB
+import Observation
 import SwiftUI
 import Testing
 @testable import Quick_Access_for_Pass
@@ -45,8 +46,30 @@ struct VaultSettingsLayoutTests {
             observation: OfflineCatalogObservation(database: fixture.database),
             shareIDForVault: { _ in "share" }
         )
-        let actual = try render(OfflineSettingsTab()
-            .environment(\.offlineModeCoordinator, coordinator), size: NSSize(width: 480, height: 440))
+        let hosting = NSHostingView(rootView: OfflineSettingsTab()
+            .environment(\.offlineModeCoordinator, coordinator)
+            .environment(\.colorScheme, .light).background(Color.white).frame(width: 480)
+            .transaction { $0.disablesAnimations = true; $0.animation = nil })
+        let collapsedSize = hosting.fittingSize
+        let window = fixtureWindow(hosting, size: collapsedSize)
+        defer { window.orderOut(nil); window.contentView = nil }
+        hosting.layoutSubtreeIfNeeded()
+        // Native disclosure click, in this offscreen fixture only; do not activate the app.
+        let heading = NSHostingView(rootView: Text("Offline vaults and folders").font(.body)).fittingSize.height
+        let introduction = NSHostingView(rootView: Text("Choose whole vaults, folders, or individual items to keep offline.")
+            .font(.caption).fixedSize(horizontal: false, vertical: true).frame(width: 440)).fittingSize.height
+        let label = NSHostingView(rootView: Text("How offline access works").font(.caption)).fittingSize.height
+        let fromTop = 20 + heading + 8 + introduction + 8 + label / 2
+        let point = NSPoint(x: 27, y: hosting.isFlipped ? fromTop : hosting.bounds.height - fromTop)
+        try click(window, at: hosting.convert(point, to: nil))
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        hosting.layoutSubtreeIfNeeded()
+        let expandedSize = hosting.fittingSize
+        #expect(expandedSize.height > collapsedSize.height, "The native disclosure must expand before checking guidance")
+        window.setContentSize(expandedSize)
+        hosting.layoutSubtreeIfNeeded()
+        hosting.displayIfNeeded()
+        let actual = try capture(hosting, size: expandedSize)
         let paragraphs = [
             "Selecting a vault stores encrypted offline copies of all its items on this Mac. New items added to selected vaults will also become available offline after syncing.",
             "Items removed individually stay excluded until selected again. Turning off a vault keeps individually selected items.",
@@ -58,13 +81,13 @@ struct VaultSettingsLayoutTests {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(width: 440, alignment: .leading))
+                .frame(width: 432, alignment: .leading))
             let expected = try render(reference.rootView, size: reference.fittingSize)
             #expect(expected.height >= 20)
             let referenceRendered = await expected.containsText(from: expected)
             let paragraphRendered = await actual.containsText(from: expected)
             #expect(referenceRendered, "Reference must contain rendered glyphs")
-            #expect(paragraphRendered, "Full paragraph must be rendered, not ellipsized")
+            #expect(paragraphRendered, "Full paragraph must be rendered, not ellipsized: \(paragraph)")
         }
     }
 
@@ -318,10 +341,6 @@ struct VaultSettingsLayoutTests {
         #expect(!results.isEmpty == shouldHaveAccount)
     }
 
-    private func descendants(of view: NSView) -> [NSView] {
-        view.subviews.flatMap { [$0] + descendants(of: $0) }
-    }
-
     private func fixtureWindow(_ view: NSView, size: NSSize) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
@@ -341,7 +360,7 @@ struct VaultSettingsLayoutTests {
         }
     }
 
-    private func render<Content: View>(_ content: Content, size: NSSize) throws -> RenderedFixture {
+    private func render<Content: View>(_ content: Content, size: NSSize, headerHeight: CGFloat? = nil) throws -> RenderedFixture {
         let hosting = NSHostingView(rootView: content
             .environment(\.colorScheme, .light)
             .background(Color.white))
@@ -349,6 +368,7 @@ struct VaultSettingsLayoutTests {
         defer { window.orderOut(nil); window.contentView = nil }
         hosting.layoutSubtreeIfNeeded()
         hosting.displayIfNeeded()
+        if let headerHeight { return try captureHeader(hosting, height: headerHeight) }
         return try capture(hosting, size: size)
     }
 
@@ -361,6 +381,276 @@ struct VaultSettingsLayoutTests {
 }
 
 extension VaultSettingsLayoutTests {
+    private func captureHeader(_ hosting: NSView, height: CGFloat) throws -> RenderedFixture {
+        // A tinted selected detail row can satisfy an ink-only glyph matcher; exclude rows.
+        let rect = NSRect(x: 0, y: hosting.isFlipped ? 0 : hosting.bounds.height - height,
+                          width: hosting.bounds.width, height: height)
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: rect))
+        hosting.cacheDisplay(in: rect, to: bitmap)
+        return try RenderedFixture(image: #require(bitmap.cgImage), size: rect.size)
+    }
+
+    @Test("Item detail renders a literal folder path without adding actions", arguments: ["en", "cs"])
+    func itemDetailFolderHeader(language: String) async throws {
+        let fixture = try await OfflineFolderSyncFixture.make(selectParent: false)
+        try await fixture.folder.synchronize(parentName: "Účty %{literal}")
+        let model = fixture.viewModel
+        model.performSearch(query: "Offline")
+        await model.folderLocationsTask?.value
+        let item = try #require(model.items.first { $0.id == "item" })
+        model.detailItem = item
+        model.selectDetailRow(at: 1)
+        #expect(model.folderLocation(for: item.id)?.path == "Účty %{literal} / Child")
+        let commands = await fixture.runner.arguments()
+        let actual = try render(ItemDetailView(item: item, viewModel: model, onBack: {})
+            .environment(\.locale, Locale(identifier: language)), size: NSSize(width: 480, height: 400), headerHeight: 64)
+        let reference = NSHostingView(rootView: Text(verbatim: "Účty %{literal} / Child")
+            .font(.caption2).foregroundStyle(.tertiary).fixedSize())
+        let expected = try render(reference.rootView, size: reference.fittingSize)
+        let validReference = await expected.containsText(from: expected)
+        let folderRendered = await actual.containsText(from: expected)
+        #expect(validReference)
+        #expect(folderRendered, "The detail header must render the committed literal folder path")
+        #expect(model.rows(for: item).map(\.id) == ["named:copyUsername", "named:copyPassword"])
+        #expect(model.selectedDetailRowID == "named:copyPassword", "Metadata must not displace the selected secret action")
+        #expect(await fixture.runner.arguments() == commands, "Rendering metadata must not invoke Pass CLI")
+        await fixture.finish()
+    }
+
+    @Test("Item detail omits paths after a probe invalidates the load stamp", arguments: ["checking", "2.4.2", "2.5.1"])
+    func itemDetailHidesObsoleteFolderHeader(version: String) async throws {
+        let fixture = try await OfflineFolderSyncFixture.make(selectParent: false)
+        let model = fixture.viewModel
+        model.performSearch(query: "Offline")
+        await model.folderLocationsTask?.value
+        let item = try #require(model.items.first { $0.id == "item" })
+        #expect(model.folderLocation(for: item.id)?.path == "Parent / Child")
+        let probe = fixture.cli.folderFeatureGate.beginProbe()
+        if version != "checking" {
+            fixture.cli.folderFeatureGate.confirm(capabilities: .init(rawVersionString: version), for: probe)
+        }
+        let actual = try render(ItemDetailView(item: item, viewModel: model, onBack: {}),
+                                size: NSSize(width: 480, height: 400), headerHeight: 64)
+        let reference = NSHostingView(rootView: Text(verbatim: "Parent / Child")
+            .font(.caption2).foregroundStyle(.tertiary).fixedSize())
+        let expected = try render(reference.rootView, size: reference.fittingSize)
+        let validReference = await expected.containsText(from: expected)
+        let folderRendered = await actual.containsText(from: expected)
+        #expect(validReference)
+        #expect(!folderRendered, "Neither retained metadata nor a newly supported probe can revive an old load stamp")
+        #expect(await fixture.runner.views().isEmpty)
+        await fixture.finish()
+    }
+
+    @Test("Item detail omits root and unresolved locations", arguments: ["root-item", "unresolved"])
+    func itemDetailOmitsUnknownFolderHeader(itemID: String) async throws {
+        let fixture = try await OfflineFolderSyncFixture.make(selectParent: false)
+        let model = fixture.viewModel
+        model.performSearch(query: "Offline")
+        await model.folderLocationsTask?.value
+        let item = model.items.first { $0.id == itemID } ?? offlineTestMetadata(id: itemID, vaultID: "vault")
+        let actual = try render(ItemDetailView(item: item, viewModel: model, onBack: {}),
+                                size: NSSize(width: 480, height: 400), headerHeight: 64)
+        let reference = NSHostingView(rootView: Text(verbatim: "Parent / Child")
+            .font(.caption2).foregroundStyle(.tertiary).fixedSize())
+        let expected = try render(reference.rootView, size: reference.fittingSize)
+        let folderRendered = await actual.containsText(from: expected)
+        #expect(!folderRendered, "Another item's folder must never be substituted for an unresolved location")
+        #expect(await fixture.runner.views().isEmpty)
+        await fixture.finish()
+    }
+
+    @Test("Long detail paths remain a single bounded header line", arguments: [180.0, 480.0])
+    func itemDetailLongFolderHeaderStaysBounded(width: Double) async throws {
+        let fixture = try await OfflineFolderSyncFixture.make(selectParent: false)
+        let model = fixture.viewModel
+        model.performSearch(query: "Offline")
+        await model.folderLocationsTask?.value
+        let item = try #require(model.items.first { $0.id == "item" })
+        let ordinary = NSHostingView(rootView: ItemDetailView(item: item, viewModel: model, onBack: {}).frame(width: width))
+            .fittingSize
+        try await fixture.folder.synchronize(parentName: String(repeating: "Osobní / %{literal} — účty ", count: 50))
+        model.performSearch(query: "Offline")
+        await model.folderLocationsTask?.value
+        let long = NSHostingView(rootView: ItemDetailView(item: item, viewModel: model, onBack: {}).frame(width: width))
+            .fittingSize
+        #expect(ordinary.height > 0)
+        #expect(long.height == ordinary.height, "Folder names must truncate rather than grow the detail header")
+        #expect(abs(long.width - width) < 0.001, "Allow only floating-point layout noise, not horizontal expansion")
+        #expect(await fixture.runner.views().isEmpty)
+        await fixture.finish()
+    }
+
+    @Test("Offline folder launcher appears only for vaults with folders", arguments: [0, 1])
+    func offlineFolderLauncherRequiresFolderMetadata(folderCount: Int) async throws {
+        let fixture = try await OfflineFolderManagerFixture()
+        fixture.present(OfflineFolderManagerFixture.rows(count: folderCount))
+        let actual = try render(OfflineSettingsTab()
+            .environment(\.offlineModeCoordinator, fixture.coordinator)
+            .environment(\.locale, Locale(identifier: "en")), size: NSSize(width: 560, height: 440))
+        let reference = NSHostingView(rootView: Text("Manage folders…").font(.body).fixedSize())
+        let expected = try render(reference.rootView, size: reference.fittingSize)
+        let referenceRendered = await expected.containsText(from: expected)
+        let launcherRendered = await actual.containsText(from: expected)
+        #expect(referenceRendered, "The launcher glyph reference must be valid")
+        #expect(launcherRendered == (folderCount > 0), "Only a vault with folder metadata should show Manage folders")
+        let vaultReference = NSHostingView(rootView: Text(verbatim: "Synthetic vault").font(.body).fixedSize())
+        let vaultGlyphs = try render(vaultReference.rootView, size: vaultReference.fittingSize)
+        let vaultRendered = await actual.containsText(from: vaultGlyphs)
+        #expect(vaultRendered, "Vaults without folders must remain in whole-vault Offline settings")
+        #expect(await fixture.viewCallCount("item") == 0)
+        await fixture.service.stop()
+    }
+
+    @Test("Folder manager does not offer empty or unknown vault names", arguments: ["vault", "empty", "unknown"])
+    func folderManagerOmitsEmptySelectedVaultLabels(initialVaultID: String) async throws {
+        let fixture = try await OfflineFolderManagerFixture()
+        let names = [("vault", "Folder vault"), ("empty", "Empty vault"), ("unknown", "Unknown vault")]
+        let vaults = names.map { id, name in
+            OfflineVaultSettingsRow(id: id, vaultName: name, isSelected: false,
+                selectedCount: 0, usableCount: 0, lastRefreshedAt: nil)
+        }
+        fixture.present(vaults: vaults, rowsByVaultID: ["vault": OfflineFolderManagerFixture.rows(count: 1), "empty": []])
+        let actual = try render(OfflineFoldersManagerView(coordinator: fixture.coordinator, initialVaultID: initialVaultID)
+            .environment(\.locale, Locale(identifier: "en")), size: NSSize(width: 720, height: 480))
+        for (id, name) in names {
+            let reference = NSHostingView(rootView: Text(verbatim: name).font(.body).fixedSize())
+            let expected = try render(reference.rootView, size: reference.fittingSize)
+            let referenceRendered = await expected.containsText(from: expected)
+            let nameRendered = await actual.containsText(from: expected)
+            #expect(referenceRendered)
+            #expect(nameRendered == (id == "vault" && initialVaultID == "vault"),
+                    "Empty and undiscovered vault names must not remain selectable, and selection must not silently retarget")
+        }
+        #expect(fixture.coordinator.vaults.map(\.id) == ["vault", "empty", "unknown"])
+        #expect(await fixture.viewCallCount("item") == 0)
+        #expect(try await fixture.folders.repository.offlineItemSelections().isEmpty)
+        await fixture.service.stop()
+    }
+
+    @Test("Missing folder discovery must not claim the chosen vault is empty")
+    func folderManagerUnavailableCatalogDoesNotClaimEmpty() async throws {
+        let fixture = try await OfflineFolderManagerFixture()
+        let vault = OfflineVaultSettingsRow(id: "vault", vaultName: "Unverified vault", isSelected: false,
+            selectedCount: 0, usableCount: 0, lastRefreshedAt: nil)
+        fixture.coordinator.apply(.init(vaults: [vault], itemGroups: [], selectedVaultIDs: [],
+            policyByItemID: [:], availabilityByItemID: [:]))
+        #expect(!fixture.coordinator.folderDiscoveryIsCurrent(vaultID: "vault"))
+        let actual = try render(OfflineFoldersManagerView(coordinator: fixture.coordinator, initialVaultID: "vault")
+            .environment(\.locale, Locale(identifier: "en")), size: NSSize(width: 720, height: 480))
+        let reference = NSHostingView(rootView: Text("Unavailable").font(.body).fixedSize())
+        let expected = try render(reference.rootView, size: reference.fittingSize)
+        let referenceRendered = await expected.containsText(from: expected)
+        let unavailableRendered = await actual.containsText(from: expected)
+        #expect(referenceRendered)
+        #expect(unavailableRendered, "An unverified catalog requires an unavailable placeholder, not a known-empty claim")
+        #expect(await fixture.viewCallCount("item") == 0)
+        await fixture.service.stop()
+    }
+
+    @Test("Losing the last folder keeps the open manager on its chosen identity", .timeLimit(.minutes(1)))
+    func folderManagerDoesNotRetargetWhenLastFolderDisappears() async throws {
+        let fixture = try await OfflineFolderManagerFixture()
+        let vaults = [("vault", "Chosen folder vault"), ("other", "Other folder vault")].map { id, name in
+            OfflineVaultSettingsRow(id: id, vaultName: name, isSelected: false,
+                selectedCount: 0, usableCount: 0, lastRefreshedAt: nil)
+        }
+        let chosenRows = OfflineFolderManagerFixture.rows(count: 1)
+        let otherRows = [OfflineFolderSettingsRow(vaultID: "other", folderID: "other-folder", folderName: "Other folder",
+            location: .init(folderID: "other-folder", ancestorNames: ["Other folder"]), isSelected: false,
+            coveringAncestorID: nil, selectedCount: 0, usableCount: 0, lastRefreshedAt: nil)]
+        fixture.present(vaults: vaults, rowsByVaultID: ["vault": chosenRows, "other": otherRows])
+        let hosting = NSHostingView(rootView: OfflineFoldersManagerView(coordinator: fixture.coordinator, initialVaultID: "vault")
+            .environment(\.locale, Locale(identifier: "en"))
+            .environment(\.colorScheme, .light).background(Color.white))
+        let size = NSSize(width: 720, height: 480)
+        let window = fixtureWindow(hosting, size: size)
+        defer { window.orderOut(nil); window.contentView = nil }
+        let chosenReference = NSHostingView(rootView: Text(verbatim: "Chosen folder vault").font(.body).fixedSize())
+        let chosenGlyphs = try render(chosenReference.rootView, size: chosenReference.fittingSize)
+        let otherReference = NSHostingView(rootView: Text(verbatim: "Other folder vault").font(.body).fixedSize())
+        let otherGlyphs = try render(otherReference.rootView, size: otherReference.fittingSize)
+        for hasFolders in [true, false, true] {
+            fixture.present(vaults: vaults, rowsByVaultID: ["vault": hasFolders ? chosenRows : [], "other": otherRows])
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            hosting.layoutSubtreeIfNeeded()
+            hosting.displayIfNeeded()
+            let actual = try capture(hosting, size: size)
+            let chosenRendered = await actual.containsText(from: chosenGlyphs)
+            let otherRendered = await actual.containsText(from: otherGlyphs)
+            #expect(chosenRendered == hasFolders)
+            #expect(!otherRendered, "Catalog updates must never silently select another vault")
+            #expect(fixture.coordinator.vaults.map(\.id) == ["vault", "other"])
+        }
+        #expect(await fixture.viewCallCount("item") == 0)
+        #expect(try await fixture.folders.repository.offlineItemSelections().isEmpty)
+        await fixture.service.stop()
+    }
+
+    @Test("Dismissing the real folder manager sheet does not cancel submitted work", .timeLimit(.minutes(1)))
+    func folderManagerNativeDismissal() async throws {
+        let fetch = OfflineTestGate()
+        let events = AsyncStream<String>.makeStream()
+        defer { events.continuation.finish() }
+        let presentation = FolderManagerSheetPresentation()
+        let fixture = try await OfflineFolderManagerFixture(beforeView: { try await fetch.wait() })
+        let hosting = NSHostingView(rootView: FolderManagerSheetFixture(
+            coordinator: fixture.coordinator, presentation: presentation, events: events.continuation))
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 720, height: 480),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        window.orderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        var phase = "appearance"
+        do {
+            window.update()
+            hosting.layoutSubtreeIfNeeded()
+            hosting.displayIfNeeded()
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { presentation.isPresented = true }
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            hosting.layoutSubtreeIfNeeded()
+            var iterator = events.stream.makeAsyncIterator()
+            let appeared = await iterator.next()
+            try #require(appeared == "appeared")
+            do {
+                let content = try #require(window.attachedSheet?.contentView)
+                #expect(content.bounds.size == NSSize(width: 720, height: 480))
+            }
+            #expect(await fixture.viewCallCount("item") == 0)
+            phase = "submitted fetch"
+            try await fixture.coordinator.setFolderSelected(true, folderID: "child", vaultID: "vault")
+            try await fetch.waitUntilEntered()
+            phase = "dismissal"
+            // Keep the presenter alive and observe the native sheet's dismissal contract.
+            withTransaction(transaction) { presentation.isPresented = false }
+            await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+            hosting.layoutSubtreeIfNeeded()
+            let dismissed = await iterator.next()
+            try #require(dismissed == "dismissed")
+            #expect(window.attachedSheet == nil)
+            await fetch.open()
+            phase = "service settlement"
+            await fixture.service.waitUntilIdle()
+            #expect(try await fixture.folders.snapshot() != nil)
+            #expect(await fixture.viewCallCount("item") == 1)
+            #expect(await fixture.viewCallCount("other-item") == 0)
+        } catch {
+            Issue.record("Native sheet lifecycle failed during \(phase)")
+            await fetch.open()
+            await fixture.service.stop()
+            throw error
+        }
+        await fixture.service.stop()
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
     @Test("Vault names remain verbatim even when they match interface translation keys",
           arguments: ["en", "cs"], ["offline", "ssh"])
     func localizedVaultListsPreserveNames(language: String, list: String) async throws {
@@ -392,6 +682,27 @@ extension VaultSettingsLayoutTests {
             let nameRendered = await actual.containsText(from: expected)
             #expect(nameRendered, "\(list) must preserve the distinct vault name \(name) in \(language)")
         }
+    }
+}
+
+@MainActor @Observable
+private final class FolderManagerSheetPresentation {
+    var isPresented = false
+}
+
+@MainActor
+private struct FolderManagerSheetFixture: View {
+    let coordinator: OfflineModeCoordinator
+    @Bindable var presentation: FolderManagerSheetPresentation
+    let events: AsyncStream<String>.Continuation
+
+    var body: some View {
+        Color.white.frame(width: 720, height: 480)
+            .sheet(isPresented: $presentation.isPresented, onDismiss: { events.yield("dismissed") }, content: {
+                OfflineFoldersManagerView(coordinator: coordinator, initialVaultID: "vault")
+                    .onAppear { events.yield("appeared") }
+            })
+            .transaction { $0.disablesAnimations = true; $0.animation = nil }
     }
 }
 

@@ -60,7 +60,7 @@ nonisolated extension DatabaseManager {
             }
             guard case .value(let update) = result else { throw OfflinePersistenceError.persistenceFailed }
             // inTransaction has returned: COMMIT, not just the update body, succeeded.
-            settlement.finish(.committed(manualPromotions: update.manualPromotions))
+            settlement.finish(.committed(manualPromotions: update.manualPromotions, automaticPromotions: update.automaticPromotions))
             return update.value
         } catch {
             settlement.finish(.rolledBack)
