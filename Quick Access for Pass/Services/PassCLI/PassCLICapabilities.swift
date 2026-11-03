@@ -9,6 +9,15 @@ nonisolated struct PassCLICapabilities: Sendable, Equatable {
     static let minimumUnverifiedContentReuseVersion = PassCLIVersion(major: 2, minor: 5, patch: 0)
     /// Kill switch for a release known to return well-formed but wrong list content.
     static let blockedContentReuseVersions: [PassCLIVersion] = []
+    /// Exact releases whose published contracts were validated; also the bundled set.
+    static let testedReleases: Set<PassCLIVersion> = [
+        PassCLIVersion(major: 2, minor: 1, patch: 4),
+        PassCLIVersion(major: 2, minor: 2, patch: 3),
+        PassCLIVersion(major: 2, minor: 3, patch: 3),
+        PassCLIVersion(major: 2, minor: 4, patch: 2),
+        PassCLIVersion(major: 2, minor: 5, patch: 1),
+        PassCLIVersion(major: 2, minor: 7, patch: 0)
+    ]
 
     /// The parsed active CLI version, or `nil` when version output is unavailable or invalid.
     let version: PassCLIVersion?
@@ -33,17 +42,8 @@ nonisolated struct PassCLICapabilities: Sendable, Equatable {
     /// unverified and need per-sync agreement evidence; see the incremental sync evidence.
     var snapshotContentProvenance: CLISnapshotContentProvenance {
         guard let version, !Self.blockedContentReuseVersions.contains(version) else { return .unavailable }
-        switch version {
-        case PassCLIVersion(major: 2, minor: 1, patch: 4),
-             PassCLIVersion(major: 2, minor: 2, patch: 3),
-             PassCLIVersion(major: 2, minor: 3, patch: 3),
-             PassCLIVersion(major: 2, minor: 4, patch: 2),
-             PassCLIVersion(major: 2, minor: 5, patch: 1),
-             PassCLIVersion(major: 2, minor: 7, patch: 0):
-            return .completeJSONV1
-        default:
-            return version >= Self.minimumUnverifiedContentReuseVersion ? .unverifiedCompleteJSON : .unavailable
-        }
+        if Self.testedReleases.contains(version) { return .completeJSONV1 }
+        return version >= Self.minimumUnverifiedContentReuseVersion ? .unverifiedCompleteJSON : .unavailable
     }
 
     /// Whether the active CLI supports folder metadata commands.

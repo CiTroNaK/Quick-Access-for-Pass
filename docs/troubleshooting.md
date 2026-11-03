@@ -8,6 +8,14 @@ Use these checks when Quick Access cannot sign in, sync an item, or copy a value
 2. Check the selected source, version, and executable path.
 3. Use that executable for diagnosis, not whichever `pass-cli` your shell finds.
 
+**Features** lists what the selected version supports:
+
+- **Supported** — the version has the feature and is a release Quick Access was tested with.
+- **Untested** — the version should have the feature, but that release was not tested. It is expected to work; open a GitHub issue if it does not. For **Fast offline sync**, Quick Access also checks one item per vault on each sync and fetches items one by one if the list disagrees.
+- **Unsupported** — the version is too old (the row says which version is needed) or the feature is turned off for that release.
+
+The list is informational; it does not change which features are enabled.
+
 With **Auto (recommended)**, an installed CLI takes precedence over the bundled fallback. A custom path has no fallback. See the [selection reference](pass-cli.md#cli-selection-order).
 
 If Settings selects a bundled CLI, use its versioned resource path. Set `VERSION` to the selected version and change `APP` if needed:

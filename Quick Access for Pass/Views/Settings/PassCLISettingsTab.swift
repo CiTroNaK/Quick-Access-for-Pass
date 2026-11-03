@@ -79,6 +79,11 @@ struct PassCLISettingsTab: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
+                SettingsLayout.settingsRow(label: "Features") {
+                    PassCLIFeatureSupportView(
+                        features: PassCLICapabilities(rawVersionString: statusStore.version).featureSupport
+                    )
+                }
                 if let warning = statusStore.recommendedVersionWarning {
                     SettingsLayout.settingsRow {
                         let accessibilityLabel = String(
