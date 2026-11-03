@@ -188,7 +188,7 @@ Unchanged copies cause no item-view fetch, key lookup, decryption, encoding, enc
 
 No secret-body hash is persisted. A secret-only change with the same time and unchanged ordinary metadata can remain undetected until explicit **Retry**. Dirty metadata survives failed publication and service recreation. A live fallback records the fetched payload's time, never the catalog time.
 
-Bulk reuse requires invocation-bound recognized complete JSON. Unknown versions, incomplete or ambiguous bodies, and identity mismatches use sequential reads for needed selected copies. The [CLI contract](docs/pass-cli.md#incremental-offline-sync-contract) defines exact-release eligibility.
+Bulk reuse requires invocation-bound recognized complete JSON. Exact validated releases reuse it directly. Other 2.5.0+ releases reuse it only after the first needed copy in that vault, read with `item view` during the same sync, matches its list body; that evidence never outlives the sync. Pre-2.5 unlisted versions, disagreement, incomplete or ambiguous bodies, and identity mismatches use sequential reads for needed selected copies. The [CLI contract](docs/pass-cli.md#incremental-offline-sync-contract) defines eligibility.
 
 Preparation is sequential. Each writer batch holds at most 32 items and 8 MiB of ciphertext, plus at most one additional prepared result. These limits do not bound the owning sync's full fetched list or guarantee a hard real-time write limit. Full results remain in the caller-owned awaited frame, not service lifecycle registrations.
 

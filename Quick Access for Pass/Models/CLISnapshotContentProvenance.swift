@@ -4,6 +4,11 @@ import Foundation
 nonisolated enum CLISnapshotContentProvenance: Sendable, Equatable {
     case unavailable
     case completeJSONV1
+    /// Shape-valid full JSON from a 2.5.0+ release without published contract validation.
+    /// Reuse needs a per-vault, per-sync agreement with an authoritative `item view`.
+    case unverifiedCompleteJSON
+
+    var isCompleteJSON: Bool { self != .unavailable }
 
     /// Completeness additionally requires all modeled fields, not decoder defaults.
     static func validatesShape(_ raw: Any, of item: CLIItem) -> Bool {

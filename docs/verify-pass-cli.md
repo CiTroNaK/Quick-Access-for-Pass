@@ -9,7 +9,7 @@ Use this guide to compare vendored binaries with Proton's release assets. Run th
 3. Compare their checksums and bytes with the vendored inputs.
 
 ```bash
-VERSION=2.5.1
+VERSION=2.7.0
 VERIFY_DIR="$(mktemp -d)"
 
 curl -fL -o "$VERIFY_DIR/pass-cli-macos-aarch64" \

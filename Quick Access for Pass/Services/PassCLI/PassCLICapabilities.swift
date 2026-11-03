@@ -5,6 +5,10 @@ nonisolated struct PassCLICapabilities: Sendable, Equatable {
     static let minimumShowSecretsVersion = PassCLIVersion(major: 2, minor: 0, patch: 3)
     static let minimumSessionLockingVersion = PassCLIVersion(major: 2, minor: 2, patch: 2)
     static let minimumFoldersVersion = PassCLIVersion(major: 2, minor: 5, patch: 0)
+    /// Newer releases may reuse list content only after an in-sync `item view` agreement check.
+    static let minimumUnverifiedContentReuseVersion = PassCLIVersion(major: 2, minor: 5, patch: 0)
+    /// Kill switch for a release known to return well-formed but wrong list content.
+    static let blockedContentReuseVersions: [PassCLIVersion] = []
 
     /// The parsed active CLI version, or `nil` when version output is unavailable or invalid.
     let version: PassCLIVersion?
@@ -25,18 +29,20 @@ nonisolated struct PassCLICapabilities: Sendable, Equatable {
         return version >= Self.minimumShowSecretsVersion
     }
 
-    /// Published full-JSON contracts substantiated for exact releases, not future versions.
-    /// Exact build-source correspondence is not established; see the incremental sync evidence.
+    /// Published full-JSON contracts substantiated for exact releases. Other 2.5.0+ releases are
+    /// unverified and need per-sync agreement evidence; see the incremental sync evidence.
     var snapshotContentProvenance: CLISnapshotContentProvenance {
+        guard let version, !Self.blockedContentReuseVersions.contains(version) else { return .unavailable }
         switch version {
         case PassCLIVersion(major: 2, minor: 1, patch: 4),
              PassCLIVersion(major: 2, minor: 2, patch: 3),
              PassCLIVersion(major: 2, minor: 3, patch: 3),
              PassCLIVersion(major: 2, minor: 4, patch: 2),
-             PassCLIVersion(major: 2, minor: 5, patch: 1):
-            .completeJSONV1
+             PassCLIVersion(major: 2, minor: 5, patch: 1),
+             PassCLIVersion(major: 2, minor: 7, patch: 0):
+            return .completeJSONV1
         default:
-            .unavailable
+            return version >= Self.minimumUnverifiedContentReuseVersion ? .unverifiedCompleteJSON : .unavailable
         }
     }
 

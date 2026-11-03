@@ -19,7 +19,8 @@ struct OfflineFolderSyncTests {
         #expect(try await fixture.snapshot("item") != nil)
         let views = await fixture.runner.views()
         if cliVersion == "2.5.1" { #expect(views.isEmpty) }
-        else { #expect(views.compactMap { $0.last?.split(separator: "/").last.map(String.init) } == ["item", "new"]) }
+        // Unlisted 2.5.0: one agreeing item view per vault, then the list body is reused.
+        else { #expect(views.compactMap { $0.last?.split(separator: "/").last.map(String.init) } == ["item"]) }
         #expect(await fixture.codec.counts().peak == 1)
         #expect(try await fixture.scalar("SELECT COUNT(*) FROM offlineSyncCaptures") == 0)
         await fixture.finish()

@@ -85,6 +85,23 @@
           "outputName": "pass-cli-x86_64"
         }
       }
+    },
+    {
+      "version": "2.7.0",
+      "releaseURL": "https://github.com/protonpass/pass-cli/releases/tag/2.7.0",
+      "sourceURL": "https://github.com/protonpass/pass-cli/tree/2.7.0",
+      "assets": {
+        "macos-aarch64": {
+          "url": "https://github.com/protonpass/pass-cli/releases/download/2.7.0/pass-cli-macos-aarch64",
+          "sha256": "f17222619b4c4c4112eccc3796edea4bc0e4a341dc8960f7bb4023782adcc4a1",
+          "outputName": "pass-cli-arm64"
+        },
+        "macos-x86_64": {
+          "url": "https://github.com/protonpass/pass-cli/releases/download/2.7.0/pass-cli-macos-x86_64",
+          "sha256": "1829f7ecef108df5e14f92081cf4a4412c0fdc5be2034f9ee85d1e6745a62322",
+          "outputName": "pass-cli-x86_64"
+        }
+      }
     }
   ]
 }

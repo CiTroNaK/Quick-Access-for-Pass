@@ -261,8 +261,10 @@ actor PassCLIService {
     private static func sanitizedSecretRunnerError(_ error: any Error) -> any Error {
         if error is CancellationError { return error }
         guard let cliError = error as? CLIError else { return CLIError.secretFetchFailed }
+        // The fixed policy refusal carries no secret, so it keeps its own presentation.
+        if cliError.isSensitiveContentRestriction { return CLIError.sensitiveContentRestricted }
         switch cliError {
-        case .notInstalled, .notLoggedIn, .timeout, .outputLimitExceeded:
+        case .notInstalled, .notLoggedIn, .timeout, .outputLimitExceeded, .sensitiveContentRestricted:
             return cliError
         case .commandFailed, .secretFetchFailed, .parseError:
             return CLIError.secretFetchFailed
@@ -332,8 +334,13 @@ extension PassCLIService {
         ) { group in
             for vault in vaults {
                 group.addTask {
-                    let result = try await self.listItemsForSync(vault: vault, selection: selection, progress: progress)
-                    return (vaultID: vault.vaultId, result: result)
+                    do {
+                        let result = try await self.listItemsForSync(vault: vault, selection: selection, progress: progress)
+                        return (vaultID: vault.vaultId, result: result)
+                    } catch let error as CLIError where error.isSensitiveContentRestriction {
+                        // One policy-restricted vault must not fail every other vault's sync.
+                        return (vaultID: vault.vaultId, result: .restricted(vault: vault))
+                    }
                 }
             }
             var items: [(item: CLIItem, vaultId: String)] = []
@@ -341,7 +348,9 @@ extension PassCLIService {
             var presenceUncertainties: [SyncItemPresenceUncertainty] = []
             var provenance: [String: CLISnapshotContentProvenance] = [:]
             var memberships: [String: [String: CLIFolderMembership]] = [:]
+            var restrictedVaultIDs: Set<String> = []
             for try await batch in group {
+                if batch.result.isRestrictedByPolicy { restrictedVaultIDs.insert(batch.vaultID) }
                 items.append(contentsOf: batch.result.items.map { (item: $0, vaultId: batch.vaultID) })
                 skippedItems.append(contentsOf: batch.result.skippedItems)
                 presenceUncertainties.append(batch.result.presenceUncertainty)
@@ -349,7 +358,7 @@ extension PassCLIService {
                 memberships[batch.vaultID] = batch.result.folderMembershipEvidence
             }
             return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties,
-                    provenance: provenance, memberships: memberships)
+                    provenance: provenance, memberships: memberships, restrictedVaultIDs: restrictedVaultIDs)
         }
         // Separate metadata-only commands are sequential, adding no unbounded vault fan-out.
         var folderCatalogs: [String: FolderCatalogFetchOutcome] = [:]
@@ -365,7 +374,8 @@ extension PassCLIService {
             vaults: vaults, items: syncResult.items, skippedItems: syncResult.skippedItems,
             presenceUncertainties: syncResult.presenceUncertainties,
             contentProvenanceByVaultID: syncResult.provenance,
-            folderCatalogsByVaultID: folderCatalogs
+            folderCatalogsByVaultID: folderCatalogs,
+            restrictedVaultIDs: syncResult.restrictedVaultIDs
         )
     }
 

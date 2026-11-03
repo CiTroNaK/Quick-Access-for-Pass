@@ -56,6 +56,18 @@ nonisolated struct CLIItemListParseResult: Sendable {
     let contentProvenance: CLISnapshotContentProvenance
     /// Complete non-secret evidence only; nil defers folders without dropping ordinary items.
     let folderMembershipEvidence: [String: CLIFolderMembership]?
+    var isRestrictedByPolicy = false
+
+    /// A vault the CLI refused to list under its sensitive-content policy. Nothing was observed,
+    /// so every existing item is retained exactly like an unidentified skipped item.
+    static func restricted(vault: CLIVault) -> CLIItemListParseResult {
+        CLIItemListParseResult(
+            items: [], skippedItems: [], totalItemCount: 0,
+            presenceUncertainty: SyncItemPresenceUncertainty(vaultID: vault.vaultId, skippedItemIDs: [],
+                                                             hasUnidentifiedSkippedItems: true),
+            contentProvenance: .unavailable, folderMembershipEvidence: nil, isRestrictedByPolicy: true
+        )
+    }
 }
 
 nonisolated enum CLIItemListLossyParser {
@@ -73,7 +85,7 @@ nonisolated enum CLIItemListLossyParser {
         var skippedItemIDs: Set<String> = []
         var hasUnidentifiedSkippedItems = false
         let decoder = JSONDecoder()
-        var complete = contentProvenance == .completeJSONV1
+        var complete = contentProvenance.isCompleteJSON
         var folderMemberships: [String: CLIFolderMembership] = [:]
         var completeFolderMemberships = true
 
@@ -121,7 +133,7 @@ nonisolated enum CLIItemListLossyParser {
                 vaultID: vaultId, skippedItemIDs: skippedItemIDs,
                 hasUnidentifiedSkippedItems: hasUnidentifiedSkippedItems
             ),
-            contentProvenance: complete ? .completeJSONV1 : .unavailable,
+            contentProvenance: complete ? contentProvenance : .unavailable,
             folderMembershipEvidence: completeFolderMemberships ? folderMemberships : nil
         )
     }

@@ -106,8 +106,12 @@ final class SyncCoordinator {
             }
             try await synchronizeFetchedMetadata(fetchResult, operation: operation, capture: capture)
             try requireCurrentSync(operation)
+            if !fetchResult.restrictedVaultIDs.isEmpty {
+                AppLogger.sync.notice("sync skipped \(fetchResult.restrictedVaultIDs.count, privacy: .public) policy-restricted vault(s)")
+            }
             finishSuccessfulSync(
                 skippedItems: skippedItems,
+                restrictedVaultNames: fetchResult.vaults.filter { fetchResult.restrictedVaultIDs.contains($0.vaultId) }.map(\.name),
                 diagnosticFileURL: skippedDiagnosticFileURL,
                 viewModel: viewModel, operation: operation
             )
@@ -225,6 +229,7 @@ final class SyncCoordinator {
 
     private func finishSuccessfulSync(
         skippedItems: [SkippedSyncItem],
+        restrictedVaultNames: [String] = [],
         diagnosticFileURL: URL?,
         viewModel: QuickAccessViewModel,
         operation: SyncOperationToken
@@ -233,7 +238,9 @@ final class SyncCoordinator {
         defaults.set(Date().timeIntervalSince1970, forKey: DefaultsKey.lastSyncTime)
         viewModel.syncError = nil
         if skippedItems.isEmpty {
-            viewModel.syncProgress = nil
+            // Informational only: the restricted vault's existing items stay searchable.
+            viewModel.syncProgress = restrictedVaultNames.isEmpty ? nil
+                : .completedWithRestrictedVaults(restrictedVaultNames)
             viewModel.skippedSyncItems = nil
             viewModel.isShowingSkippedSyncItems = false
         } else {

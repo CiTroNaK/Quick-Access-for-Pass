@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 extension OfflineModeService {
     /// The ordinary sync caller awaits this frame and its cleanup. Nothing secret-bearing is
@@ -20,10 +21,12 @@ extension OfflineModeService {
         }
         var batch: [OfflineSyncPublication] = []
         var bytes = 0
+        var agreement: [String: Bool] = [:]
         for candidate in work {
             guard try syncContextIsActive(capture) else { return }
             guard let publication = try await prepareSyncPublicationOrFinishFailure(
-                candidate, result: result, index: index, capture: capture, allowMembershipExpansion: allowMembershipExpansion
+                candidate, result: result, index: index, capture: capture,
+                allowMembershipExpansion: allowMembershipExpansion, agreement: &agreement
             ) else { continue }
             let size = publication.prepared.snapshot.payload.count
             if batch.count == OfflineSyncPublicationLimits.items || size > OfflineSyncPublicationLimits.ciphertextBytes - bytes {
@@ -40,11 +43,11 @@ extension OfflineModeService {
 
     private func prepareSyncPublicationOrFinishFailure(
         _ work: OfflineSyncWork, result: CLISyncFetchResult, index: OfflineSyncResultIndex,
-        capture: OfflineSyncCapture, allowMembershipExpansion: Bool
+        capture: OfflineSyncCapture, allowMembershipExpansion: Bool, agreement: inout [String: Bool]
     ) async throws -> OfflineSyncPublication? {
         do {
-            return try await prepareSyncPublication(work, result: result, index: index,
-                                                     capture: capture, allowMembershipExpansion: allowMembershipExpansion)
+            return try await prepareSyncPublication(work, result: result, index: index, capture: capture,
+                                                     allowMembershipExpansion: allowMembershipExpansion, agreement: &agreement)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -54,14 +57,20 @@ extension OfflineModeService {
         }
     }
 
+    /// `agreement` is per-vault evidence for unverified releases, scoped to this one sync frame:
+    /// the first needed item is read with `item view` and compared with its list body.
     private func prepareSyncPublication(
         _ work: OfflineSyncWork, result: CLISyncFetchResult, index: OfflineSyncResultIndex,
-        capture: OfflineSyncCapture, allowMembershipExpansion: Bool
+        capture: OfflineSyncCapture, allowMembershipExpansion: Bool, agreement: inout [String: Bool]
     ) async throws -> OfflineSyncPublication? {
         let item: CLIItem
         let source: OfflineSyncContentSource
-        if result.contentProvenanceByVaultID[work.key.vaultId] == .completeJSONV1, let position = index.itemIndices[work.key] {
-            item = result.items[position].item
+        let provenance = result.contentProvenanceByVaultID[work.key.vaultId] ?? .unavailable
+        let listed = index.itemIndices[work.key].map { result.items[$0].item }
+        let reusesList = provenance == .completeJSONV1
+            || (provenance == .unverifiedCompleteJSON && agreement[work.key.vaultId] == true)
+        if reusesList, let listed {
+            item = listed
             source = .syncList
         } else {
             // Recheck the original conditional ownership before an additional secret-facing fetch.
@@ -73,6 +82,13 @@ extension OfflineModeService {
                   try syncContextIsActive(capture) else { return nil }
             item = try await cliService.viewItem(itemId: work.key.itemId, shareId: work.shareID)
             source = .liveFallback
+            if provenance == .unverifiedCompleteJSON, agreement[work.key.vaultId] == nil, let listed {
+                let agrees = Self.sameContent(listed, item)
+                agreement[work.key.vaultId] = agrees
+                if !agrees {
+                    AppLogger.sync.notice("unverified CLI list content disagreed with item view; using item view for this vault")
+                }
+            }
         }
         guard try syncContextIsActive(capture) else { return nil }
         if work.requiresContentRefresh {
@@ -84,6 +100,14 @@ extension OfflineModeService {
         guard prepared.snapshot.payload.count <= OfflineSyncPublicationLimits.ciphertextBytes else { throw OfflinePersistenceError.payloadTooLarge }
         guard try syncContextIsActive(capture) else { return nil }
         return OfflineSyncPublication(work: work, prepared: prepared, refreshedAt: Date(), source: source)
+    }
+
+    /// Canonical comparison of everything the snapshot codec can persist from either source.
+    private static func sameContent(_ lhs: CLIItem, _ rhs: CLIItem) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let left = try? encoder.encode(lhs), let right = try? encoder.encode(rhs) else { return false }
+        return left == right
     }
 
     private func flushSyncBatch(_ batch: [OfflineSyncPublication], capture: OfflineSyncCapture) async throws -> Bool {

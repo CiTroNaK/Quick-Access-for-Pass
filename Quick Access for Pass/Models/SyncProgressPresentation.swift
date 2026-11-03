@@ -40,6 +40,17 @@ nonisolated struct SyncProgressPresentation: Equatable, Sendable {
         return SyncProgressPresentation(statusText: text, showsProgress: true)
     }
 
+    static func completedWithRestrictedVaults(_ vaultNames: [String]) -> SyncProgressPresentation {
+        let names = vaultNames.formatted(.list(type: .and))
+        return SyncProgressPresentation(
+            statusText: String(
+                localized: "Synced · Passwords hidden by vault policy in \(names)",
+                comment: "Sync status after a sync where shared vaults hide sensitive content from Pass CLI. Placeholder is a list of unchanged vault names."
+            ),
+            showsProgress: false
+        )
+    }
+
     static func completedWithSkippedItems(_ count: Int) -> SyncProgressPresentation {
         SyncProgressPresentation(
             statusText: String(

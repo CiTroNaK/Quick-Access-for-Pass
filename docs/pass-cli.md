@@ -106,11 +106,26 @@ Ordinary sync fetches full CLI items to derive search and AutoFill metadata. Opt
 
 The current writer transaction produces original metadata and share proofs. Publication rechecks captured selection, exclusions, durable request generations, and current metadata evidence. UI state never authorizes publication.
 
-Bulk reuse accepts exact releases **2.1.4, 2.2.3, 2.3.3, 2.4.2, and 2.5.1**. It requires invocation-bound executable and version evidence plus raw complete-JSON validation through `completeJSONV1`. A higher or unknown version is not eligible by comparison alone.
+Bulk reuse is **verified** for exact releases **2.1.4, 2.2.3, 2.3.3, 2.4.2, 2.5.1, and 2.7.0**. It requires invocation-bound executable and version evidence plus raw complete-JSON validation through `completeJSONV1`.
+
+Other releases **2.5.0 or newer** are **unverified** (`unverifiedCompleteJSON`), so a new CLI release works without an app update. Their list bodies pass the same raw shape validation, but a version comparison alone never permits reuse. In each sync, the first selected copy that needs content in a vault is read with authoritative `item view` and compared with its list body (canonical encoding of every field the snapshot codec persists). Only on agreement does the rest of that vault reuse list bodies for that sync; disagreement, a failed view, or a missing body keeps that vault on sequential `item view` reads. The checked copy publishes the `item view` result, so the check adds no extra read. Evidence never outlives the sync. A release found to return well-formed but wrong list content can be excluded in `PassCLICapabilities.blockedContentReuseVersions`. This check cannot detect a release that alters `item view` and the list identically; ordinary copy would show the same values.
 
 Incomplete or ambiguous bodies and identity mismatches fall back to sequential `item view` reads for needed selected copies. Unselected bodies contribute to ordinary metadata derivation but are not encrypted or persisted as snapshots. The full fetched list remains in the owning sync's awaited frame.
 
 The contract uses published release evidence, not reproducible-build or exact source-to-binary attestation. For 2.4.2, checksum-matching binaries report embedded commit `ef5f645`, while the public tag resolves to `7ae51e5`. Exact source correspondence is unproven. The checksums establish release association only.
+
+### Pass CLI 2.7.0 contract validation
+
+The 2.7.0 allowlist entry uses the same published-release contract standard, not a source-to-binary attestation. Both checksum-matching macOS binaries are signed by Proton AG (team `2SB5Z68H26`) and report `Proton Pass CLI 2.7.0 (ba80a19)`. The embedded commit was not resolvable through the public commit API during validation. Exact source correspondence is unproven. No authenticated vault content was fetched for this validation.
+
+Published-source evidence, compared against 2.5.1:
+
+- The [JSON list branch](https://github.com/protonpass/pass-cli/blob/2.7.0/pass-cli/src/commands/item/list.rs) still serializes full `ItemsList { items }` under `--show-secrets`. The previously internal-only top-level `folders` enrichment (`folder_id`, `folder_name`, `parent_id`) is now public. Quick Access ignores it; it is **not** the folder discovery contract below.
+- The item model crate pin and the [item envelope](https://github.com/protonpass/pass-cli/blob/2.7.0/pass/src/domain/models/item/mod.rs) are unchanged apart from a new extra-field module used by item creation. The item-opening path changed only in tests.
+- The [pagination rewrite](https://github.com/protonpass/pass-cli/blob/2.7.0/pass/src/item/list.rs) adds an incremental per-process page cache. `list_items` starts each CLI process with an empty cache, visits every page until a short page, de-duplicates by item ID and propagates page-fetch errors. Undecryptable items can still be omitted, as before.
+- New share policy: when a shared vault has Proton's **hide sensitive content** flag, `item list --show-secrets` and `item view` fail with `Viewing the contents of this item is not allowed by policy`. The CLI does not enforce it for `item totp`, `run`/`inject` references or `ssh-agent`.
+
+Sync isolates such a vault: other vaults sync normally, the restricted vault's existing items and offline copies are retained like an unidentified skipped item, and the sync status names the vault. Password copy shows **The owner of this vault doesn't allow viewing its passwords.** The restriction is never deletion or authorization evidence.
 
 ### Pass CLI 2.5.1 contract validation
 
@@ -137,7 +152,7 @@ The same published-release contract review covers the older bundled releases. Bo
 - Their `pass-domain/src/models/item/mod.rs` models use derived Serde serialization for the item envelope, `ItemData`, and supported content variants. They include modeled login passwords, TOTP, notes, extra fields, and custom sections. They lack the newer unmodeled `custom_icon` and `autofill_urls` fields and optional `alias_email`. Those omissions do not relax shape validation or permit invented alias addresses. The 2.2.3 and 2.3.3 models are identical. The 2.1.4 differences affect timestamp mutation and tests, not serialized fields.
 - Their `pass/src/item/list.rs` paths fetch every page before returning opened items, with the same pagination termination/error behavior as 2.4.2. Their vault-opening paths differ only in the absent newer `alias_email` envelope field. Undecryptable items can still be omitted. Complete remote-vault enumeration is not guaranteed.
 
-Regression coverage checks exact-version admission, including neighboring-release rejection, for every allowlisted release. It also checks per-vault incomplete-body fallback, selected-copy publication without extra views, and unchanged sync after explicit Retry. A synthetic older-login fixture checks full modeled password/TOTP and Unicode-value preservation without newer optional fields. Raw shape validation, invocation binding, capture authority and final publication guards remain mandatory.
+Regression coverage checks exact-version admission for every allowlisted release, unverified classification of neighbouring 2.5.0+ releases, agreement-gated reuse after one item view, and full fallback on disagreement. It also checks per-vault incomplete-body fallback, selected-copy publication without extra views, and unchanged sync after explicit Retry. A synthetic older-login fixture checks full modeled password/TOTP and Unicode-value preservation without newer optional fields. Raw shape validation, invocation binding, capture authority and final publication guards remain mandatory.
 
 ### Snapshot freshness and lifecycle
 
@@ -171,7 +186,7 @@ Both tags use the same fields; the root parent is explicitly null. The [2.5.0 it
 
 Defensive **app limits**, not claimed upstream restrictions, are 10,000 folders per vault, 64 levels (root folder level 1), 640,000 self-inclusive ancestry rows, and 8 MiB per folder-command output. Iterative validation checks count, depth and checked ancestry arithmetic before closure-row construction or writer admission. Folder commands add no unbounded vault fan-out. Failed, incomplete, over-budget or stale discovery is unavailable evidence: ordinary item synchronization still proceeds; it is not deletion authority for retained folder data or cached access.
 
-The checksum-matching bundled Apple Silicon 2.5.1 binary advertises this command and flags in `folder list --help`. Validation used only public source, help and synthetic fixtures, never authenticated vault contents. As above, public release contracts and matching checksums do not establish exact source-to-binary attestation or prove complete remote enumeration. This metadata contract does not expand the exact-version full-secret reuse allowlist.
+The checksum-matching bundled Apple Silicon 2.5.1 and 2.7.0 binaries advertise this command and flags in `folder list --help`; the 2.7.0 folder-list command and folder model are unchanged from 2.5.1. Validation used only public source, help and synthetic fixtures, never authenticated vault contents. As above, public release contracts and matching checksums do not establish exact source-to-binary attestation or prove complete remote enumeration. This metadata contract does not expand the exact-version full-secret reuse allowlist.
 
 ## Provenance
 
@@ -181,6 +196,8 @@ Current bundled Proton Pass CLI assets:
 
 | Version | Architecture | Upstream asset | SHA256 |
 | --- | --- | --- | --- |
+| 2.7.0 | Apple Silicon | `pass-cli-macos-aarch64` | `f17222619b4c4c4112eccc3796edea4bc0e4a341dc8960f7bb4023782adcc4a1` |
+| 2.7.0 | Intel | `pass-cli-macos-x86_64` | `1829f7ecef108df5e14f92081cf4a4412c0fdc5be2034f9ee85d1e6745a62322` |
 | 2.5.1 | Apple Silicon | `pass-cli-macos-aarch64` | `2c5834dd21bef341db70c39eaa0a353d4b9e49a8a0d4e5579c02f62ed70db3d9` |
 | 2.5.1 | Intel | `pass-cli-macos-x86_64` | `fed0d6a919b8b05921c508cdd4cfe8c05a0b0cf4ccc55ed036e3b51ace6f7373` |
 | 2.4.2 | Apple Silicon | `pass-cli-macos-aarch64` | `99e862094fd2a4f82788c9000ba5a92246e7739f86c35a84655b9d7e2adf7227` |

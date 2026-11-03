@@ -14,7 +14,7 @@ If Settings selects a bundled CLI, use its versioned resource path. Set `VERSION
 
 ```bash
 APP="/Applications/Quick Access for Pass.app"
-VERSION="2.5.1"
+VERSION="2.7.0"
 
 if [ "$(uname -m)" = "arm64" ]; then
 	PASS_CLI="$APP/Contents/Resources/ProtonPassCLI/$VERSION/pass-cli-arm64"
@@ -102,6 +102,10 @@ If recreating or duplicating the item resolves the problem, verify the replaceme
 If the app shows **Alias email is unavailable.**, check the selected CLI version and inspect the item locally. The failed action leaves the clipboard and panel unchanged.
 
 An old selected offline alias refreshes on ordinary sync once usable email evidence is available. If you need to force that selected item's refresh, use **Retry** in **Settings → Offline**. See [Offline Mode](offline-mode.md#content-revisions).
+
+## Passwords hidden by vault policy
+
+With Pass CLI 2.7.0 or later, a shared vault's owner can hide sensitive content. The CLI then refuses to list that vault with secrets or to show its items. Quick Access keeps syncing your other vaults and shows **Synced · Passwords hidden by vault policy in …**. Items already synced from that vault stay searchable, but **Copy Password** shows **The owner of this vault doesn't allow viewing its passwords.** Ask the vault owner if you need access.
 
 ## Share diagnostics safely
 

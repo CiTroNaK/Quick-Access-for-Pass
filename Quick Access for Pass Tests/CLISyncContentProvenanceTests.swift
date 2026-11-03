@@ -37,16 +37,24 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenance == .unavailable)
     }
 
-    @Test("only substantiated releases have a full-output contract", arguments: [
-        ("2.1.4", true), ("2.2.3", true), ("2.3.3", true), ("2.4.2", true), ("2.5.1", true),
-        ("Proton Pass CLI 2.1.4 (d13561a)", true), ("Proton Pass CLI 2.2.3 (38ff599)", true),
-        ("Proton Pass CLI 2.3.3 (0d7235d)", true), ("Proton Pass CLI 2.5.1 (84186e7)", true),
-        ("2.1.3", false), ("2.1.5", false), ("2.2.2", false), ("2.2.4", false),
-        ("2.3.2", false), ("2.3.4", false), ("2.4.1", false), ("2.4.3", false), ("2.5.0", false), ("2.5.2", false),
-        ("2.6.0", false), ("3.0.0", false), ("unknown", false)
+    @Test("exact releases are verified; other 2.5.0+ releases need agreement evidence", arguments: [
+        ("2.1.4", "verified"), ("2.2.3", "verified"), ("2.3.3", "verified"), ("2.4.2", "verified"),
+        ("2.5.1", "verified"), ("2.7.0", "verified"),
+        ("Proton Pass CLI 2.1.4 (d13561a)", "verified"), ("Proton Pass CLI 2.2.3 (38ff599)", "verified"),
+        ("Proton Pass CLI 2.3.3 (0d7235d)", "verified"), ("Proton Pass CLI 2.5.1 (84186e7)", "verified"),
+        ("Proton Pass CLI 2.7.0 (ba80a19)", "verified"),
+        ("2.1.3", "none"), ("2.1.5", "none"), ("2.2.2", "none"), ("2.2.4", "none"),
+        ("2.3.2", "none"), ("2.3.4", "none"), ("2.4.1", "none"), ("2.4.3", "none"), ("unknown", "none"),
+        ("2.5.0", "unverified"), ("2.5.2", "unverified"), ("2.6.0", "unverified"), ("2.7.1", "unverified"),
+        ("Proton Pass CLI 2.8.0 (abcdef0)", "unverified"), ("3.0.0", "unverified")
     ])
-    func supportedReleaseContract(version: String, complete: Bool) {
-        #expect((PassCLICapabilities(rawVersionString: version).snapshotContentProvenance == .completeJSONV1) == complete)
+    func releaseContract(version: String, expected: String) {
+        let provenance = PassCLICapabilities(rawVersionString: version).snapshotContentProvenance
+        switch expected {
+        case "verified": #expect(provenance == .completeJSONV1)
+        case "unverified": #expect(provenance == .unverifiedCompleteJSON)
+        default: #expect(provenance == .unavailable)
+        }
     }
 
     @Test("each supported modeled content shape is eligible, including empty values", arguments: [
@@ -75,7 +83,7 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenance == .completeJSONV1)
     }
 
-    @Test("each actual vault invocation retains its own completeness", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1"])
+    @Test("each actual vault invocation retains its own completeness", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1", "2.7.0"])
     func independentVaultProvenance(version: String) async throws {
         let incomplete = Self.completeNote.replacingOccurrences(of: #""note":"","#, with: "")
             .replacingOccurrences(of: #""vault_id":"vault""#, with: #""vault_id":"second-vault""#)
@@ -89,7 +97,7 @@ struct CLISyncContentProvenanceTests {
         #expect(result.contentProvenanceByVaultID["second-vault"] == .unavailable)
     }
 
-    @Test("full-list alias email survives snapshot serialization", arguments: ["2.4.2", "2.5.1"])
+    @Test("full-list alias email survives snapshot serialization", arguments: ["2.4.2", "2.5.1", "2.7.0"])
     func aliasEmailRetainsCompleteProvenance(version: String) async throws {
         let json = Self.completeNote
             .replacingOccurrences(of: #""Note":null"#, with: #""Alias":null"#)
@@ -133,8 +141,8 @@ struct CLISyncContentProvenanceTests {
         #expect(login.totpUri == "otpauth://totp/Synthetic?secret=JBSWY3DPEHPK3PXP")
     }
 
-    @Test("summary and unverified invocations cannot acquire provenance", arguments: [
-        "1.4.0", "unknown", "2.1.3", "2.1.5", "2.2.2", "2.2.4", "2.3.2", "2.3.4", "2.4.3", "2.5.0", "2.5.2"
+    @Test("summary and pre-2.5 unlisted invocations cannot acquire provenance", arguments: [
+        "1.4.0", "unknown", "2.1.3", "2.1.5", "2.2.2", "2.2.4", "2.3.2", "2.3.4", "2.4.3"
     ])
     func unverifiedInvocations(version: String) async throws {
         let runner = ProvenanceListRunner(version: version, lists: [
@@ -142,6 +150,65 @@ struct CLISyncContentProvenanceTests {
         ])
         let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
         #expect(result.contentProvenanceByVaultID.values.allSatisfy { $0 == .unavailable })
+    }
+
+    @Test("2.7.0 public top-level folders enrichment keeps full-list provenance")
+    func topLevelFoldersKeyIsIgnored() async throws {
+        let json = Self.completeNote.replacingOccurrences(of: "}]}", with: #"}],"folders":[{"folder_id":"f","folder_name":"Synthetic","parent_id":null}]}"#)
+        let runner = ProvenanceListRunner(version: "2.7.0", lists: [
+            "share": Data(json.utf8), "second-share": Data(#"{"items":[],"folders":[]}"#.utf8)
+        ])
+        let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
+        #expect(result.items.count == 1)
+        #expect(result.contentProvenanceByVaultID["vault"] == .completeJSONV1)
+    }
+
+    @Test("a policy-restricted vault is isolated and retains its existing items")
+    func sensitiveContentPolicyIsolatesVault() async throws {
+        let runner = ProvenanceListRunner(version: "2.7.0", lists: ["share": Data(Self.completeNote.utf8)],
+            failures: ["second-share": "Error: Viewing the contents of this item is not allowed by policy"])
+        let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
+        #expect(result.items.map(\.item.id) == ["item"])
+        #expect(result.restrictedVaultIDs == ["second-vault"])
+        #expect(result.contentProvenanceByVaultID["second-vault"] == .unavailable)
+        let uncertainty = try #require(result.presenceUncertainties.first { $0.vaultID == "second-vault" })
+        #expect(uncertainty.hasUnidentifiedSkippedItems)
+    }
+
+    @Test("other list failures still fail the whole sync")
+    func unrelatedListFailureStillThrows() async {
+        let runner = ProvenanceListRunner(version: "2.7.0", lists: ["share": Data(Self.completeNote.utf8)],
+            failures: ["second-share": "Error: network unreachable"])
+        await #expect(throws: CLIError.self) {
+            _ = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
+        }
+    }
+
+    @Test("a policy refusal on item view is reported as a restriction, not a generic failure")
+    func sensitiveContentPolicyOnView() async {
+        let runner = ProvenanceListRunner(version: "2.7.0", lists: [:],
+            failures: ["view": "Error: Viewing the contents of this item is not allowed by policy"])
+        do {
+            _ = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).viewItem(itemId: "item", shareId: "share")
+            Issue.record("Expected a policy restriction")
+        } catch let error as CLIError {
+            guard case .sensitiveContentRestricted = error else { Issue.record("Unexpected \(error)"); return }
+        } catch {
+            Issue.record("Unexpected \(error)")
+        }
+    }
+
+    @Test("newer unlisted releases keep shape-valid content as unverified, never verified", arguments: ["2.5.0", "2.7.1", "3.0.0"])
+    func unlistedNewerInvocations(version: String) async throws {
+        let incomplete = Self.completeNote.replacingOccurrences(of: #""note":"","#, with: "")
+            .replacingOccurrences(of: #""vault_id":"vault""#, with: #""vault_id":"second-vault""#)
+            .replacingOccurrences(of: #""share_id":"share""#, with: #""share_id":"second-share""#)
+        let runner = ProvenanceListRunner(version: version, lists: [
+            "share": Data(Self.completeNote.utf8), "second-share": Data(incomplete.utf8)
+        ])
+        let result = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
+        #expect(result.contentProvenanceByVaultID["vault"] == .unverifiedCompleteJSON)
+        #expect(result.contentProvenanceByVaultID["second-vault"] == .unavailable)
     }
 
     private func parse(
@@ -162,9 +229,14 @@ struct CLISyncContentProvenanceTests {
 private struct ProvenanceListRunner: CLIRunning {
     let version: String
     let lists: [String: Data]
+    /// stderr text by share ID, or "view" for item view.
+    var failures: [String: String] = [:]
 
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
         if arguments == ["--version"] { return Data("Proton Pass CLI \(version)".utf8) }
+        if arguments.starts(with: ["item", "view"]), let message = failures["view"] {
+            throw CLIError.commandFailed(message)
+        }
         if arguments == ["vault", "list", "--output", "json"] {
             return Data("""
                 {"vaults":[
@@ -172,8 +244,9 @@ private struct ProvenanceListRunner: CLIRunning {
                 {"name":"Second","vault_id":"second-vault","share_id":"second-share"}]}
                 """.utf8)
         }
-        guard let share = arguments.first(where: { $0.hasPrefix("--share-id=") }),
-              let data = lists[String(share.dropFirst("--share-id=".count))] else {
+        let shareID = arguments.first(where: { $0.hasPrefix("--share-id=") }).map { String($0.dropFirst("--share-id=".count)) }
+        if let shareID, let message = failures[shareID] { throw CLIError.commandFailed(message) }
+        guard let shareID, let data = lists[shareID] else {
             throw CLIError.commandFailed("Unexpected synthetic invocation")
         }
         return data

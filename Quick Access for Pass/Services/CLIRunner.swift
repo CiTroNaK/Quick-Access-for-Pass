@@ -9,6 +9,8 @@ nonisolated enum CLIError: Error, LocalizedError {
     case timeout
     case outputLimitExceeded
     case secretFetchFailed
+    /// The vault owner set Proton's "hide sensitive content" share policy (enforced by CLI 2.7.0+).
+    case sensitiveContentRestricted
     case parseError(String)
 
     var isNotInstalled: Bool { if case .notInstalled = self { return true }; return false }
@@ -25,6 +27,15 @@ nonisolated enum CLIError: Error, LocalizedError {
         return message.localizedCaseInsensitiveContains("error decrypting local session")
     }
 
+    /// Matches the CLI 2.7.0 policy refusal for `item list --show-secrets` and `item view`.
+    var isSensitiveContentRestriction: Bool {
+        switch self {
+        case .sensitiveContentRestricted: true
+        case .commandFailed(let message): message.localizedCaseInsensitiveContains("not allowed by policy")
+        default: false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .notInstalled: String(localized: "pass-cli is not installed. Instructionas at https://protonpass.github.io/pass-cli/")
@@ -33,6 +44,9 @@ nonisolated enum CLIError: Error, LocalizedError {
         case .timeout: String(localized: "pass-cli command timed out")
         case .outputLimitExceeded: String(localized: "pass-cli command produced too much output")
         case .secretFetchFailed: String(localized: "pass-cli could not retrieve the requested secret")
+        case .sensitiveContentRestricted:
+            String(localized: "The owner of this vault doesn't allow viewing its passwords.",
+                   comment: "Shown when a shared vault's policy hides sensitive content from Pass CLI.")
         case .parseError(let message): String(localized: "Failed to parse pass-cli output: \(message)")
         }
     }

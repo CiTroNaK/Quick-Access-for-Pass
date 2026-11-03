@@ -30,8 +30,10 @@ extension SyncCoordinator {
         if let capture {
             try await offlineModeService?.consumeSyncResult(
                 fetchResult, capture: capture, metadataProofs: synchronization.offlineMetadataProofs,
+                // A policy-restricted vault returned nothing to expand; it must not block the others.
                 allowMembershipExpansion: fetchResult.skippedItems.isEmpty && fetchResult.presenceUncertainties.allSatisfy {
-                    $0.skippedItemIDs.isEmpty && !$0.hasUnidentifiedSkippedItems
+                    fetchResult.restrictedVaultIDs.contains($0.vaultID)
+                        || ($0.skippedItemIDs.isEmpty && !$0.hasUnidentifiedSkippedItems)
                 }
             )
         }

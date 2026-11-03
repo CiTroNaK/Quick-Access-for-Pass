@@ -6,7 +6,7 @@ import Testing
 @Suite("SyncCoordinator offline lifecycle", .timeLimit(.minutes(1)))
 @MainActor
 struct SyncCoordinatorOfflineTests {
-    @Test("sync reuses complete list content without an item view", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1"])
+    @Test("sync reuses complete list content without an item view", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1", "2.7.0"])
     func syncReusesCompleteListPayloadForSelectedItem(cliVersion: String) async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item"], cliVersion: cliVersion)
         let previousRefresh = try #require(harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt)
@@ -15,6 +15,27 @@ struct SyncCoordinatorOfflineTests {
         #expect(try harness.database.offlineItemSelection(itemId: "item")?.lastRefreshedAt != previousRefresh)
         #expect(try await harness.repository.hasPersistedSnapshots())
         #expect(await harness.runner.viewRequests().isEmpty)
+    }
+
+    @Test("an unlisted newer release reuses list content after one agreeing item view", arguments: ["2.5.0", "2.8.0"])
+    func unverifiedReleaseReusesAfterAgreement(cliVersion: String) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor", "third"], cliVersion: cliVersion)
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(await harness.runner.viewRequests().count == 1)
+        for id in ["item", "neighbor", "third"] {
+            #expect(try await harness.repository.authorizedSnapshot(for: OfflineSnapshotKey(
+                vaultId: "vault", itemId: id, schemaVersion: OfflineSnapshotLimits.schemaVersion)) != nil)
+        }
+    }
+
+    @Test("disagreeing list content is never reused for an unlisted release")
+    func unverifiedReleaseDisagreementFallsBack() async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor", "third"], cliVersion: "2.8.0")
+        await harness.runner.setViewPassword("authoritative-password")
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        #expect(await harness.runner.viewRequests().count == 3)
     }
 
     @Test("disabled AutoFill does not fail sync or block offline refresh", arguments: [false, true])
@@ -52,7 +73,7 @@ struct SyncCoordinatorOfflineTests {
         #expect(await harness.runner.viewRequests().isEmpty)
     }
 
-    @Test("explicit Retry then matching coordinator sync adds zero item views", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1"])
+    @Test("explicit Retry then matching coordinator sync adds zero item views", arguments: ["2.1.4", "2.2.3", "2.3.3", "2.4.2", "2.5.1", "2.7.0"])
     func matchingSyncAfterRetryAddsZeroViews(cliVersion: String) async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor"], cliVersion: cliVersion)
         harness.coordinator.refreshNow()
@@ -702,6 +723,7 @@ private actor OfflineLifecycleRunner: CLIRunning {
     private var nextListGate: OfflineNonCancellableGate?
     private var viewGate: OfflineTestGate?
     private var nonCancellableViewGate: OfflineNonCancellableGate?
+    private var viewPassword = "fake-password"
     init(itemIDs: [String], failingItemIDs: Set<String>, cliVersion: String) {
         self.itemIDs = itemIDs
         self.failingItemIDs = failingItemIDs
@@ -735,7 +757,7 @@ private actor OfflineLifecycleRunner: CLIRunning {
             if let nonCancellableViewGate { await nonCancellableViewGate.wait() }
             let itemID = String(uri.split(separator: "/").last!)
             if isRefreshing && failingItemIDs.contains(itemID) { throw CLIError.commandFailed("unavailable") }
-            return Data("{\"item\":\(itemJSON(itemID))}".utf8)
+            return Data("{\"item\":\(itemJSON(itemID, password: viewPassword))}".utf8)
         }
         throw CLIError.commandFailed("unexpected command")
     }
@@ -751,8 +773,9 @@ private actor OfflineLifecycleRunner: CLIRunning {
     func setSyncedItemIDs(_ ids: [String]) { itemIDs = ids }
     func setIncludesVault(_ value: Bool) { includesVault = value }
     func viewRequests() -> [String] { requests }
-    private nonisolated func itemJSON(_ id: String) -> String {
-        guard let item = try? incrementalSyncCLIItem(id: id, password: "fake-password", title: id),
+    func setViewPassword(_ password: String) { viewPassword = password }
+    private nonisolated func itemJSON(_ id: String, password: String = "fake-password") -> String {
+        guard let item = try? incrementalSyncCLIItem(id: id, password: password, title: id),
               let data = try? JSONEncoder().encode(item) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }
