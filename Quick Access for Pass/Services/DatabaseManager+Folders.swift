@@ -6,11 +6,12 @@ nonisolated struct FolderCatalogStoredMetadata: Sendable {
     var memberships: [String: CLIFolderMembership] = [:]
     var generation: UUID?
     var status: String?
+    var observationID: UUID?
+    var stamp: FolderFeatureStamp?
 }
 
 nonisolated struct FolderCatalogWriteResult: Sendable {
     var proofsByVaultID: [String: FolderCatalogAdmissionProof] = [:]
-    var affectedItemKeys: Set<OfflineSnapshotKey> = []
     var didDeleteOfflineData = false
 }
 
@@ -49,10 +50,20 @@ nonisolated extension DatabaseManager {
             let folderID: String? = row["folderId"]
             result[vaultID, default: FolderCatalogStoredMetadata()].memberships[itemID] = folderID.map(CLIFolderMembership.folder) ?? .root
         }
-        for row in try Row.fetchAll(db, sql: "SELECT vaultId, membershipGeneration, reconciliationStatus FROM folderCatalogState") {
+        for row in try Row.fetchAll(db, sql: """
+            SELECT vaultId, membershipGeneration, observationId, selectionGeneration, probeRevision, reconciliationStatus
+            FROM folderCatalogState
+            """) {
             let vaultID: String = row["vaultId"]
-            result[vaultID, default: FolderCatalogStoredMetadata()].generation = UUID(uuidString: row["membershipGeneration"])
-            result[vaultID, default: FolderCatalogStoredMetadata()].status = row["reconciliationStatus"]
+            var stored = result[vaultID, default: FolderCatalogStoredMetadata()]
+            stored.generation = UUID(uuidString: row["membershipGeneration"])
+            stored.status = row["reconciliationStatus"]
+            stored.observationID = UUID(uuidString: row["observationId"])
+            if let selection = (row["selectionGeneration"] as String?).flatMap(UUID.init(uuidString:)),
+               let probe = (row["probeRevision"] as String?).flatMap(UUID.init(uuidString:)) {
+                stored.stamp = FolderFeatureStamp(selectionGeneration: selection, probeRevision: probe)
+            }
+            result[vaultID] = stored
         }
         return result
     }

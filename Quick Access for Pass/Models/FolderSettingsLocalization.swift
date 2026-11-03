@@ -42,8 +42,18 @@ nonisolated enum FolderSettingsLocalization {
 
     static func policyDescription(_ row: OfflineFolderSettingsRow, rows: [OfflineFolderSettingsRow],
                                   vaultSelected: Bool, locale: Locale) -> String {
+        policyDescription(row, pathsByID: pathsByID(rows), vaultSelected: vaultSelected, locale: locale)
+    }
+
+    /// Build once per render so each row resolves its covering ancestor without a linear scan.
+    static func pathsByID(_ rows: [OfflineFolderSettingsRow]) -> [OfflineFolderSettingsRow.ID: String] {
+        Dictionary(rows.map { ($0.id, $0.path) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    static func policyDescription(_ row: OfflineFolderSettingsRow, pathsByID: [OfflineFolderSettingsRow.ID: String],
+                                  vaultSelected: Bool, locale: Locale) -> String {
         if let ancestor = row.coveringAncestorID,
-           let path = rows.first(where: { $0.vaultID == row.vaultID && $0.folderID == ancestor })?.path {
+           let path = pathsByID[OfflineFolderSettingsRow.ID(vaultID: row.vaultID, folderID: ancestor)] {
             return row.isSelected
                 ? text("Selected independently; also included by \(path)", locale: locale)
                 : text("Included by \(path)", locale: locale)

@@ -14,7 +14,6 @@ struct FolderCatalogSynchronizationTests {
         let gate = FolderCLIContractFixture.gate()
         let result = try await synchronize(database, gate: gate)
         let proof = try #require(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate))
-        #expect(result.folderCatalogProofsByVaultID["vault"] == proof)
         #expect(result.offlineMetadataProofs.values.first?.folderCatalogProof == proof)
         try await database.reader.read { (db: Database) throws -> Void in
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM folders") == 2)
@@ -60,13 +59,29 @@ struct FolderCatalogSynchronizationTests {
         _ = try await synchronize(database, gate: gate, childName: "Renamed / child")
         let renamed = try #require(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate))
         #expect(renamed.membershipGeneration == original.membershipGeneration)
-        #expect(renamed.observationID != original.observationID)
+        // Renames are display-only: an unchanged structure under the same probe keeps its observation.
+        #expect(renamed.observationID == original.observationID)
         _ = try await synchronize(database, gate: gate, childParent: nil)
         let moved = try #require(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate))
         #expect(moved.membershipGeneration != renamed.membershipGeneration)
         _ = try await synchronize(database, gate: gate, membership: .root)
         let root = try #require(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate))
         #expect(root.membershipGeneration != moved.membershipGeneration)
+    }
+
+    @Test("a new probe stamp rotates the observation of an unchanged catalog")
+    func newStampRotatesObservation() async throws {
+        let database = try DatabaseManager(inMemory: true, passphrase: Data("synthetic".utf8))
+        let gate = FolderCLIContractFixture.gate()
+        _ = try await synchronize(database, gate: gate)
+        let original = try #require(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate))
+        _ = try await synchronize(database, gate: gate)
+        #expect(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate) == original)
+        gate.confirm(capabilities: .init(rawVersionString: "2.5.1"), for: gate.beginProbe())
+        _ = try await synchronize(database, gate: gate)
+        let reprobed = try #require(try database.folderCatalogAdmissionProof(vaultID: "vault", gate: gate))
+        #expect(reprobed.observationID != original.observationID)
+        #expect(reprobed.membershipGeneration == original.membershipGeneration)
     }
 
     @Test("descriptor failure rolls back folders, items, and observation proof")

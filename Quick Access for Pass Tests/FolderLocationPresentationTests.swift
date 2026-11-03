@@ -119,6 +119,6 @@ struct FolderLocationPresentationTests {
         try await fixture.synchronize(parentName: "UnsearchableFolderOnlyToken")
         #expect(try search.search(query: "UnsearchableFolderOnlyToken").isEmpty)
         #expect(try search.search(query: "Offline").map(\.id) == before)
-        #expect(try search.folderLocations(for: ["item"])["item"]?.path == "UnsearchableFolderOnlyToken / Child")
+        #expect(try await search.loadFolderLocations(for: ["item"])["item"]?.path == "UnsearchableFolderOnlyToken / Child")
     }
 }

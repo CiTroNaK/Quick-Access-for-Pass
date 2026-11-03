@@ -10,6 +10,8 @@ nonisolated final class FolderFeatureGate: Sendable {
         var probeRevision = UUID()
         var availability: FolderFeatureAvailability = .checking
         var capabilities: PassCLICapabilities?
+        /// Executable identity the confirmed capabilities were observed for.
+        var probedFingerprint: PassCLIExecutableFingerprint?
         var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
     }
 
@@ -54,29 +56,35 @@ nonisolated final class FolderFeatureGate: Sendable {
         value.selectionGeneration = UUID()
         value.probeRevision = UUID()
         value.capabilities = nil
+        value.probedFingerprint = nil
         value.availability = .checking
     }
 
     /// Starts a superseding probe; even same-path older completions lose ownership.
-    func beginProbe() -> FolderCapabilityProbe {
+    func beginProbe(fingerprint: PassCLIExecutableFingerprint? = nil) -> FolderCapabilityProbe {
         let (probe, observers) = state.withLock { value in
             value.probeRevision = UUID()
             value.availability = .checking
             value.capabilities = nil
+            value.probedFingerprint = nil
             return (FolderCapabilityProbe(selection: value.selection,
                                           selectionGeneration: value.selectionGeneration,
-                                          revision: value.probeRevision), Array(value.observers.values))
+                                          revision: value.probeRevision, fingerprint: fingerprint),
+                    Array(value.observers.values))
         }
         for observer in observers { observer.yield(()) }
         return probe
     }
 
-    func confirm(capabilities: PassCLICapabilities, for probe: FolderCapabilityProbe) {
+    /// A non-cacheable result (failed or timed-out probe) publishes `.unavailable` but keeps
+    /// capabilities unknown, so the next caller reprobes instead of reusing a negative answer.
+    func confirm(capabilities: PassCLICapabilities, for probe: FolderCapabilityProbe, cacheable: Bool = true) {
         let observers = state.withLock { value -> [AsyncStream<Void>.Continuation] in
             guard value.selectionGeneration == probe.selectionGeneration,
                   value.probeRevision == probe.revision else { return [] }
-            value.capabilities = capabilities
-            value.availability = capabilities.version == nil ? .unavailable :
+            value.capabilities = cacheable ? capabilities : nil
+            value.probedFingerprint = cacheable ? probe.fingerprint : nil
+            value.availability = !cacheable || capabilities.version == nil ? .unavailable :
                 (capabilities.supportsFolders ? .supported : .requiresUpgrade)
             return Array(value.observers.values)
         }
@@ -87,6 +95,24 @@ nonisolated final class FolderFeatureGate: Sendable {
         state.withLock { value in
             guard value.availability == .supported else { return nil }
             return FolderFeatureStamp(selectionGeneration: value.selectionGeneration, probeRevision: value.probeRevision)
+        }
+    }
+
+    enum ProbeReuse: Equatable {
+        case reprobe
+        /// The confirmed probe still applies; carries its stamp only when folders are supported.
+        case reuse(FolderFeatureStamp?)
+    }
+
+    /// Reuses the confirmed probe when the same selection still resolves to the same file,
+    /// so routine syncs keep committed folder evidence current. An uninspectable file reprobes.
+    func probeReuse(selectionGeneration: UUID, fingerprint: PassCLIExecutableFingerprint?) -> ProbeReuse {
+        state.withLock { value in
+            guard let fingerprint, value.selectionGeneration == selectionGeneration,
+                  value.capabilities != nil, value.probedFingerprint == fingerprint else { return .reprobe }
+            guard value.availability == .supported else { return .reuse(nil) }
+            return .reuse(FolderFeatureStamp(selectionGeneration: value.selectionGeneration,
+                                             probeRevision: value.probeRevision))
         }
     }
 

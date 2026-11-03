@@ -15,10 +15,6 @@ nonisolated struct SearchService: Sendable {
         return try databaseManager.searchItems(query: query)
     }
 
-    func folderLocations(for itemIDs: Set<String>) throws -> [String: FolderLocationPresentation] {
-        try databaseManager.folderLocations(for: itemIDs)
-    }
-
     /// GRDB schedules the metadata projection off the main actor, independently of secret lookup.
     func loadFolderLocations(for itemIDs: Set<String>) async throws -> [String: FolderLocationPresentation] {
         try await databaseManager.reader.read { db in

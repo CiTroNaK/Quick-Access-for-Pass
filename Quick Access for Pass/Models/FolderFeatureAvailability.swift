@@ -19,4 +19,6 @@ nonisolated struct FolderCapabilityProbe: Sendable, Equatable {
     let selection: PassCLISelection
     let selectionGeneration: UUID
     let revision: UUID
+    /// Executable identity observed before the probe; nil when it could not be inspected.
+    var fingerprint: PassCLIExecutableFingerprint? = nil
 }

@@ -125,7 +125,8 @@ struct OfflineItemsManagerView: View {
             }
             if let lastRefreshedAt = item.lastRefreshedAt {
                 let timestamp = lastRefreshedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale))
-                let detail = String(localized: "\(item.itemType.displayName) · Last refreshed \(timestamp)")
+                let detail = FolderSettingsLocalization.text(
+                    "\(item.itemType.displayName) · Last refreshed \(timestamp)", locale: locale)
                 Text(detail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -191,7 +192,8 @@ struct OfflineItemsManagerView: View {
             report(FolderSettingsLocalization.text(
                 "\(item.title) will remain available offline when its covering vault or folder is turned off.", locale: locale))
         } catch {
-            report(String(localized: "Could not keep this item offline. Retry offline status and try again."), isError: true)
+            report(FolderSettingsLocalization.text(
+                "Could not keep this item offline. Retry offline status and try again.", locale: locale), isError: true)
         }
     }
 

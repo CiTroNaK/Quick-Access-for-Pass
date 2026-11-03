@@ -181,6 +181,7 @@ extension OfflineModeService {
             try await revoke(.vault(vaultID)) { [repository] in
                 _ = try await repository.setVaultSelected(false, vaultID: vaultID)
             }
+            await resubmitSurvivingCoverage(vaultID: vaultID)
             return
         }
         let permit = try grantPermit(scope: .vault(vaultID), vaultID: vaultID)
@@ -203,6 +204,7 @@ extension OfflineModeService {
             try await revoke(.vault(vaultID), removingCoverage: .folder(vaultID: vaultID, folderID: folderID)) { [repository] in
                 _ = try await repository.setFolderSelected(false, folderID: folderID, vaultID: vaultID, featureStamp: nil)
             }
+            await resubmitSurvivingCoverage(vaultID: vaultID)
             return
         }
         let permit = try grantPermit(scope: .vault(vaultID), vaultID: vaultID)
@@ -215,6 +217,13 @@ extension OfflineModeService {
             throw Error.persistenceFailed
         }
         guard lifecycle == lifecycleGeneration, permit.workGeneration == workGeneration, submissionsAllowed else { return }
+        try? await submitCurrent(vaultID: vaultID, includeNew: true, refreshExisting: false)
+    }
+
+    /// Revocation invalidates every queued job in the vault, including not-yet-reserved members that
+    /// another vault/folder policy still covers. Re-derive them from committed policy.
+    private func resubmitSurvivingCoverage(vaultID: String) async {
+        guard submissionsAllowed else { return }
         try? await submitCurrent(vaultID: vaultID, includeNew: true, refreshExisting: false)
     }
 

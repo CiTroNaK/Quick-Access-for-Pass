@@ -376,7 +376,10 @@ extension OfflineModeCoordinator {
             guard stamp != nil, folderDiscoveryIsCurrent(vaultID: vaultID) else { throw Error.folderSupportUnavailable }
             guard canMakeNewSelections else { throw Error.observationUnavailable }
             guard canSelectFolder(folderID: folderID, vaultID: vaultID) else { throw Error.operationInProgress }
-        } else if !canDeselectFolder(folderID: folderID, vaultID: vaultID) { return }
+        } else if !canDeselectFolder(folderID: folderID, vaultID: vaultID) {
+            // Inherited-only or busy rows must not report a successful change.
+            throw Error.operationInProgress
+        }
         let operationID = UUID()
         vaultOperationIDs[vaultID] = operationID
         onDetailSelectionInputsChanged?()

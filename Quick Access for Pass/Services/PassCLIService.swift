@@ -8,8 +8,16 @@ actor PassCLIService {
     private let resolver: PassCLIResolver
     private let timeoutSeconds: Double = 300
     private static let secretOutputLimit = (4 * 1024 * 1024) + (4 * 1024)
+    private static let versionProbeTimeoutSeconds: Double = 30
     private let runner: any CLIRunning
-    private var capabilitiesTask: (probe: FolderCapabilityProbe, task: Task<PassCLICapabilities, Never>)?
+    private let executableFingerprint: @Sendable (String) -> PassCLIExecutableFingerprint?
+    private var capabilitiesTask: (probe: FolderCapabilityProbe, task: Task<CapabilityProbeResult, Never>)?
+
+    private struct CapabilityProbeResult {
+        let capabilities: PassCLICapabilities
+        /// False when the probe failed or timed out, so the result must not be reused.
+        let isConclusive: Bool
+    }
 
     nonisolated var cliSelection: PassCLISelection {
         folderFeatureGate.selection
@@ -47,7 +55,10 @@ actor PassCLIService {
         preference: PassCLISelectionPreference? = nil,
         customPath: String? = nil,
         resolver: PassCLIResolver = PassCLIResolver(),
-        runner: any CLIRunning = LiveCLIRunner()
+        runner: any CLIRunning = LiveCLIRunner(),
+        executableFingerprint: @escaping @Sendable (String) -> PassCLIExecutableFingerprint? = {
+            PassCLIExecutableFingerprint.live(path: $0)
+        }
     ) {
         let resolvedPreference = preference ?? {
             let path = cliPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -58,6 +69,7 @@ actor PassCLIService {
         self.folderFeatureGate = FolderFeatureGate(selection: resolved)
         self.resolver = resolver
         self.runner = runner
+        self.executableFingerprint = executableFingerprint
     }
 
     // MARK: - Commands
@@ -158,10 +170,17 @@ actor PassCLIService {
     // MARK: - CLI Capabilities
 
     /// Establishes current capability before optional pre-fetch offline capture.
-    /// Explicit preparation always reprobes, including replacements at the same path.
+    /// Reprobes when the selection changed or its executable file changed in place (or cannot be
+    /// inspected); otherwise keeps the confirmed probe so committed folder evidence stays current.
     func prepareFolderSync() async -> FolderFeatureStamp? {
         guard !Task.isCancelled else { return nil }
-        let probe = folderFeatureGate.beginProbe()
+        let snapshot = folderFeatureGate.selectionSnapshot()
+        let fingerprint = executableFingerprint(snapshot.selection.path)
+        if case .reuse(let stamp) = folderFeatureGate.probeReuse(selectionGeneration: snapshot.generation,
+                                                                  fingerprint: fingerprint) {
+            return stamp
+        }
+        let probe = folderFeatureGate.beginProbe(fingerprint: fingerprint)
         _ = await probeCapabilities(probe)
         guard !Task.isCancelled,
               let stamp = folderFeatureGate.supportedStamp(),
@@ -177,9 +196,9 @@ actor PassCLIService {
             return cached
         }
         if let inFlight = capabilitiesTask, inFlight.probe.selectionGeneration == snapshot.generation {
-            return await inFlight.task.value
+            return await inFlight.task.value.capabilities
         }
-        let probe = folderFeatureGate.beginProbe()
+        let probe = folderFeatureGate.beginProbe(fingerprint: executableFingerprint(selection.path))
         guard probe.selection == selection, probe.selectionGeneration == snapshot.generation else {
             return PassCLICapabilities(version: nil)
         }
@@ -188,22 +207,27 @@ actor PassCLIService {
 
     private func probeCapabilities(_ probe: FolderCapabilityProbe) async -> PassCLICapabilities {
         let runner = self.runner
+        let timeout = Self.versionProbeTimeoutSeconds
         // Version is metadata-only but must not delay ordinary sync for its 300-second content budget.
-        let task = Task<PassCLICapabilities, Never> {
+        // A cold first launch can be slow, so a failure stays inconclusive rather than "no version".
+        let task = Task<CapabilityProbeResult, Never> {
             do {
                 let data = try await runner.run(
-                    executablePath: probe.selection.path, arguments: ["--version"], timeout: 5
+                    executablePath: probe.selection.path, arguments: ["--version"], timeout: timeout
                 )
-                return PassCLICapabilities(rawVersionString: String(bytes: data, encoding: .utf8))
+                return CapabilityProbeResult(
+                    capabilities: PassCLICapabilities(rawVersionString: String(bytes: data, encoding: .utf8)),
+                    isConclusive: true
+                )
             } catch {
-                return PassCLICapabilities(version: nil)
+                return CapabilityProbeResult(capabilities: PassCLICapabilities(version: nil), isConclusive: false)
             }
         }
         capabilitiesTask = (probe: probe, task: task)
         let value = await task.value
-        folderFeatureGate.confirm(capabilities: value, for: probe)
+        folderFeatureGate.confirm(capabilities: value.capabilities, for: probe, cacheable: value.isConclusive)
         if capabilitiesTask?.probe == probe { capabilitiesTask = nil }
-        return value
+        return value.capabilities
     }
 
     // MARK: - Process Execution

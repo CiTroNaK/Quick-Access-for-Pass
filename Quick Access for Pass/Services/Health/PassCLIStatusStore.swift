@@ -58,26 +58,8 @@ final class PassCLIStatusStore {
     ]
     var latestBundledVersion: PassCLIVersion?
     var recommendedVersionWarning: PassCLIRecommendedVersionWarning?
-    /// Observable presentation only; folder additions still validate the shared gate at admission.
-    private(set) var folderFeatureAvailability: FolderFeatureAvailability = .checking
-    @ObservationIgnored private var folderAvailabilityTask: Task<Void, Never>?
 
     init() {}
-
-    deinit { folderAvailabilityTask?.cancel() }
-
-    /// Publishes lock-protected gate changes onto the MainActor without retaining this store.
-    func observeFolderAvailability(from gate: FolderFeatureGate) {
-        folderAvailabilityTask?.cancel()
-        folderFeatureAvailability = gate.availability
-        let updates = gate.updates()
-        folderAvailabilityTask = Task { [weak self] in
-            for await _ in updates {
-                guard !Task.isCancelled else { return }
-                self?.folderFeatureAvailability = gate.availability
-            }
-        }
-    }
 
     func refreshSourceOptions(discovery: PassCLIDiscovery = PassCLIDiscovery()) async {
         let installed = await discovery.installedCandidates()

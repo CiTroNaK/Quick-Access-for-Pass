@@ -2,6 +2,15 @@ import Foundation
 import GRDB
 
 nonisolated extension DatabaseManager {
+    /// The single acceptance rule for a fetched catalog: same vault/share, exact item coverage,
+    /// and a still-current probe stamp. The writer evaluates it against committed item IDs.
+    static func acceptedFolderCatalog(_ outcome: FolderCatalogFetchOutcome?, for vault: PassVault,
+                                      itemIDs: Set<String>, gate: FolderFeatureGate) -> ValidatedFolderCatalog? {
+        guard case .complete(let catalog) = outcome, catalog.vaultID == vault.id, catalog.shareID == vault.shareId,
+              Set(catalog.itemMemberships.keys) == itemIDs, gate.isCurrent(catalog.stamp) else { return nil }
+        return catalog
+    }
+
     static func writeFolderCatalogs(_ outcomes: [String: FolderCatalogFetchOutcome], vaults: [PassVault],
                                     baseline: [String: FolderCatalogStoredMetadata], gate: FolderFeatureGate?,
                                     in db: Database) throws -> FolderCatalogWriteResult {
@@ -17,26 +26,18 @@ nonisolated extension DatabaseManager {
         for vault in vaults {
             let previous = baseline[vault.id] ?? FolderCatalogStoredMetadata()
             let itemIDs = itemIDsByVault[vault.id, default: []]
-            let accepted: ValidatedFolderCatalog?
-            if case .complete(let catalog) = outcomes[vault.id], let gate,
-               catalog.vaultID == vault.id, catalog.shareID == vault.shareId,
-               Set(catalog.itemMemberships.keys) == itemIDs, gate.isCurrent(catalog.stamp) {
-                accepted = catalog
-            } else { accepted = nil }
+            let accepted = gate.flatMap { acceptedFolderCatalog(outcomes[vault.id], for: vault, itemIDs: itemIDs, gate: $0) }
             let parents = accepted.map { Dictionary(uniqueKeysWithValues: $0.folders.map { ($0.id, $0.parentID) }) }
                 ?? previous.parentsByID
             let memberships = accepted?.itemMemberships ?? previous.memberships.filter { itemIDs.contains($0.key) }
             let changed = parents != previous.parentsByID || memberships != previous.memberships
             let generation = changed ? UUID() : (previous.generation ?? UUID())
-            if changed {
-                let ids = Set(previous.memberships.keys).union(memberships.keys)
-                result.affectedItemKeys.formUnion(ids.map {
-                    OfflineSnapshotKey(vaultId: vault.id, itemId: $0, schemaVersion: OfflineSnapshotLimits.schemaVersion)
-                })
-            }
             if let catalog = accepted, let gate {
                 try writeAcceptedFolderCatalog(catalog, previous: previous, structureChanged: changed, in: db)
-                let observation = UUID()
+                // An unchanged fresh catalog under the same probe keeps its observation, so admission
+                // reserved before this sync stays valid. Structure, stamp, or status changes rotate it.
+                let observation = !changed && previous.status == "fresh" && previous.stamp == catalog.stamp
+                    ? (previous.observationID ?? UUID()) : UUID()
                 try db.execute(sql: """
                     INSERT INTO folderCatalogState
                     (vaultId, membershipGeneration, observationId, selectionGeneration, probeRevision, reconciliationStatus)
@@ -93,7 +94,9 @@ nonisolated extension DatabaseManager {
                 SELECT id, id, 0 FROM folders WHERE vaultId = ?
                 UNION ALL
                 SELECT a.folderId, f.parentId, a.depth + 1 FROM ancestry a
-                JOIN folders f ON f.vaultId = ? AND f.id = a.ancestorId WHERE f.parentId IS NOT NULL
+                JOIN folders f ON f.vaultId = ? AND f.id = a.ancestorId
+                -- Defence in depth: an unvalidated cycle reaches depth 64 and fails the CHECK, not the stack.
+                WHERE f.parentId IS NOT NULL AND a.depth < 64
             )
             INSERT INTO folderAncestors (vaultId, folderId, ancestorId, depth)
             SELECT ?, folderId, ancestorId, depth FROM ancestry

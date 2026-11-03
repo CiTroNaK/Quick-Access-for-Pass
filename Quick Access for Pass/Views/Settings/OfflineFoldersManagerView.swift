@@ -125,7 +125,8 @@ struct OfflineFoldersManagerView: View {
                         onSelectionChange: { selected, row in
                             // Button tasks outlive presentation; the coordinator/service retain actual work ownership.
                             Task { await selectFolder(selected, row: row) }
-                        }, matching: manager.query, selectedOnly: manager.selectedOnly, treeState: $manager.tree)
+                        }, matching: manager.query, selectedOnly: manager.selectedOnly, treeState: $manager.tree,
+                        visibleRows: visible)
                         .padding(12)
                 }
                 .background(.background, in: RoundedRectangle(cornerRadius: 6))

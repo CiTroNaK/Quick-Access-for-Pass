@@ -303,7 +303,6 @@ private extension AppDelegate {
             customPath: cliPathOverride?.isEmpty == false ? cliPathOverride : nil
         )
         self.cliService = cliService
-        passCLIStatusStore.observeFolderAvailability(from: cliService.folderFeatureGate)
         let (offlineStorageMaintenance, offlineSnapshotRepository, offlineSnapshotCodec) = configureOfflineStorage(
             database: prepared.1, folderFeatureGate: cliService.folderFeatureGate
         )
@@ -541,8 +540,10 @@ private extension AppDelegate {
                 await self?.sshCoordinator?.reconcile()
                 await self?.runCoordinator?.reconcile()
                 if cliSelectionChanged {
-                    _ = await self?.cliService?.prepareFolderSync()
+                    let folderStamp = await self?.cliService?.prepareFolderSync()
                     await self?.healthCoordinator?.refreshAll()
+                    // Committed folder evidence is bound to the old selection; discover it again now.
+                    if folderStamp != nil { self?.syncCoordinator?.refreshNow() }
                 }
             }
         }

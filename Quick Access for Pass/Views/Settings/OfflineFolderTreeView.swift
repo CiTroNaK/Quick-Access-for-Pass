@@ -12,16 +12,21 @@ struct OfflineFolderTreeView: View {
     var selectedOnly = false
     /// Optional shared disclosure ownership lets the manager count the rows actually shown.
     var treeState: Binding<OfflineFolderTreeState>?
+    /// Rows the owner already derived from the same inputs; avoids a second filter pass per render.
+    var visibleRows: [OfflineFolderSettingsRow]?
     @Environment(\.locale) private var locale
     @State private var tree = OfflineFolderTreeState()
 
     var body: some View {
         let branches = OfflineFolderTreeState.branchIDs(rows)
+        let paths = FolderSettingsLocalization.pathsByID(rows)
         let state = treeState?.wrappedValue ?? tree
+        // Filtered views ignore collapse state, so disclosure controls would do nothing there.
+        let isFiltering = selectedOnly || !matching.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         LazyVStack(alignment: .leading, spacing: 8) {
-            ForEach(state.visibleRows(rows, availability: availability, matching: matching,
-                                      selectedOnly: selectedOnly, vaultSelected: vaultSelected)) { row in
-                folderRow(row, isBranch: branches.contains(row.id))
+            ForEach(visibleRows ?? state.visibleRows(rows, availability: availability, matching: matching,
+                                                     selectedOnly: selectedOnly, vaultSelected: vaultSelected)) { row in
+                folderRow(row, showsDisclosure: branches.contains(row.id) && !isFiltering, paths: paths)
             }
         }
     }
@@ -43,12 +48,15 @@ struct OfflineFolderTreeView: View {
             : FolderSettingsLocalization.text("Collapsed", locale: locale))
     }
 
-    private func folderRow(_ row: OfflineFolderSettingsRow, isBranch: Bool) -> some View {
+    private func folderRow(_ row: OfflineFolderSettingsRow, showsDisclosure: Bool,
+                           paths: [OfflineFolderSettingsRow.ID: String]) -> some View {
         let inherited = OfflineFolderTreeState.isInheritedOnly(row, vaultSelected: vaultSelected)
         let included = row.isSelected || inherited
         let expanded = !(treeState?.wrappedValue ?? tree).collapsed.contains(row.id)
+        let description = FolderSettingsLocalization.policyDescription(row, pathsByID: paths,
+                                                                        vaultSelected: vaultSelected, locale: locale)
         return HStack(alignment: .top, spacing: 8) {
-            if availability == .supported && isBranch {
+            if availability == .supported && showsDisclosure {
                 disclosureButton(for: row, expanded: expanded)
             } else {
                 Color.clear.frame(width: 12, height: 12).accessibilityHidden(true)
@@ -69,15 +77,15 @@ struct OfflineFolderTreeView: View {
                 .toggleStyle(.checkbox)
                 .disabled(inherited || (row.isSelected ? !canDeselect(row) : !canSelect(row)))
                 .accessibilityLabel(Text(verbatim: row.path))
-                .accessibilityValue(FolderSettingsLocalization.policyDescription(row, rows: rows, vaultSelected: vaultSelected, locale: locale))
+                .accessibilityValue(description)
                 .accessibilityHint(FolderSettingsLocalization.text("Includes subfolders and future items after a complete sync.", locale: locale))
                 .accessibilityAddTraits(included ? .isSelected : [])
-                Text(FolderSettingsLocalization.policyDescription(row, rows: rows, vaultSelected: vaultSelected, locale: locale))
+                Text(description)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
-                    .help(FolderSettingsLocalization.policyDescription(row, rows: rows, vaultSelected: vaultSelected, locale: locale))
+                    .help(description)
             }
             Spacer(minLength: 4)
             VStack(alignment: .trailing, spacing: 2) {

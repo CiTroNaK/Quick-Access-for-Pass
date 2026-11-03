@@ -5651,7 +5651,7 @@
     "Done": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Hotovo"}}}},
     "Keep offline individually": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Ponechat offline samostatně"}}}},
     "Retry": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Zkusit znovu"}}}},
-    "%@ · Last refreshed %@": {"comment":"First placeholder is a localized offline status; second is a formatted timestamp.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"%@ · Poslední aktualizace %@"}}}},
+    "%@ · Last refreshed %@": {"comment":"First placeholder is the localized item type name; second is a formatted timestamp.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"%@ · Poslední aktualizace %@"}}}},
     "Username or email: %@": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Uživatelské jméno nebo e-mail: %@"}}}},
     "Cached": {"localizations":{"cs":{"stringUnit":{"state":"translated","value":"Uloženo"}}}},
     "Offline retry requested for %@.": {"comment":"Placeholder is the unchanged item title.","localizations":{"cs":{"stringUnit":{"state":"translated","value":"Pro položku %@ byl vyžádán nový pokus o uložení offline."}}}},

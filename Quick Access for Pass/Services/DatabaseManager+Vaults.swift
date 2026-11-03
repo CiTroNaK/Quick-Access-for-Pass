@@ -6,7 +6,6 @@ nonisolated struct MetadataSynchronizationResult: Sendable {
     let descriptors: [AutoFillCredentialDescriptor]
     let didDeleteOfflineData: Bool
     let offlineMetadataProofs: [OfflineSnapshotKey: OfflineSyncedMetadataProof]
-    let folderCatalogProofsByVaultID: [String: FolderCatalogAdmissionProof]
 }
 
 // MARK: - Vault Operations
@@ -117,11 +116,13 @@ nonisolated extension DatabaseManager {
     ) async throws -> MetadataSynchronizationResult {
         var folderReplacements: [String: OfflineFolderMetadataReplacement] = [:]
         if let gate = folderFeatureGate {
+            // Pre-write prediction for release ordering, using incoming item IDs. The writer re-evaluates
+            // the same rule against committed IDs (including retained undecodable items); if it then
+            // rejects, this replacement only over-revokes, which is the safe direction.
             let itemIDs = Dictionary(grouping: items, by: \.vaultId).mapValues { Set($0.map(\.id)) }
             for vault in vaults {
-                if case .complete(let catalog) = folderCatalogsByVaultID[vault.id],
-                   catalog.vaultID == vault.id, catalog.shareID == vault.shareId,
-                   Set(catalog.itemMemberships.keys) == itemIDs[vault.id, default: []], gate.isCurrent(catalog.stamp) {
+                if let catalog = Self.acceptedFolderCatalog(folderCatalogsByVaultID[vault.id], for: vault,
+                                                            itemIDs: itemIDs[vault.id, default: []], gate: gate) {
                     folderReplacements[vault.id] = OfflineFolderMetadataReplacement(catalog)
                 }
             }
@@ -129,6 +130,11 @@ nonisolated extension DatabaseManager {
         let scope = OfflineReleaseMutationScope.replaceMetadata(OfflineMetadataReplacement(
             vaultIDs: Set(vaults.map(\.id)), itemsByID: Self.offlineIncomingIdentities(items),
             presenceUncertainties: presenceUncertainties, folderCatalogs: folderReplacements))
+        // Unsupported/unavailable outcomes are reported for every vault on older CLIs; only a
+        // complete catalog starts tracking. Persisted folder state restores the flag on reopen.
+        let recordsFolderEvidence = folderCatalogsByVaultID.values.contains {
+            if case .complete = $0 { true } else { false }
+        }
         return try await writeOfflineMutation(submissionScope: scope) { db in
             // Writer-transaction admission, not a pre-await freshness check.
             // Once admitted, this transaction finishes before any replacement
@@ -138,7 +144,7 @@ nonisolated extension DatabaseManager {
                 vaults: vaults, items: items, descriptors: descriptors,
                 presenceUncertainties: presenceUncertainties, operationID: operation?.id,
                 beforeDescriptorWrite: beforeDescriptorWrite,
-                trackFolders: self.tracksFolderMetadata(recordingEvidence: !folderCatalogsByVaultID.isEmpty),
+                trackFolders: self.tracksFolderMetadata(recordingEvidence: recordsFolderEvidence),
                 folderCatalogsByVaultID: folderCatalogsByVaultID, folderFeatureGate: folderFeatureGate, in: db
             )
             return OfflineMutationUpdate(value: value, manualPromotions: [])
@@ -211,8 +217,7 @@ nonisolated extension DatabaseManager {
             offlineMetadataProofs: try offlineMetadataProofs(
                 items: items, vaults: vaults, descriptors: descriptors, operationID: operationID,
                 folderCatalogProofsByVaultID: folderResult.proofsByVaultID, in: db
-            ),
-            folderCatalogProofsByVaultID: folderResult.proofsByVaultID
+            )
         )
     }
 

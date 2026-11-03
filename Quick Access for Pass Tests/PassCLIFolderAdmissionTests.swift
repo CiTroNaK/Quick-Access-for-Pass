@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Synchronization
 import Testing
 @testable import Quick_Access_for_Pass
 
@@ -23,7 +23,42 @@ struct PassCLIFolderAdmissionTests {
         #expect(service.folderFeatureGate.availability == .checking)
     }
 
-    @Test("explicit preparation reprobes a replacement at the same path")
+    @Test("routine preparation reuses the probe while the executable file is unchanged")
+    func reusesProbeForUnchangedExecutable() async throws {
+        let runner = FolderVersionRunner(versions: ["2.5.1", "2.4.2"])
+        let fingerprint = Mutex(Self.fingerprint(size: 1))
+        let service = PassCLIService(cliPath: "/fake/a", runner: runner,
+                                     executableFingerprint: { _ in fingerprint.withLock { $0 } })
+        let first = try #require(await service.prepareFolderSync())
+        #expect(await service.prepareFolderSync() == first)
+        #expect(service.folderFeatureGate.isCurrent(first))
+        #expect(service.folderFeatureGate.availability == .supported)
+        #expect(await runner.arguments().count == 1)
+        fingerprint.withLock { $0 = Self.fingerprint(size: 2) }
+        #expect(await service.prepareFolderSync() == nil)
+        #expect(!service.folderFeatureGate.isCurrent(first))
+        #expect(service.folderFeatureGate.availability == .requiresUpgrade)
+        #expect(await runner.arguments().count == 2)
+    }
+
+    @Test("a failed version probe is unavailable but not reused as a negative answer")
+    func failedProbeIsInconclusive() async throws {
+        let runner = FolderVersionRunner(versions: ["", "2.5.1"], failingCalls: [0])
+        let fingerprint = Self.fingerprint(size: 1)
+        let service = PassCLIService(cliPath: "/fake/a", runner: runner, executableFingerprint: { _ in fingerprint })
+        #expect(await service.prepareFolderSync() == nil)
+        #expect(service.folderFeatureGate.availability == .unavailable)
+        let stamp = try #require(await service.prepareFolderSync())
+        #expect(service.folderFeatureGate.isCurrent(stamp))
+        #expect(await runner.arguments().count == 2)
+    }
+
+    private static func fingerprint(size: Int) -> PassCLIExecutableFingerprint {
+        PassCLIExecutableFingerprint(resolvedPath: "/fake/a", fileSystemNumber: 1, fileNumber: 1, size: size,
+                                     modificationDate: Date(timeIntervalSince1970: 0))
+    }
+
+    @Test("an uninspectable executable reprobes a replacement at the same path")
     func reprobesSamePath() async throws {
         let runner = FolderVersionRunner(versions: ["2.5.1", "2.4.2"])
         let service = PassCLIService(cliPath: "/fake/a", runner: runner)
@@ -86,32 +121,6 @@ struct PassCLIFolderAdmissionTests {
         #expect(wasSupportedAtAdmission)
     }
 
-    @MainActor
-    @Test("gate confirmations and invalidations publish observable presentation")
-    func availabilityIsObservable() async {
-        let gate = FolderFeatureGate(selection: .custom(path: "/fake/a"))
-        let store = PassCLIStatusStore()
-        store.observeFolderAvailability(from: gate)
-        await withCheckedContinuation { continuation in
-            withObservationTracking {
-                _ = store.folderFeatureAvailability
-            } onChange: {
-                continuation.resume()
-            }
-            gate.confirm(capabilities: .init(rawVersionString: "2.5.1"), for: gate.beginProbe())
-        }
-        #expect(store.folderFeatureAvailability == .supported)
-        await withCheckedContinuation { continuation in
-            withObservationTracking {
-                _ = store.folderFeatureAvailability
-            } onChange: {
-                continuation.resume()
-            }
-            gate.updateSelection(.custom(path: "/fake/b"))
-        }
-        #expect(store.folderFeatureAvailability == .checking)
-    }
-
     @Test("unknown versions do not admit folder work", arguments: ["", "not a version", "2.4.2"])
     func rejectsUnknownVersion(raw: String) async {
         let service = PassCLIService(cliPath: "/fake/a", runner: FolderVersionRunner(versions: [raw]))
@@ -122,17 +131,20 @@ struct PassCLIFolderAdmissionTests {
 private actor FolderVersionRunner: CLIRunning {
     let versions: [String]
     let firstProbeBarrier: IncrementalSyncGate?
+    let failingCalls: Set<Int>
     private var calls: [[String]] = []
 
-    init(versions: [String], firstProbeBarrier: IncrementalSyncGate? = nil) {
+    init(versions: [String], firstProbeBarrier: IncrementalSyncGate? = nil, failingCalls: Set<Int> = []) {
         self.versions = versions
         self.firstProbeBarrier = firstProbeBarrier
+        self.failingCalls = failingCalls
     }
 
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
         let index = calls.count
         calls.append(arguments)
         if index == 0 { await firstProbeBarrier?.wait() }
+        if failingCalls.contains(index) { throw CLIError.timeout }
         if arguments != ["--version"] { return Data("{\"vaults\":[]}".utf8) }
         return Data(versions[min(index, versions.count - 1)].utf8)
     }

@@ -231,4 +231,20 @@ struct OfflineFolderPolicyTests {
         try await fixture.repository.purge()
         #expect(try await fixture.repository.hasPersistedSnapshots() == false)
     }
+
+    @Test("Deselecting one folder requeues members another policy still covers")
+    func deselectionRequeuesSurvivingCoverage() async throws {
+        let fixture = try await OfflineFolderFixture.make()
+        try await fixture.select("parent")
+        try await fixture.select("other")
+        let viewer = OfflineFixtureViewer()
+        let service = try await fixture.service(viewer: viewer)
+        try await service.selectFolder(false, folderID: "parent", vaultID: "vault",
+                                       featureStamp: fixture.gate.supportedStamp())
+        await service.waitUntilIdle()
+        #expect(await viewer.callCount(itemID: "other-item") == 1)
+        #expect(await viewer.callCount(itemID: "item") == 0)
+        #expect(try await fixture.snapshot(itemID: "other-item") != nil)
+        await service.stop()
+    }
 }

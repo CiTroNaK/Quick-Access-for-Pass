@@ -80,7 +80,9 @@ struct OfflineFolderSettingsTests {
         let child = try #require(rows.first { $0.folderID == "child" })
         #expect(OfflineFolderTreeState.isInheritedOnly(child, vaultSelected: false))
         #expect(!coordinator.canDeselectFolder(folderID: "child", vaultID: "vault"))
-        try await coordinator.setFolderSelected(false, folderID: "child", vaultID: "vault")
+        await #expect(throws: OfflineModeCoordinator.Error.operationInProgress) {
+            try await coordinator.setFolderSelected(false, folderID: "child", vaultID: "vault")
+        }
         #expect(try await f.repository.folderSelection(folderID: "parent", vaultID: "vault") != nil)
         f.gate.beginProbe()
         let root = try #require(try f.database.allActiveItems().first { $0.id == "root-item" })
