@@ -521,7 +521,9 @@ extension VaultSettingsLayoutTests {
         let actual = try render(OfflineSettingsTab()
             .environment(\.offlineModeCoordinator, fixture.coordinator)
             .environment(\.locale, Locale(identifier: "en")), size: NSSize(width: 560, height: 440))
-        let reference = NSHostingView(rootView: Text("Manage folders…").font(.body).fixedSize())
+        // Match the same native control: a bordered button title antialiases differently from plain Text,
+        // which falls just under the glyph threshold on 1x CI runners.
+        let reference = NSHostingView(rootView: Button("Manage folders…") {}.fixedSize())
         let expected = try render(reference.rootView, size: reference.fittingSize)
         let referenceRendered = await expected.containsText(from: expected)
         let launcherRendered = await actual.containsText(from: expected)
