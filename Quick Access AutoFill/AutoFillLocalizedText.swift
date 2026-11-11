@@ -22,12 +22,13 @@ enum AutoFillLocalizedText {
     }
 
     static func candidateAccessibilityLabel(_ candidate: AutoFillCandidate, exactMatch: Bool, locale: Locale) -> String {
+        // Match the visible row order.
         var parts = [candidate.title, candidate.username]
-        if candidate.isRecentlyUsed {
-            parts.append(string("Recently used", locale: locale))
-        }
         if exactMatch {
             parts.append(string("Exact site match", locale: locale))
+        }
+        if candidate.isRecentlyUsed {
+            parts.append(string("Recently used", locale: locale))
         }
         return parts.joined(separator: ", ")
     }

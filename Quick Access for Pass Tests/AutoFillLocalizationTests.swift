@@ -54,7 +54,10 @@ struct AutoFillLocalizationTests {
         )
         let czech = Locale(identifier: "cs")
         #expect(AutoFillLocalizedText.candidateAccessibilityLabel(candidate, exactMatch: true, locale: czech)
-            == "Proton, účet — 東京, a+b@example.com, Nedávno použito, Přesná shoda webu")
+            == "Proton, účet — 東京, a+b@example.com, Přesná shoda webu, Nedávno použito")
+        // Spoken order follows the visible row: exact site match, then recently used.
+        #expect(AutoFillLocalizedText.candidateAccessibilityLabel(candidate, exactMatch: true, locale: Locale(identifier: "en"))
+            == "Proton, účet — 東京, a+b@example.com, Exact site match, Recently used")
         #expect(AutoFillLocalizedText.candidateAccessibilityLabel(candidate, exactMatch: false, locale: czech)
             == "Proton, účet — 東京, a+b@example.com, Nedávno použito")
         #expect(AutoFillLocalizedText.selectedAnnouncement(candidate, locale: czech)
