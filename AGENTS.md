@@ -26,7 +26,8 @@ Tests use Swift Testing (`@Suite`, `@Test`), not XCTest.
 ## CI
 
 - `.github/workflows/ci.yml` — runs tests on push to `main` and pull requests targeting `main` (`xcode-27` preview runner)
-- `.github/workflows/release.yml` — triggered by `v*` tag push: build on `xcode-27`, sign, notarize, package (DMG + ZIP), publish GitHub Release, update Homebrew cask
+- `.github/workflows/release.yml` — triggered by `v*` tag push: build on `xcode-27`, sign, notarize, package (DMG + ZIP), create a draft GitHub Release
+- `.github/workflows/homebrew.yml` — triggered when a draft is published as a full release (not a pre-release): hashes the published ZIP asset and dispatches the Homebrew cask update
 - `.github/workflows/codeql.yml` — analyzes Swift and GitHub Actions on `macos-26`; Swift builds pin Xcode 26.6 because CodeQL traced extraction does not support Xcode 27/macOS 27. Keep source compatible with this analysis toolchain.
 
 ## Architecture Overview

@@ -135,7 +135,7 @@ Report missing validation tools as a limitation. A few compiled-string checks do
 3. Review the changed code and documentation.
 4. Open a pull request against `main`.
 
-Use a Conventional Commits title, such as `fix: preserve offline copies after a failed refresh`. Use `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `perf:`, or `security:` to describe the change.
+Use a Conventional Commits title, such as `fix: preserve offline copies after a failed refresh`. Use `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `perf:`, `ci:`, or `security:` to describe the change.
 
 Keep the description short. State what changed, why, and how you checked it. Link long reports instead of pasting logs. Do not describe a focused test pass as a passing full suite. CI must pass before merge.
 
@@ -147,7 +147,9 @@ For the tag-triggered [release workflow](.github/workflows/release.yml), configu
 - `APPLE_PROVISIONING_PROFILE` for the host profile named `Quick Access for Pass - Developer ID`.
 - `APPLE_AUTOFILL_PROVISIONING_PROFILE` for the extension profile named `Quick Access AutoFill - Developer ID`.
 - `APPLE_TEAM_ID`, `APPLE_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` for notarization.
-- `HOMEBREW_TAP_TOKEN` for the Homebrew update.
+- `HOMEBREW_TAP_TOKEN` for the [Homebrew workflow](.github/workflows/homebrew.yml).
+
+A tag push creates a draft GitHub Release with the DMG and ZIP. Edit the notes, then publish the draft. Publishing a full release, not a pre-release, updates the Homebrew cask from the published ZIP.
 
 Encode each provisioning profile without line wrapping:
 

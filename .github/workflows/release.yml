@@ -355,42 +355,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Publishing the edited draft triggers the Homebrew workflow.
+          draft: true
           generate_release_notes: true
           body_path: ${{ runner.temp }}/release-body.md
           files: |
             artifacts/Quick.Access.for.Pass-*
-
-  update-homebrew:
-    name: Update Homebrew Cask
-    if: github.event_name == 'push'
-    needs: release
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download ZIP artifact
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          name: zip
-
-      - name: Compute SHA256 and dispatch
-        env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          SHA="$(
-            sha256sum artifacts/Quick.Access.for.Pass-*.zip |
-              awk '{print $1}'
-          )"
-
-          curl -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $HOMEBREW_TAP_TOKEN" \
-            "https://api.github.com/repos/CiTroNaK/homebrew-tap/dispatches" \
-            -d "{
-              \"event_type\": \"update-cask\",
-              \"client_payload\": {
-                \"version\": \"$VERSION\",
-                \"sha256\": \"$SHA\"
-              }
-            }"

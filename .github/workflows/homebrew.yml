@@ -1,0 +1,49 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    # Fires when a draft is published as a full release, not for pre-releases.
+    types: [released]
+
+permissions:
+  contents: read
+
+jobs:
+  update-homebrew:
+    name: Update Homebrew Cask
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download published ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Quick.Access.for.Pass-*.zip' \
+            --dir artifacts
+
+      - name: Compute SHA256 and dispatch
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}"
+          # Hash the published asset, which is exactly what Homebrew downloads.
+          SHA="$(
+            sha256sum artifacts/Quick.Access.for.Pass-*.zip |
+              awk '{print $1}'
+          )"
+
+          curl --fail-with-body -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $HOMEBREW_TAP_TOKEN" \
+            "https://api.github.com/repos/CiTroNaK/homebrew-tap/dispatches" \
+            -d "{
+              \"event_type\": \"update-cask\",
+              \"client_payload\": {
+                \"version\": \"$VERSION\",
+                \"sha256\": \"$SHA\"
+              }
+            }"
