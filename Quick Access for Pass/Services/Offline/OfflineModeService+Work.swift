@@ -222,8 +222,9 @@ extension OfflineModeService {
 
     /// Revocation invalidates every queued job in the vault, including not-yet-reserved members that
     /// another vault/folder policy still covers. Re-derive them from committed policy.
+    /// New materialization would fail admission while the observation is stale; don't queue it.
     private func resubmitSurvivingCoverage(vaultID: String) async {
-        guard submissionsAllowed else { return }
+        guard selectionAdmissionOpen else { return }
         try? await submitCurrent(vaultID: vaultID, includeNew: true, refreshExisting: false)
     }
 
