@@ -22,3 +22,15 @@ nonisolated struct FolderCapabilityProbe: Sendable, Equatable {
     /// Executable identity observed before the probe; nil when it could not be inspected.
     var fingerprint: PassCLIExecutableFingerprint? = nil
 }
+
+/// One sync's capability discovery. An inconclusive probe result is reused only within that sync,
+/// so it never becomes a cached negative version but also never triggers a second probe.
+nonisolated struct PassCLISyncPreparation: Sendable, Equatable {
+    var folderFeatureStamp: FolderFeatureStamp?
+    var probedSelection: PassCLISelection?
+    var probedCapabilities: PassCLICapabilities?
+
+    func capabilities(for selection: PassCLISelection) -> PassCLICapabilities? {
+        probedSelection == selection ? probedCapabilities : nil
+    }
+}

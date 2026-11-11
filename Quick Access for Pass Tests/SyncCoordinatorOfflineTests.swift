@@ -41,6 +41,17 @@ struct SyncCoordinatorOfflineTests {
         #expect(viewed == ["a-note", "b-login", "c-login"])
     }
 
+    @Test("an inconclusive version probe runs once per sync")
+    func inconclusiveVersionProbeRunsOncePerSync() async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"])
+        await harness.runner.setVersionFailure(.timeout)
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        let versionRequests = await harness.runner.versionRequestCount()
+        #expect(versionRequests == 1, "version probes: \(versionRequests)")
+        #expect(harness.viewModel.syncError == nil)
+    }
+
     @Test("disagreeing list content is never reused for an unlisted release")
     func unverifiedReleaseDisagreementFallsBack() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor", "third"], cliVersion: "2.8.0")
@@ -745,6 +756,8 @@ private actor OfflineLifecycleRunner: CLIRunning {
     private var nonCancellableViewGate: OfflineNonCancellableGate?
     private var viewPassword = "fake-password"
     private let noteItemIDs: Set<String>
+    private var versionFailure: CLIError?
+    private var versionRequests = 0
     init(itemIDs: [String], failingItemIDs: Set<String>, cliVersion: String, noteItemIDs: Set<String> = []) {
         self.itemIDs = itemIDs
         self.failingItemIDs = failingItemIDs
@@ -752,7 +765,11 @@ private actor OfflineLifecycleRunner: CLIRunning {
         self.noteItemIDs = noteItemIDs
     }
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
-        if arguments == ["--version"] { return Data("pass-cli \(cliVersion)".utf8) }
+        if arguments == ["--version"] {
+            versionRequests += 1
+            if let versionFailure { throw versionFailure }
+            return Data("pass-cli \(cliVersion)".utf8)
+        }
         if arguments == ["vault", "list", "--output", "json"] {
             if let gate = nextSyncGate {
                 nextSyncGate = nil
@@ -783,7 +800,9 @@ private actor OfflineLifecycleRunner: CLIRunning {
         }
         throw CLIError.commandFailed("unexpected command")
     }
-    func beginRefresh() { isRefreshing = true; requests.removeAll() }
+    func beginRefresh() { isRefreshing = true; requests.removeAll(); versionRequests = 0 }
+    func setVersionFailure(_ error: CLIError?) { versionFailure = error }
+    func versionRequestCount() -> Int { versionRequests }
     func setFailingItemIDs(_ itemIDs: Set<String>) { failingItemIDs = itemIDs }
     func setSyncFailure(_ error: CLIError?) { syncFailure = error }
     func holdNextSync(_ gate: OfflineTestGate) { nextSyncGate = gate }

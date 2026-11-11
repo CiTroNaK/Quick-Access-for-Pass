@@ -95,10 +95,11 @@ actor PassCLIService {
     }
 
     private func listItemsForSync(
-        vault: CLIVault, selection: PassCLISelection, progress: SyncProgressHandler?
+        vault: CLIVault, selection: PassCLISelection, preparedCapabilities: PassCLICapabilities? = nil,
+        progress: SyncProgressHandler?
     ) async throws -> CLIItemListParseResult {
         await progress?(.vaultStarted(vaultName: vault.name))
-        let capabilities = await capabilities(for: selection)
+        let capabilities = if let preparedCapabilities { preparedCapabilities } else { await capabilities(for: selection) }
         var arguments = ["item", "list", "--share-id=\(vault.shareId)", "--filter-state=active", "--output", "json"]
         if capabilities.supportsShowSecrets {
             arguments.append("--show-secrets")
@@ -173,20 +174,26 @@ actor PassCLIService {
     /// Reprobes when the selection changed or its executable file changed in place (or cannot be
     /// inspected); otherwise keeps the confirmed probe so committed folder evidence stays current.
     func prepareFolderSync() async -> FolderFeatureStamp? {
-        guard !Task.isCancelled else { return nil }
+        await prepareSync().folderFeatureStamp
+    }
+
+    func prepareSync() async -> PassCLISyncPreparation {
+        guard !Task.isCancelled else { return PassCLISyncPreparation() }
         let snapshot = folderFeatureGate.selectionSnapshot()
         let fingerprint = executableFingerprint(snapshot.selection.path)
         if case .reuse(let stamp) = folderFeatureGate.probeReuse(selectionGeneration: snapshot.generation,
                                                                   fingerprint: fingerprint) {
-            return stamp
+            return PassCLISyncPreparation(folderFeatureStamp: stamp)
         }
         let probe = folderFeatureGate.beginProbe(fingerprint: fingerprint)
-        _ = await probeCapabilities(probe)
+        let capabilities = await probeCapabilities(probe)
+        var preparation = PassCLISyncPreparation(probedSelection: probe.selection, probedCapabilities: capabilities)
         guard !Task.isCancelled,
               let stamp = folderFeatureGate.supportedStamp(),
               stamp.selectionGeneration == probe.selectionGeneration,
-              stamp.probeRevision == probe.revision else { return nil }
-        return stamp
+              stamp.probeRevision == probe.revision else { return preparation }
+        preparation.folderFeatureStamp = stamp
+        return preparation
     }
 
     private func capabilities(for selection: PassCLISelection) async -> PassCLICapabilities {
@@ -322,9 +329,11 @@ actor PassCLIService {
 extension PassCLIService {
     func fetchAllItems(
         folderFeatureStamp: FolderFeatureStamp? = nil,
+        preparation: PassCLISyncPreparation? = nil,
         progress: SyncProgressHandler? = nil
     ) async throws -> CLISyncFetchResult {
         let selection = cliSelection
+        let preparedCapabilities = preparation?.capabilities(for: selection)
         let vaultData = try await runner.run(
             executablePath: selection.path, arguments: ["vault", "list", "--output", "json"], timeout: timeoutSeconds
         )
@@ -335,7 +344,8 @@ extension PassCLIService {
             for vault in vaults {
                 group.addTask {
                     do {
-                        let result = try await self.listItemsForSync(vault: vault, selection: selection, progress: progress)
+                        let result = try await self.listItemsForSync(vault: vault, selection: selection,
+                                                                     preparedCapabilities: preparedCapabilities, progress: progress)
                         return (vaultID: vault.vaultId, result: result)
                     } catch let error as CLIError where error.isSensitiveContentRestriction {
                         // One policy-restricted vault must not fail every other vault's sync.

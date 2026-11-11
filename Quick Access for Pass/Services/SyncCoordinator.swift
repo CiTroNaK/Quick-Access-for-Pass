@@ -72,23 +72,24 @@ final class SyncCoordinator {
     private func performSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel) async {
         // Metadata-only capability discovery must finish before optional pre-fetch admission.
         // A failed/unknown version still permits ordinary metadata synchronization.
-        let folderFeatureStamp = await cliService.prepareFolderSync()
+        let preparation = await cliService.prepareSync()
         guard operation.isCurrent, !Task.isCancelled else { return }
         let capture = await offlineModeService?.captureForSync(operation: operation)
         if operation.isCurrent, !Task.isCancelled {
             await performCapturedSync(operation: operation, viewModel: viewModel, capture: capture,
-                                      folderFeatureStamp: folderFeatureStamp)
+                                      preparation: preparation)
         }
         // Explicitly joined on every return/error path, including cancelled native work.
         if let capture { await offlineModeService?.finishSyncCapture(capture) }
     }
 
     private func performCapturedSync(operation: SyncOperationToken, viewModel: QuickAccessViewModel,
-                                     capture: OfflineSyncCapture?, folderFeatureStamp: FolderFeatureStamp?) async {
+                                     capture: OfflineSyncCapture?, preparation: PassCLISyncPreparation) async {
         var skippedItemsForDiagnostics: [SkippedSyncItem] = []
         var skippedDiagnosticFileURL: URL?
         do {
-            let fetchResult = try await cliService.fetchAllItems(folderFeatureStamp: folderFeatureStamp) { progress in
+            let fetchResult = try await cliService.fetchAllItems(folderFeatureStamp: preparation.folderFeatureStamp,
+                                                                 preparation: preparation) { progress in
                 await MainActor.run {
                     guard operation.isCurrent else { return }
                     viewModel.syncProgress = progress
