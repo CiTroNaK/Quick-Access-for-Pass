@@ -20,8 +20,9 @@ nonisolated enum FolderCLIContractFixture {
         })
     }
 
-    static func itemData(folderValue: Any? = nil, includeState: Bool = true) throws -> Data {
-        var item: [String: Any] = ["id": "item", "share_id": "share", "vault_id": "vault",
+    static func itemData(folderValue: Any? = nil, includeState: Bool = true,
+                         shareID: String = "share", vaultID: String = "vault") throws -> Data {
+        var item: [String: Any] = ["id": "item", "share_id": shareID, "vault_id": vaultID,
             "content": ["title": "Synthetic note", "content": ["Note": NSNull()]]]
         if includeState { item["state"] = "Active" }
         if let folderValue { item["folder_id"] = folderValue }

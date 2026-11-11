@@ -9,6 +9,9 @@ actor PassCLIService {
     private let timeoutSeconds: Double = 300
     private static let secretOutputLimit = (4 * 1024 * 1024) + (4 * 1024)
     private static let versionProbeTimeoutSeconds: Double = 30
+    /// Folder lists are metadata only and must not hold sync for the 300-second content budget.
+    private static let folderListTimeoutSeconds: Double = 60
+    private static let maximumConcurrentFolderLists = 4
     private let runner: any CLIRunning
     private let executableFingerprint: @Sendable (String) -> PassCLIExecutableFingerprint?
     private var capabilitiesTask: (probe: FolderCapabilityProbe, task: Task<CapabilityProbeResult, Never>)?
@@ -370,14 +373,25 @@ extension PassCLIService {
             return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties,
                     provenance: provenance, memberships: memberships, restrictedVaultIDs: restrictedVaultIDs)
         }
-        // Separate metadata-only commands are sequential, adding no unbounded vault fan-out.
+        // Separate metadata-only commands run a few vaults at a time, never an unbounded fan-out.
         var folderCatalogs: [String: FolderCatalogFetchOutcome] = [:]
-        for vault in vaults {
-            try Task.checkCancellation()
-            folderCatalogs[vault.vaultId] = await fetchFolderCatalog(
-                vault: vault, memberships: syncResult.memberships[vault.vaultId],
-                selection: selection, stamp: folderFeatureStamp
-            )
+        try await withThrowingTaskGroup(of: (vaultID: String, outcome: FolderCatalogFetchOutcome).self) { group in
+            var pending = vaults[...]
+            func addNext() {
+                guard let vault = pending.popFirst() else { return }
+                let memberships = syncResult.memberships[vault.vaultId]
+                group.addTask {
+                    try Task.checkCancellation()
+                    let outcome = await self.fetchFolderCatalog(vault: vault, memberships: memberships,
+                                                                selection: selection, stamp: folderFeatureStamp)
+                    return (vaultID: vault.vaultId, outcome: outcome)
+                }
+            }
+            for _ in 0..<Self.maximumConcurrentFolderLists { addNext() }
+            for try await result in group {
+                folderCatalogs[result.vaultID] = result.outcome
+                addNext()
+            }
         }
         try Task.checkCancellation()
         return CLISyncFetchResult(
@@ -396,7 +410,7 @@ extension PassCLIService {
         return try await runner.run(
             executablePath: selection.path,
             arguments: ["folder", "list", "--share-id=\(shareID)", "--output", "json"],
-            timeout: timeoutSeconds, maximumOutputBytes: FolderCatalogLimits.maximumOutputBytes
+            timeout: Self.folderListTimeoutSeconds, maximumOutputBytes: FolderCatalogLimits.maximumOutputBytes
         )
     }
 }
