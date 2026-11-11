@@ -29,6 +29,18 @@ struct SyncCoordinatorOfflineTests {
         }
     }
 
+    @Test("agreement on one item type never vouches for another type's list content")
+    func unverifiedAgreementIsPerItemType() async throws {
+        // The note sorts first and agrees; logins carry a password that differs between list and view.
+        let harness = try await makeHarness(selectedItemIDs: ["a-note", "b-login", "c-login"], cliVersion: "2.8.0",
+                                            noteItemIDs: ["a-note"])
+        await harness.runner.setViewPassword("authoritative-password")
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        let viewed = Set(await harness.runner.viewRequests().compactMap { $0.split(separator: "/").last.map(String.init) })
+        #expect(viewed == ["a-note", "b-login", "c-login"])
+    }
+
     @Test("disagreeing list content is never reused for an unlisted release")
     func unverifiedReleaseDisagreementFallsBack() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item", "neighbor", "third"], cliVersion: "2.8.0")
@@ -513,18 +525,26 @@ extension SyncCoordinatorOfflineTests {
         failingItemIDs: Set<String> = [],
         publicationGate: OfflineTestGate? = nil,
         maintenance: OfflineStorageMaintenance? = nil,
-        cliVersion: String = "2.4.2"
+        cliVersion: String = "2.4.2",
+        noteItemIDs: Set<String> = []
     ) async throws -> OfflineLifecycleHarness {
         let database = try DatabaseManager(inMemory: true, passphrase: Data("test".utf8))
         let itemIDs = Array(Set(selectedItemIDs).union(failingItemIDs)).sorted()
-        let items = itemIDs.map { offlineTestMetadata(id: $0, vaultID: "vault") }
+        let items = itemIDs.map { id in
+            let login = offlineTestMetadata(id: id, vaultID: "vault")
+            guard noteItemIDs.contains(id) else { return login }
+            return PassItem(id: id, vaultId: "vault", title: login.title, itemType: .note, subtitle: "", url: nil,
+                            hasTOTP: false, state: login.state, createTime: login.createTime, modifyTime: login.modifyTime,
+                            useCount: 0, lastUsedAt: nil)
+        }
         try database.upsertVaults([PassVault(id: "vault", name: "Vault", shareId: "share")])
         try database.upsertItems(items)
         let publicationControl = OfflinePublicationControl(gate: publicationGate)
         let repository = OfflineSnapshotRepository(database: database, beforePublication: {
             await publicationControl.waitIfEnabled()
         }, maintenance: maintenance)
-        let runner = OfflineLifecycleRunner(itemIDs: itemIDs, failingItemIDs: failingItemIDs, cliVersion: cliVersion)
+        let runner = OfflineLifecycleRunner(itemIDs: itemIDs, failingItemIDs: failingItemIDs, cliVersion: cliVersion,
+                                            noteItemIDs: noteItemIDs)
         let cliService = PassCLIService(cliPath: "/usr/bin/pass", runner: runner)
         let codec = IncrementalSyncCodec(base: OfflineSnapshotCodec(keyMaterialProvider: OfflineFixtureKeys(), hasPersistedSnapshots: { try await repository.hasPersistedSnapshots() }))
         let service = OfflineModeService(repository: repository, codec: codec, cliService: cliService)
@@ -724,10 +744,12 @@ private actor OfflineLifecycleRunner: CLIRunning {
     private var viewGate: OfflineTestGate?
     private var nonCancellableViewGate: OfflineNonCancellableGate?
     private var viewPassword = "fake-password"
-    init(itemIDs: [String], failingItemIDs: Set<String>, cliVersion: String) {
+    private let noteItemIDs: Set<String>
+    init(itemIDs: [String], failingItemIDs: Set<String>, cliVersion: String, noteItemIDs: Set<String> = []) {
         self.itemIDs = itemIDs
         self.failingItemIDs = failingItemIDs
         self.cliVersion = cliVersion
+        self.noteItemIDs = noteItemIDs
     }
     func run(executablePath: String, arguments: [String], timeout: TimeInterval) async throws -> Data {
         if arguments == ["--version"] { return Data("pass-cli \(cliVersion)".utf8) }
@@ -774,10 +796,16 @@ private actor OfflineLifecycleRunner: CLIRunning {
     func setIncludesVault(_ value: Bool) { includesVault = value }
     func viewRequests() -> [String] { requests }
     func setViewPassword(_ password: String) { viewPassword = password }
-    private nonisolated func itemJSON(_ id: String, password: String = "fake-password") -> String {
+    private func itemJSON(_ id: String, password: String = "fake-password") -> String {
         guard let item = try? incrementalSyncCLIItem(id: id, password: password, title: id),
               let data = try? JSONEncoder().encode(item) else { return "{}" }
-        return String(decoding: data, as: UTF8.self)
+        guard noteItemIDs.contains(id),
+              var raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var content = raw["content"] as? [String: Any] else { return String(decoding: data, as: UTF8.self) }
+        content["content"] = ["Note": NSNull()]
+        raw["content"] = content
+        guard let note = try? JSONSerialization.data(withJSONObject: raw) else { return "{}" }
+        return String(decoding: note, as: UTF8.self)
     }
 }
 

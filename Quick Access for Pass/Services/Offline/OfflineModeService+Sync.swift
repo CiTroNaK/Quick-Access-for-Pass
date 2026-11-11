@@ -57,8 +57,9 @@ extension OfflineModeService {
         }
     }
 
-    /// `agreement` is per-vault evidence for unverified releases, scoped to this one sync frame:
-    /// the first needed item is read with `item view` and compared with its list body.
+    /// `agreement` is per-vault, per-item-type evidence for unverified releases, scoped to this one sync frame:
+    /// the first needed item of each type is read with `item view` and compared with its list body.
+    /// A type never vouches for another, since list bodies carry different secret fields per type.
     private func prepareSyncPublication(
         _ work: OfflineSyncWork, result: CLISyncFetchResult, index: OfflineSyncResultIndex,
         capture: OfflineSyncCapture, allowMembershipExpansion: Bool, agreement: inout [String: Bool]
@@ -67,8 +68,9 @@ extension OfflineModeService {
         let source: OfflineSyncContentSource
         let provenance = result.contentProvenanceByVaultID[work.key.vaultId] ?? .unavailable
         let listed = index.itemIndices[work.key].map { result.items[$0].item }
+        let agreementKey = "\(work.key.vaultId)|\(work.itemType.rawValue)"
         let reusesList = provenance == .completeJSONV1
-            || (provenance == .unverifiedCompleteJSON && agreement[work.key.vaultId] == true)
+            || (provenance == .unverifiedCompleteJSON && agreement[agreementKey] == true)
         if reusesList, let listed {
             item = listed
             source = .syncList
@@ -82,11 +84,11 @@ extension OfflineModeService {
                   try syncContextIsActive(capture) else { return nil }
             item = try await cliService.viewItem(itemId: work.key.itemId, shareId: work.shareID)
             source = .liveFallback
-            if provenance == .unverifiedCompleteJSON, agreement[work.key.vaultId] == nil, let listed {
+            if provenance == .unverifiedCompleteJSON, agreement[agreementKey] == nil, let listed {
                 let agrees = Self.sameContent(listed, item)
-                agreement[work.key.vaultId] = agrees
+                agreement[agreementKey] = agrees
                 if !agrees {
-                    AppLogger.sync.notice("unverified CLI list content disagreed with item view; using item view for this vault")
+                    AppLogger.sync.notice("unverified CLI list content disagreed with item view; using item view for this vault and item type")
                 }
             }
         }

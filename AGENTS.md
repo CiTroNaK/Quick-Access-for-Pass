@@ -223,8 +223,9 @@ Incremental ordinary sync obtains optional metadata-only capture authority befor
 fetching full list content; absent/not-ready admission must not fail metadata sync
 or be acquired retroactively. Invocation-bound exact 2.1.4, 2.2.3, 2.3.3, 2.4.2,
 2.5.1 or 2.7.0 complete JSON is verified for bulk reuse. Other 2.5.0+ releases are
-unverified: reuse needs per-vault, per-sync agreement between the first needed
-copy's `item view` and its list body, never a version comparison alone, and
+unverified: reuse needs per-vault, per-item-type, per-sync agreement between the
+first needed copy's `item view` and its list body (one type never vouches for
+another), never a version comparison alone, and
 `blockedContentReuseVersions` excludes known-bad releases. Pre-2.5 unlisted,
 disagreeing, incomplete or ambiguous content uses sequential needed-copy item reads. See docs/pass-cli.md for
 published-release evidence and source-to-binary attestation limits. A vault whose
