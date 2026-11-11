@@ -28,10 +28,12 @@ nonisolated enum CLIError: Error, LocalizedError {
     }
 
     /// Matches the CLI 2.7.0 policy refusal for `item list --show-secrets` and `item view`.
+    /// The full fixed message is required: other policy refusals must stay sync errors, not isolate a vault.
     var isSensitiveContentRestriction: Bool {
         switch self {
         case .sensitiveContentRestricted: true
-        case .commandFailed(let message): message.localizedCaseInsensitiveContains("not allowed by policy")
+        case .commandFailed(let message):
+            message.localizedCaseInsensitiveContains("Viewing the contents of this item is not allowed by policy")
         default: false
         }
     }

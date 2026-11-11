@@ -175,10 +175,14 @@ struct CLISyncContentProvenanceTests {
         #expect(uncertainty.hasUnidentifiedSkippedItems)
     }
 
-    @Test("other list failures still fail the whole sync")
-    func unrelatedListFailureStillThrows() async {
+    @Test("other list failures still fail the whole sync", arguments: [
+        "Error: network unreachable",
+        // Only the exact vault-content refusal isolates a vault; other policy refusals stay sync errors.
+        "Error: Export is not allowed by policy",
+    ])
+    func unrelatedListFailureStillThrows(message: String) async {
         let runner = ProvenanceListRunner(version: "2.7.0", lists: ["share": Data(Self.completeNote.utf8)],
-            failures: ["second-share": "Error: network unreachable"])
+            failures: ["second-share": message])
         await #expect(throws: CLIError.self) {
             _ = try await PassCLIService(cliPath: "/synthetic/pass-cli", runner: runner).fetchAllItems()
         }
