@@ -90,4 +90,19 @@ struct FolderLocalizationTests {
         .init(vaultID: "vault", folderID: id, folderName: names.last ?? "", location: .init(folderID: id, ancestorNames: names),
               isSelected: selected, coveringAncestorID: ancestor, selectedCount: 0, usableCount: 0, lastRefreshedAt: nil)
     }
+
+    @Test func offlineItemStatusLabelsUseTheViewLocaleLanguage() {
+        func label(_ status: OfflineCacheStatus, usable: Bool, _ language: String) -> String {
+            let row = OfflineItemSettingsRow(
+                itemId: "item", vaultId: "vault", title: "Offline example", itemType: .login,
+                status: status, lastRefreshedAt: nil, hasUsableSnapshot: usable,
+                item: offlineTestMetadata(id: "item", vaultID: "vault"))
+            return OfflineItemsManagerView.statusLabel(for: row, locale: Locale(identifier: language))
+        }
+        #expect(label(.cached, usable: true, "en") == "Cached")
+        #expect(label(.cached, usable: true, "cs") == "Uloženo")
+        #expect(label(.failed, usable: true, "cs") == "Neaktuální")
+        #expect(label(.notCached, usable: false, "cs") == "Nedostupné")
+    }
+
 }

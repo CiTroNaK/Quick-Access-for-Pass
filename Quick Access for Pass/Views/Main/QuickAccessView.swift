@@ -282,7 +282,7 @@ struct QuickAccessView: View {
         }
         .onChange(of: viewModel.isActionLoading) { oldValue, newValue in
             if !oldValue && newValue {
-                AccessibilityNotification.Announcement(String(localized: "Fetching…", locale: locale)).post()
+                AccessibilityNotification.Announcement(FolderSettingsLocalization.text("Fetching…", locale: locale)).post()
             }
         }
     }

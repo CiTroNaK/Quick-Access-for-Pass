@@ -269,7 +269,7 @@ struct OfflineSettingsTab: View {
 private extension OfflineSettingsTab {
     func vaultStatus(for vault: OfflineVaultSettingsRow) -> String {
         guard let lastRefreshedAt = vault.lastRefreshedAt else {
-            return String(localized: "\(vault.selectedCount) selected, \(vault.usableCount) usable", locale: locale)
+            return FolderSettingsLocalization.counts(selected: vault.selectedCount, usable: vault.usableCount, locale: locale)
         }
         let timestamp = lastRefreshedAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale))
         var status = LocalizedStringResource.offlineVaultLastRefreshedStatus(vault.selectedCount, vault.usableCount, timestamp)

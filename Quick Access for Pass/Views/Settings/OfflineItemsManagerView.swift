@@ -222,10 +222,14 @@ struct OfflineItemsManagerView: View {
     }
 
     private func statusLabel(for item: OfflineItemSettingsRow) -> String {
+        Self.statusLabel(for: item, locale: locale)
+    }
+
+    static func statusLabel(for item: OfflineItemSettingsRow, locale: Locale) -> String {
         switch item.status {
-        case .cached where item.hasUsableSnapshot: String(localized: "Cached", locale: locale)
-        case .failed where item.hasUsableSnapshot: String(localized: "Stale", locale: locale)
-        case .cached, .failed, .notCached, .unavailable: String(localized: "Unavailable", locale: locale)
+        case .cached where item.hasUsableSnapshot: FolderSettingsLocalization.text("Cached", locale: locale)
+        case .failed where item.hasUsableSnapshot: FolderSettingsLocalization.text("Stale", locale: locale)
+        case .cached, .failed, .notCached, .unavailable: FolderSettingsLocalization.text("Unavailable", locale: locale)
         }
     }
 
