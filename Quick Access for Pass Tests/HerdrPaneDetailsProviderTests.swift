@@ -16,9 +16,11 @@ nonisolated private enum HerdrFixture {
               routingHint: hint ? .init(socketPath: "/fixture/requester.sock", paneID: pane,
                                        originatingPID: 20, originatingStartTimeMicroseconds: 100) : nil)
     }
-    static func snapshot(count: Int = 2, moved: Bool = false, missingLabels: Bool = false) -> Data {
+    static func snapshot(count: Int = 2, moved: Bool = false, missingLabels: Bool = false, restoreFailed: Set<Int> = []) -> Data {
         let panes: [[String: Any]] = (1...max(1, count)).map { index in
             var pane: [String: Any] = ["pane_id": "p\(index)", "tab_id": moved ? "t2" : "t1", "workspace_id": "w1", "focused": index == 2]
+            // Herdr keeps panes whose saved directory vanished; they have no process and process-info reports pane_not_found.
+            if restoreFailed.contains(index) { pane["restore_error"] = "Saved directory is unavailable." }
             if missingLabels == false {
                 pane["terminal_title_stripped"] = "\u{1b}[31mBuild\u{1b}[0m\n\u{7}"
                 pane["foreground_cwd"] = "/fixture/home/project"
@@ -110,6 +112,8 @@ private actor HerdrFixtureRunner {
             if scenario == "over-limit" { return HerdrFixture.snapshot(count: 33) }
             if scenario == "at-limit" { return HerdrFixture.snapshot(count: 32) }
             if scenario == "concurrency" || scenario == "cancel" || scenario == "failed-scan" { return HerdrFixture.snapshot(count: 8) }
+            if scenario == "restore-failed" { return HerdrFixture.snapshot(count: 3, restoreFailed: [3]) }
+            if scenario == "restore-recovered" { return HerdrFixture.snapshot(count: 3, restoreFailed: snapshots == 1 ? [3] : []) }
             if scenario == "moved" && snapshots == 2 { return HerdrFixture.snapshot(moved: true) }
             if scenario == "closed" && snapshots == 2 { return HerdrFixture.snapshot(count: 0) }
             if scenario.hasPrefix("final-") && snapshots == 2 { return try HerdrFixture.finalSnapshot(scenario) }
@@ -130,6 +134,7 @@ private actor HerdrFixtureRunner {
         let id = try #require(args.last)
         if scenario == "mismatch" { return HerdrFixture.process("not-in-snapshot") }
         if scenario == "closed-process" && id == "p1" { throw CLIError.commandFailed("synthetic closed pane") }
+        if scenario.hasPrefix("restore-") && id == "p3" { throw CLIError.commandFailed("synthetic pane_not_found") }
         if scenario == "ambiguous" || (scenario == "final-added-second-match" && id == "p3") { return HerdrFixture.process(id) }
         if scenario == "wrong-session" { return HerdrFixture.process(id, pid: "90") }
         if scenario == "host-pid" { return HerdrFixture.process(id, pid: "30") }
@@ -187,6 +192,19 @@ struct HerdrPaneDetailsProviderTests {
                       "1.5", "malformed", "unsupported", "overflow", "timeout", "late-return", "over-limit", "moved", "closed"])
     func unsafeOrIncompleteResultsFallBack(_ scenario: String) async {
         let runner = HerdrFixtureRunner(scenario)
+        #expect(await provider(runner).details(for: HerdrFixture.match()) == nil)
+    }
+
+    @Test func restoreFailedPanesWithoutProcessesAreNotOwnershipCandidates() async throws {
+        let runner = HerdrFixtureRunner("restore-failed")
+        let details = try #require(await provider(runner).details(for: HerdrFixture.match()))
+        #expect(details.paneTitle == "Build")
+        let inspected = await runner.calls.filter { $0.args.first == "pane" }.compactMap { $0.args.last }
+        #expect(Set(inspected) == Set(["p1", "p2"]))
+    }
+
+    @Test func paneRecoveringFromRestoreFailureInvalidatesCompletedScan() async {
+        let runner = HerdrFixtureRunner("restore-recovered")
         #expect(await provider(runner).details(for: HerdrFixture.match()) == nil)
     }
 
@@ -439,7 +457,7 @@ struct HerdrPaneDetailsProviderTests {
         #expect(try HerdrMetadataDecoder.shellPID(HerdrFixture.process("p1", pid: "null"), requestedPaneID: "p1") == nil)
         let snapshot = try HerdrMetadataDecoder.snapshot(HerdrFixture.snapshot())
         let pane = HerdrMetadataDecoder.Pane(paneID: "p1", workspaceID: "w1", tabID: "t1", terminalTitleStripped: nil,
-                                             foregroundCWD: nil, cwd: "/fixture/home")
+                                             foregroundCWD: nil, cwd: "/fixture/home", restoreError: nil)
         #expect(snapshot.details(for: pane, homeDirectory: "/fixture/home").workingDirectory == "~")
     }
 

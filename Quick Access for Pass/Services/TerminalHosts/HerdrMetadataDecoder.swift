@@ -18,6 +18,10 @@ nonisolated enum HerdrMetadataDecoder {
         let terminalTitleStripped: String?
         let foregroundCWD: String?
         let cwd: String?
+        let restoreError: String?
+
+        /// Herdr retains panes whose saved session could not be restored; they have no process to own a requester.
+        var isRestoreFailure: Bool { restoreError != nil }
 
         func hasSameAssociation(as other: Pane) -> Bool {
             paneID == other.paneID && workspaceID == other.workspaceID && tabID == other.tabID
@@ -171,6 +175,7 @@ nonisolated extension HerdrMetadataDecoder.Pane {
     enum CodingKeys: String, CodingKey {
         case paneID = "pane_id", workspaceID = "workspace_id", tabID = "tab_id"
         case terminalTitleStripped = "terminal_title_stripped", foregroundCWD = "foreground_cwd", cwd
+        case restoreError = "restore_error"
     }
 }
 

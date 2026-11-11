@@ -31,11 +31,13 @@ nonisolated struct LiveHerdrPaneDetailsProvider: HerdrPaneDetailsProviding {
         let paneID: String
         let workspaceID: String
         let tabID: String
+        let isRestoreFailure: Bool
 
         init(_ pane: HerdrMetadataDecoder.Pane) {
             paneID = pane.paneID
             workspaceID = pane.workspaceID
             tabID = pane.tabID
+            isRestoreFailure = pane.isRestoreFailure
         }
     }
 
@@ -69,7 +71,9 @@ nonisolated struct LiveHerdrPaneDetailsProvider: HerdrPaneDetailsProviding {
         let environment = routingEnvironment(socketPath: hint.socketPath)
         do {
             let snapshot = try HerdrMetadataDecoder.snapshot(await command(["api", "snapshot"], match, environment, deadline))
-            var candidates = snapshot.panes
+            // Restore-failed panes have no process (process-info reports pane_not_found), so they cannot own
+            // the requester; inspecting them would fail every scan while they remain in the session.
+            var candidates = snapshot.panes.filter { !$0.isRestoreFailure }
             let eligiblePIDs = Set(match.requesterSideNodes.map(\.pid))
             var matches: [HerdrMetadataDecoder.Pane] = []
             if let index = candidates.firstIndex(where: { $0.paneID == hint.paneID }) {
