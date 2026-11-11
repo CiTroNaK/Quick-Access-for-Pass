@@ -9,7 +9,8 @@ struct PassCLIFeatureSupportTests {
     @Test(arguments: [
         ("2.1.4", [PassCLIFeatureStatus.unsupported(minimumVersion: v250), .supported]),
         ("2.4.2", [.unsupported(minimumVersion: v250), .supported]),
-        ("2.4.0", [.unsupported(minimumVersion: v250), .unsupported(minimumVersion: v250)]),
+        // Untested older releases can reach fast offline sync through a tested release, not only 2.5.0+.
+        ("2.4.0", [.unsupported(minimumVersion: v250), .unverifiedRelease(minimumVersion: v250)]),
         ("2.5.0", [.untested, .untested]),
         ("2.5.1", [.supported, .supported]),
         ("2.7.0", [.supported, .supported, .supported]),
@@ -32,10 +33,7 @@ struct PassCLIFeatureSupportTests {
         for raw in ["2.0.3", "2.2.2", "2.4.2", "2.5.0", "2.5.1", "2.6.0", "2.7.0", "3.0.0"] {
             let capabilities = PassCLICapabilities(rawVersionString: raw)
             let status = Dictionary(uniqueKeysWithValues: capabilities.featureSupport.map { ($0.feature, $0.status) })
-            let available: (PassCLIFeature) -> Bool = {
-                if case .unsupported = status[$0] { return false }
-                return status[$0] != nil
-            }
+            let available: (PassCLIFeature) -> Bool = { status[$0]?.isAvailable ?? false }
             #expect(available(.folders) == capabilities.supportsFolders)
             #expect(available(.fastOfflineSync) == capabilities.snapshotContentProvenance.isCompleteJSON)
         }
@@ -56,5 +54,10 @@ struct PassCLIFeatureSupportTests {
         #expect(PassCLIFeatureSupportView.detail(for: .unsupported(minimumVersion: nil), locale: locale)
             == (czech ? "Pro tuto verzi vypnuto" : "Disabled for this version"))
         #expect(PassCLIFeatureSupportView.detail(for: .untested, locale: locale) == nil)
+        #expect(PassCLIFeatureSupportView.statusText(for: .unverifiedRelease(minimumVersion: Self.v250), locale: locale)
+            == (czech ? "Nepodporováno" : "Unsupported"))
+        #expect(PassCLIFeatureSupportView.detail(for: .unverifiedRelease(minimumVersion: Self.v250), locale: locale)
+            == (czech ? "Tato verze není ověřena · Použijte ověřené vydání nebo 2.5.0+"
+                      : "Not verified for this version · Use a tested release or 2.5.0+"))
     }
 }

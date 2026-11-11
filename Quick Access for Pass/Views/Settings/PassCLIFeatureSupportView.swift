@@ -68,7 +68,7 @@ struct PassCLIFeatureSupportView: View {
             text(LocalizedStringResource("Untested", comment: """
                 Pass CLI feature status pill: the CLI version should support the feature, but this release was not tested.
                 """), locale: locale)
-        case .unsupported:
+        case .unsupported, .unverifiedRelease:
             text(LocalizedStringResource("Unsupported", comment: "Pass CLI feature status pill: not available with this CLI version."),
                  locale: locale)
         }
@@ -86,6 +86,10 @@ struct PassCLIFeatureSupportView: View {
             text(LocalizedStringResource("Disabled for this version", comment: """
                 Pass CLI feature detail when the app turned a feature off for a known-bad CLI release.
                 """), locale: locale)
+        case .unverifiedRelease(let minimum):
+            text(LocalizedStringResource("Not verified for this version · Use a tested release or \(minimum.description)+", comment: """
+                Pass CLI feature detail for an untested older CLI release. Placeholder is a Pass CLI version number such as 2.5.0.
+                """), locale: locale)
         }
     }
 
@@ -99,7 +103,7 @@ struct PassCLIFeatureSupportView: View {
         switch status {
         case .supported: "checkmark.circle.fill"
         case .untested: "questionmark.circle.fill"
-        case .unsupported: "xmark.circle.fill"
+        case .unsupported, .unverifiedRelease: "xmark.circle.fill"
         }
     }
 
@@ -107,7 +111,7 @@ struct PassCLIFeatureSupportView: View {
         switch status {
         case .supported: .green
         case .untested: .orange
-        case .unsupported: .secondary
+        case .unsupported, .unverifiedRelease: .secondary
         }
     }
 }

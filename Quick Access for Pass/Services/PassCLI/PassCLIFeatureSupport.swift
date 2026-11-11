@@ -14,6 +14,15 @@ nonisolated enum PassCLIFeatureStatus: Sendable, Equatable {
     case untested
     /// The version is below the minimum, or the feature is disabled for this release.
     case unsupported(minimumVersion: PassCLIVersion?)
+    /// This release is below the minimum and untested, but tested older releases also enable the feature.
+    case unverifiedRelease(minimumVersion: PassCLIVersion)
+
+    var isAvailable: Bool {
+        switch self {
+        case .supported, .untested: true
+        case .unsupported, .unverifiedRelease: false
+        }
+    }
 }
 
 nonisolated struct PassCLIFeatureSupport: Sendable, Equatable, Identifiable {
@@ -41,7 +50,7 @@ nonisolated extension PassCLICapabilities {
         case .unverifiedCompleteJSON: .untested
         case .unavailable: Self.blockedContentReuseVersions.contains(version)
             ? .unsupported(minimumVersion: nil)
-            : .unsupported(minimumVersion: Self.minimumUnverifiedContentReuseVersion)
+            : .unverifiedRelease(minimumVersion: Self.minimumUnverifiedContentReuseVersion)
         }
         var rows = [
             PassCLIFeatureSupport(feature: .folders, status: status(minimum: Self.minimumFoldersVersion)),
