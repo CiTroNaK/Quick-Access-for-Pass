@@ -51,14 +51,20 @@ nonisolated struct SyncProgressPresentation: Equatable, Sendable {
         )
     }
 
-    static func completedWithSkippedItems(_ count: Int) -> SyncProgressPresentation {
-        SyncProgressPresentation(
-            statusText: String(
-                localized: "Synced with \(count) skipped items",
-                comment: "Sync status after a successful sync that skipped malformed items."
-            ),
-            showsProgress: false
+    static func completedWithSkippedItems(_ count: Int, restrictedVaultNames: [String] = []) -> SyncProgressPresentation {
+        let base = String(
+            localized: "Synced with \(count) skipped items",
+            comment: "Sync status after a successful sync that skipped malformed items."
         )
+        guard !restrictedVaultNames.isEmpty else {
+            return SyncProgressPresentation(statusText: base, showsProgress: false)
+        }
+        let names = vaultList(restrictedVaultNames, locale: textLocale)
+        let suffix = String(
+            localized: " · Passwords hidden by vault policy in \(names)",
+            comment: "Suffix appended to a sync status that already reports skipped items, when shared vaults also hide sensitive content from Pass CLI. Placeholder is a list of unchanged vault names."
+        )
+        return SyncProgressPresentation(statusText: base + suffix, showsProgress: false)
     }
 
     /// The language String(localized:) resolves for these statuses, so list separators match the sentence.

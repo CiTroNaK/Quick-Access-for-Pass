@@ -46,4 +46,14 @@ struct SyncProgressPresentationTests {
             == Bundle.main.preferredLocalizations.first.map { Locale(identifier: $0).language.languageCode?.identifier } ?? "en")
     }
 
+
+    @Test("skipped items keep the restricted vault note")
+    func completedWithSkippedItemsAndRestrictedVaults() {
+        let names = SyncProgressPresentation.vaultList(["Shared", "Team"], locale: SyncProgressPresentation.textLocale)
+        #expect(SyncProgressPresentation.completedWithSkippedItems(2, restrictedVaultNames: ["Shared", "Team"]).statusText
+            == "Synced with 2 skipped items · Passwords hidden by vault policy in \(names)")
+        #expect(SyncProgressPresentation.completedWithSkippedItems(2, restrictedVaultNames: []).statusText
+            == "Synced with 2 skipped items")
+    }
+
 }

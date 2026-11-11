@@ -244,7 +244,7 @@ final class SyncCoordinator {
             viewModel.skippedSyncItems = nil
             viewModel.isShowingSkippedSyncItems = false
         } else {
-            viewModel.syncProgress = .completedWithSkippedItems(skippedItems.count)
+            viewModel.syncProgress = .completedWithSkippedItems(skippedItems.count, restrictedVaultNames: restrictedVaultNames)
             viewModel.skippedSyncItems = SyncSkippedItemsPresentation.make(
                 skippedItems: skippedItems,
                 diagnosticFileURL: diagnosticFileURL
