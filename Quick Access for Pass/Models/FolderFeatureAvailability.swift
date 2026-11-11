@@ -20,7 +20,7 @@ nonisolated struct FolderCapabilityProbe: Sendable, Equatable {
     let selectionGeneration: UUID
     let revision: UUID
     /// Executable identity observed before the probe; nil when it could not be inspected.
-    var fingerprint: PassCLIExecutableFingerprint? = nil
+    var fingerprint: PassCLIExecutableFingerprint?
 }
 
 /// One sync's capability discovery. An inconclusive probe result is reused only within that sync,

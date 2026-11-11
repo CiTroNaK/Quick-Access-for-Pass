@@ -11,7 +11,6 @@ actor PassCLIService {
     private static let versionProbeTimeoutSeconds: Double = 30
     /// Folder lists are metadata only and must not hold sync for the 300-second content budget.
     private static let folderListTimeoutSeconds: Double = 60
-    private static let maximumConcurrentFolderLists = 4
     private let runner: any CLIRunning
     private let executableFingerprint: @Sendable (String) -> PassCLIExecutableFingerprint?
     private var capabilitiesTask: (probe: FolderCapabilityProbe, task: Task<CapabilityProbeResult, Never>)?
@@ -171,75 +170,6 @@ actor PassCLIService {
         }
     }
 
-    // MARK: - CLI Capabilities
-
-    /// Establishes current capability before optional pre-fetch offline capture.
-    /// Reprobes when the selection changed or its executable file changed in place (or cannot be
-    /// inspected); otherwise keeps the confirmed probe so committed folder evidence stays current.
-    func prepareFolderSync() async -> FolderFeatureStamp? {
-        await prepareSync().folderFeatureStamp
-    }
-
-    func prepareSync() async -> PassCLISyncPreparation {
-        guard !Task.isCancelled else { return PassCLISyncPreparation() }
-        let snapshot = folderFeatureGate.selectionSnapshot()
-        let fingerprint = executableFingerprint(snapshot.selection.path)
-        if case .reuse(let stamp) = folderFeatureGate.probeReuse(selectionGeneration: snapshot.generation,
-                                                                  fingerprint: fingerprint) {
-            return PassCLISyncPreparation(folderFeatureStamp: stamp)
-        }
-        let probe = folderFeatureGate.beginProbe(fingerprint: fingerprint)
-        let capabilities = await probeCapabilities(probe)
-        var preparation = PassCLISyncPreparation(probedSelection: probe.selection, probedCapabilities: capabilities)
-        guard !Task.isCancelled,
-              let stamp = folderFeatureGate.supportedStamp(),
-              stamp.selectionGeneration == probe.selectionGeneration,
-              stamp.probeRevision == probe.revision else { return preparation }
-        preparation.folderFeatureStamp = stamp
-        return preparation
-    }
-
-    private func capabilities(for selection: PassCLISelection) async -> PassCLICapabilities {
-        let snapshot = folderFeatureGate.selectionSnapshot()
-        guard snapshot.selection == selection else { return PassCLICapabilities(version: nil) }
-        if let cached = folderFeatureGate.confirmedCapabilities(for: selection, generation: snapshot.generation) {
-            return cached
-        }
-        if let inFlight = capabilitiesTask, inFlight.probe.selectionGeneration == snapshot.generation {
-            return await inFlight.task.value.capabilities
-        }
-        let probe = folderFeatureGate.beginProbe(fingerprint: executableFingerprint(selection.path))
-        guard probe.selection == selection, probe.selectionGeneration == snapshot.generation else {
-            return PassCLICapabilities(version: nil)
-        }
-        return await probeCapabilities(probe)
-    }
-
-    private func probeCapabilities(_ probe: FolderCapabilityProbe) async -> PassCLICapabilities {
-        let runner = self.runner
-        let timeout = Self.versionProbeTimeoutSeconds
-        // Version is metadata-only but must not delay ordinary sync for its 300-second content budget.
-        // A cold first launch can be slow, so a failure stays inconclusive rather than "no version".
-        let task = Task<CapabilityProbeResult, Never> {
-            do {
-                let data = try await runner.run(
-                    executablePath: probe.selection.path, arguments: ["--version"], timeout: timeout
-                )
-                return CapabilityProbeResult(
-                    capabilities: PassCLICapabilities(rawVersionString: String(bytes: data, encoding: .utf8)),
-                    isConclusive: true
-                )
-            } catch {
-                return CapabilityProbeResult(capabilities: PassCLICapabilities(version: nil), isConclusive: false)
-            }
-        }
-        capabilitiesTask = (probe: probe, task: task)
-        let value = await task.value
-        folderFeatureGate.confirm(capabilities: value.capabilities, for: probe, cacheable: value.isConclusive)
-        if capabilitiesTask?.probe == probe { capabilitiesTask = nil }
-        return value.capabilities
-    }
-
     // MARK: - Process Execution
 
     private func run(arguments: [String]) async throws -> Data {
@@ -329,6 +259,77 @@ actor PassCLIService {
     }
 }
 
+// MARK: - CLI Capabilities
+
+extension PassCLIService {
+    /// Establishes current capability before optional pre-fetch offline capture.
+    /// Reprobes when the selection changed or its executable file changed in place (or cannot be
+    /// inspected); otherwise keeps the confirmed probe so committed folder evidence stays current.
+    func prepareFolderSync() async -> FolderFeatureStamp? {
+        await prepareSync().folderFeatureStamp
+    }
+
+    func prepareSync() async -> PassCLISyncPreparation {
+        guard !Task.isCancelled else { return PassCLISyncPreparation() }
+        let snapshot = folderFeatureGate.selectionSnapshot()
+        let fingerprint = executableFingerprint(snapshot.selection.path)
+        if case .reuse(let stamp) = folderFeatureGate.probeReuse(selectionGeneration: snapshot.generation,
+                                                                  fingerprint: fingerprint) {
+            return PassCLISyncPreparation(folderFeatureStamp: stamp)
+        }
+        let probe = folderFeatureGate.beginProbe(fingerprint: fingerprint)
+        let capabilities = await probeCapabilities(probe)
+        var preparation = PassCLISyncPreparation(probedSelection: probe.selection, probedCapabilities: capabilities)
+        guard !Task.isCancelled,
+              let stamp = folderFeatureGate.supportedStamp(),
+              stamp.selectionGeneration == probe.selectionGeneration,
+              stamp.probeRevision == probe.revision else { return preparation }
+        preparation.folderFeatureStamp = stamp
+        return preparation
+    }
+
+    private func capabilities(for selection: PassCLISelection) async -> PassCLICapabilities {
+        let snapshot = folderFeatureGate.selectionSnapshot()
+        guard snapshot.selection == selection else { return PassCLICapabilities(version: nil) }
+        if let cached = folderFeatureGate.confirmedCapabilities(for: selection, generation: snapshot.generation) {
+            return cached
+        }
+        if let inFlight = capabilitiesTask, inFlight.probe.selectionGeneration == snapshot.generation {
+            return await inFlight.task.value.capabilities
+        }
+        let probe = folderFeatureGate.beginProbe(fingerprint: executableFingerprint(selection.path))
+        guard probe.selection == selection, probe.selectionGeneration == snapshot.generation else {
+            return PassCLICapabilities(version: nil)
+        }
+        return await probeCapabilities(probe)
+    }
+
+    private func probeCapabilities(_ probe: FolderCapabilityProbe) async -> PassCLICapabilities {
+        let runner = self.runner
+        let timeout = Self.versionProbeTimeoutSeconds
+        // Version is metadata-only but must not delay ordinary sync for its 300-second content budget.
+        // A cold first launch can be slow, so a failure stays inconclusive rather than "no version".
+        let task = Task<CapabilityProbeResult, Never> {
+            do {
+                let data = try await runner.run(
+                    executablePath: probe.selection.path, arguments: ["--version"], timeout: timeout
+                )
+                return CapabilityProbeResult(
+                    capabilities: PassCLICapabilities(rawVersionString: String(bytes: data, encoding: .utf8)),
+                    isConclusive: true
+                )
+            } catch {
+                return CapabilityProbeResult(capabilities: PassCLICapabilities(version: nil), isConclusive: false)
+            }
+        }
+        capabilitiesTask = (probe: probe, task: task)
+        let value = await task.value
+        folderFeatureGate.confirm(capabilities: value.capabilities, for: probe, cacheable: value.isConclusive)
+        if capabilitiesTask?.probe == probe { capabilitiesTask = nil }
+        return value.capabilities
+    }
+}
+
 extension PassCLIService {
     func fetchAllItems(
         folderFeatureStamp: FolderFeatureStamp? = nil,
@@ -373,26 +374,8 @@ extension PassCLIService {
             return (items: items, skippedItems: skippedItems, presenceUncertainties: presenceUncertainties,
                     provenance: provenance, memberships: memberships, restrictedVaultIDs: restrictedVaultIDs)
         }
-        // Separate metadata-only commands run a few vaults at a time, never an unbounded fan-out.
-        var folderCatalogs: [String: FolderCatalogFetchOutcome] = [:]
-        try await withThrowingTaskGroup(of: (vaultID: String, outcome: FolderCatalogFetchOutcome).self) { group in
-            var pending = vaults[...]
-            func addNext() {
-                guard let vault = pending.popFirst() else { return }
-                let memberships = syncResult.memberships[vault.vaultId]
-                group.addTask {
-                    try Task.checkCancellation()
-                    let outcome = await self.fetchFolderCatalog(vault: vault, memberships: memberships,
-                                                                selection: selection, stamp: folderFeatureStamp)
-                    return (vaultID: vault.vaultId, outcome: outcome)
-                }
-            }
-            for _ in 0..<Self.maximumConcurrentFolderLists { addNext() }
-            for try await result in group {
-                folderCatalogs[result.vaultID] = result.outcome
-                addNext()
-            }
-        }
+        let folderCatalogs = try await fetchFolderCatalogs(vaults: vaults, memberships: syncResult.memberships,
+                                                           selection: selection, stamp: folderFeatureStamp)
         try Task.checkCancellation()
         return CLISyncFetchResult(
             vaults: vaults, items: syncResult.items, skippedItems: syncResult.skippedItems,

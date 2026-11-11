@@ -48,9 +48,12 @@ nonisolated extension PassCLICapabilities {
         let fastOfflineSync: PassCLIFeatureStatus = switch snapshotContentProvenance {
         case .completeJSONV1: .supported
         case .unverifiedCompleteJSON: .untested
-        case .unavailable: Self.blockedContentReuseVersions.contains(version)
-            ? .unsupported(minimumVersion: nil)
-            : .unverifiedRelease(minimumVersion: Self.minimumUnverifiedContentReuseVersion)
+        case .unavailable:
+            if Self.blockedContentReuseVersions.contains(version) {
+                .unsupported(minimumVersion: nil)
+            } else {
+                .unverifiedRelease(minimumVersion: Self.minimumUnverifiedContentReuseVersion)
+            }
         }
         var rows = [
             PassCLIFeatureSupport(feature: .folders, status: status(minimum: Self.minimumFoldersVersion)),

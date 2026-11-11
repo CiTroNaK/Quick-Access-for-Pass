@@ -21,13 +21,11 @@ extension OfflineModeService {
         }
         var batch: [OfflineSyncPublication] = []
         var bytes = 0
-        var agreement: [String: Bool] = [:]
+        var frame = OfflineSyncFrame(result: result, index: index, capture: capture,
+                                     allowMembershipExpansion: allowMembershipExpansion)
         for candidate in work {
             guard try syncContextIsActive(capture) else { return }
-            guard let publication = try await prepareSyncPublicationOrFinishFailure(
-                candidate, result: result, index: index, capture: capture,
-                allowMembershipExpansion: allowMembershipExpansion, agreement: &agreement
-            ) else { continue }
+            guard let publication = try await prepareSyncPublicationOrFinishFailure(candidate, frame: &frame) else { continue }
             let size = publication.prepared.snapshot.payload.count
             if batch.count == OfflineSyncPublicationLimits.items || size > OfflineSyncPublicationLimits.ciphertextBytes - bytes {
                 guard try await flushSyncBatch(batch, capture: capture) else { return }
@@ -42,35 +40,33 @@ extension OfflineModeService {
     }
 
     private func prepareSyncPublicationOrFinishFailure(
-        _ work: OfflineSyncWork, result: CLISyncFetchResult, index: OfflineSyncResultIndex,
-        capture: OfflineSyncCapture, allowMembershipExpansion: Bool, agreement: inout [String: Bool]
+        _ work: OfflineSyncWork, frame: inout OfflineSyncFrame
     ) async throws -> OfflineSyncPublication? {
         do {
-            return try await prepareSyncPublication(work, result: result, index: index, capture: capture,
-                                                     allowMembershipExpansion: allowMembershipExpansion, agreement: &agreement)
+            return try await prepareSyncPublication(work, frame: &frame)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            guard try syncContextIsActive(capture) else { return nil }
-            try? await repository.finishSyncFailures([work], capture: capture)
+            guard try syncContextIsActive(frame.capture) else { return nil }
+            try? await repository.finishSyncFailures([work], capture: frame.capture)
             return nil
         }
     }
 
-    /// `agreement` is per-vault, per-item-type evidence for unverified releases, scoped to this one sync frame:
+    /// `frame.agreement` is per-vault, per-item-type evidence for unverified releases, scoped to this one sync frame:
     /// the first needed item of each type is read with `item view` and compared with its list body.
     /// A type never vouches for another, since list bodies carry different secret fields per type.
     private func prepareSyncPublication(
-        _ work: OfflineSyncWork, result: CLISyncFetchResult, index: OfflineSyncResultIndex,
-        capture: OfflineSyncCapture, allowMembershipExpansion: Bool, agreement: inout [String: Bool]
+        _ work: OfflineSyncWork, frame: inout OfflineSyncFrame
     ) async throws -> OfflineSyncPublication? {
+        let (result, index, capture) = (frame.result, frame.index, frame.capture)
         let item: CLIItem
         let source: OfflineSyncContentSource
         let provenance = result.contentProvenanceByVaultID[work.key.vaultId] ?? .unavailable
         let listed = index.itemIndices[work.key].map { result.items[$0].item }
         let agreementKey = "\(work.key.vaultId)|\(work.itemType.rawValue)"
         let reusesList = provenance == .completeJSONV1
-            || (provenance == .unverifiedCompleteJSON && agreement[agreementKey] == true)
+            || (provenance == .unverifiedCompleteJSON && frame.agreement[agreementKey] == true)
         if reusesList, let listed {
             item = listed
             source = .syncList
@@ -78,15 +74,16 @@ extension OfflineModeService {
             // Recheck the original conditional ownership before an additional secret-facing fetch.
             // This is not a new scalar reservation and cannot adopt a newer Retry or selection.
             let current = try await repository.syncWork(capture: capture, metadataProofs: [work.key: work.metadataProof],
-                                                        sourceTimes: index.sourceTimes, allowMembershipExpansion: allowMembershipExpansion,
+                                                        sourceTimes: index.sourceTimes,
+                                                        allowMembershipExpansion: frame.allowMembershipExpansion,
                                                         contentRefreshCandidates: work.requiresContentRefresh ? [work.key] : [])
             guard current.contains(where: { OfflineSnapshotRepository.sameSyncWork(work, $0) }),
                   try syncContextIsActive(capture) else { return nil }
             item = try await cliService.viewItem(itemId: work.key.itemId, shareId: work.shareID)
             source = .liveFallback
-            if provenance == .unverifiedCompleteJSON, agreement[agreementKey] == nil, let listed {
+            if provenance == .unverifiedCompleteJSON, frame.agreement[agreementKey] == nil, let listed {
                 let agrees = Self.sameContent(listed, item)
-                agreement[agreementKey] = agrees
+                frame.agreement[agreementKey] = agrees
                 if !agrees {
                     AppLogger.sync.notice("unverified CLI list content disagreed with item view; using item view for this vault and item type")
                 }
@@ -128,4 +125,14 @@ extension OfflineModeService {
             return true
         }
     }
+}
+
+/// One awaited sync frame's inputs and its per-sync agreement evidence. It lives only in the
+/// caller-owned frame and is never retained by the service or submitted to the scheduler.
+private struct OfflineSyncFrame {
+    let result: CLISyncFetchResult
+    let index: OfflineSyncResultIndex
+    let capture: OfflineSyncCapture
+    let allowMembershipExpansion: Bool
+    var agreement: [String: Bool] = [:]
 }

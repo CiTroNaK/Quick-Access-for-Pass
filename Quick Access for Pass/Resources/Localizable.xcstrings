@@ -302,7 +302,7 @@
       }
     },
     " · Passwords hidden by vault policy in %@" : {
-      "comment" : "Suffix appended to a sync status that already reports skipped items, when shared vaults also hide sensitive content from Pass CLI. Placeholder is a list of unchanged vault names.",
+      "comment" : "Suffix after a skipped-items sync status when shared vaults also hide sensitive content from Pass CLI. Placeholder is a list of unchanged vault names.",
       "localizations" : {
         "cs" : {
           "stringUnit" : {

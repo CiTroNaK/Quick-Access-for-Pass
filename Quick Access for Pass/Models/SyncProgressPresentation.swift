@@ -62,12 +62,15 @@ nonisolated struct SyncProgressPresentation: Equatable, Sendable {
         let names = vaultList(restrictedVaultNames, locale: textLocale)
         let suffix = String(
             localized: " · Passwords hidden by vault policy in \(names)",
-            comment: "Suffix appended to a sync status that already reports skipped items, when shared vaults also hide sensitive content from Pass CLI. Placeholder is a list of unchanged vault names."
+            comment: """
+                Suffix after a skipped-items sync status when shared vaults also hide sensitive content from Pass CLI. \
+                Placeholder is a list of unchanged vault names.
+                """
         )
         return SyncProgressPresentation(statusText: base + suffix, showsProgress: false)
     }
 
-    /// The language String(localized:) resolves for these statuses, so list separators match the sentence.
+    /// The language these statuses resolve to, so list separators match the sentence.
     static var textLocale: Locale {
         Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
     }
