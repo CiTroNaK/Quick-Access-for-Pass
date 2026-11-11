@@ -41,7 +41,7 @@ nonisolated struct SyncProgressPresentation: Equatable, Sendable {
     }
 
     static func completedWithRestrictedVaults(_ vaultNames: [String]) -> SyncProgressPresentation {
-        let names = vaultNames.formatted(.list(type: .and))
+        let names = vaultList(vaultNames, locale: textLocale)
         return SyncProgressPresentation(
             statusText: String(
                 localized: "Synced · Passwords hidden by vault policy in \(names)",
@@ -60,4 +60,15 @@ nonisolated struct SyncProgressPresentation: Equatable, Sendable {
             showsProgress: false
         )
     }
+
+    /// The language String(localized:) resolves for these statuses, so list separators match the sentence.
+    static var textLocale: Locale {
+        Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+    }
+
+    /// Vault names stay verbatim; only the separators are localized.
+    static func vaultList(_ vaultNames: [String], locale: Locale) -> String {
+        vaultNames.formatted(.list(type: .and).locale(locale))
+    }
+
 }

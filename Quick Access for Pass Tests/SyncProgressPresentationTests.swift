@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Quick_Access_for_Pass
 
@@ -35,4 +36,14 @@ struct SyncProgressPresentationTests {
     func completedWithSkippedText() {
         #expect(SyncProgressPresentation.completedWithSkippedItems(3).statusText == "Synced with 3 skipped items")
     }
+
+    @Test("vault name list uses the language of the surrounding status text")
+    func restrictedVaultListMatchesTextLanguage() {
+        #expect(SyncProgressPresentation.vaultList(["A", "B"], locale: Locale(identifier: "cs")) == "A a\u{00A0}B")
+        #expect(SyncProgressPresentation.vaultList(["Osobní %@", "B"], locale: Locale(identifier: "en")) == "Osobní %@ and B")
+        // A German system locale must not put "und" inside English text.
+        #expect(SyncProgressPresentation.textLocale.language.languageCode?.identifier
+            == Bundle.main.preferredLocalizations.first.map { Locale(identifier: $0).language.languageCode?.identifier } ?? "en")
+    }
+
 }
