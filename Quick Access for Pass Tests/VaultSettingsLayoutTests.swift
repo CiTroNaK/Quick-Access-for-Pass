@@ -372,6 +372,39 @@ struct VaultSettingsLayoutTests {
         return try capture(hosting, size: size)
     }
 
+    /// TEMPORARY CI DIAGNOSTIC.
+    private func launcherDiagnostic(fixture: OfflineFolderManagerFixture) throws -> String {
+        let hosting = NSHostingView(rootView: OfflineSettingsTab()
+            .environment(\.offlineModeCoordinator, fixture.coordinator)
+            .environment(\.locale, Locale(identifier: "en"))
+            .environment(\.colorScheme, .light).background(Color.white))
+        let window = fixtureWindow(hosting, size: NSSize(width: 560, height: 440))
+        defer { window.orderOut(nil); window.contentView = nil }
+        hosting.layoutSubtreeIfNeeded()
+        hosting.displayIfNeeded()
+        var found: [String] = []
+        var visited = 0
+        func walk(_ element: Any, depth: Int) {
+            guard depth < 40, let node = element as? NSAccessibilityElementProtocol & NSObjectProtocol else { return }
+            visited += 1
+            let accessible = node as? NSAccessibilityProtocol
+            let label = [accessible?.accessibilityLabel(), accessible?.accessibilityTitle()].compactMap { $0 }.joined(separator: "|")
+            if label.contains("Manage folders") {
+                let enabled = accessible?.isAccessibilityEnabled() ?? false
+                found.append("role=\(accessible?.accessibilityRole()?.rawValue ?? "?") label=\(label) frame=\(node.accessibilityFrame()) enabled=\(enabled)")
+            }
+            for child in (accessible?.accessibilityChildren() ?? []) { walk(child, depth: depth + 1) }
+        }
+        walk(hosting, depth: 0)
+        let buttonClasses = Set(OfflineFolderManagerFixture.descendants(of: hosting).map { String(describing: type(of: $0)) }
+            .filter { $0.localizedCaseInsensitiveContains("button") })
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        let coordinator = fixture.coordinator
+        return "os=\(os) scale=\(window.backingScaleFactor) hasFolders=\(coordinator.hasFolders(in: "vault")) "
+            + "availability=\(coordinator.folderPresentationAvailability) visited=\(visited) "
+            + "accessibility=[\(found.joined(separator: "; "))] buttonViews=\(buttonClasses.sorted())"
+    }
+
     private func capture(_ hosting: NSView, size: NSSize) throws -> RenderedFixture {
         let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
@@ -492,8 +525,11 @@ extension VaultSettingsLayoutTests {
         let expected = try render(reference.rootView, size: reference.fittingSize)
         let referenceRendered = await expected.containsText(from: expected)
         let launcherRendered = await actual.containsText(from: expected)
+        // TEMPORARY CI DIAGNOSTIC: report structural presence and the best glyph score.
+        let diagnostic = try launcherDiagnostic(fixture: fixture) + " bestScore=\(await actual.bestTextMatchScore(from: expected))"
+        withKnownIssue { Issue.record("LAUNCHER-DIAGNOSTIC folderCount=\(folderCount) rendered=\(launcherRendered) \(diagnostic)") }
         #expect(referenceRendered, "The launcher glyph reference must be valid")
-        #expect(launcherRendered == (folderCount > 0), "Only a vault with folder metadata should show Manage folders")
+        #expect(launcherRendered == (folderCount > 0), "Only a vault with folder metadata should show Manage folders. \(diagnostic)")
         let vaultReference = NSHostingView(rootView: Text(verbatim: "Synthetic vault").font(.body).fixedSize())
         let vaultGlyphs = try render(vaultReference.rootView, size: vaultReference.fittingSize)
         let vaultRendered = await actual.containsText(from: vaultGlyphs)
@@ -765,6 +801,26 @@ private struct RenderedFixture: Sendable {
     @concurrent
     func containsText(from reference: RenderedFixture) async -> Bool {
         matchText(from: reference)
+    }
+
+    /// TEMPORARY CI DIAGNOSTIC: the best fraction of reference ink matched at any offset.
+    func bestTextMatchScore(from reference: RenderedFixture) async -> Double {
+        let ink = (0..<(reference.width * reference.height)).filter {
+            reference.pixels[$0 * 4] < 210 && reference.pixels[$0 * 4 + 3] > 200
+        }
+        guard !ink.isEmpty, reference.width <= width, reference.height <= height else { return 0 }
+        var best = 0
+        for y in 0...(height - reference.height) {
+            for x in 0...(width - reference.width) {
+                var matched = 0
+                for index in ink {
+                    let offset = ((y + index / reference.width) * width + x + index % reference.width) * 4
+                    if pixels[offset] < 225 { matched += 1 }
+                }
+                best = max(best, matched)
+            }
+        }
+        return (Double(best) / Double(ink.count) * 1000).rounded() / 1000
     }
 
     private func matchText(from reference: RenderedFixture) -> Bool {
