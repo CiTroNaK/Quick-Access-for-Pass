@@ -132,24 +132,11 @@ nonisolated enum DetailRowBuilder {
 
     private static func extraFieldKeys(_ extras: [CLIExtraField]) -> [FieldKey] {
         extras.enumerated().compactMap { index, extra in
-            let value: String
-            let isSensitive: Bool
-            switch extra.content {
-            case .text(let fieldValue):
-                value = fieldValue
-                isSensitive = false
-            case .hidden(let fieldValue):
-                value = fieldValue
-                isSensitive = true
-            case .totp(let fieldValue):
-                value = fieldValue
-                isSensitive = true
-            }
-            return value.isEmpty ? nil : .extra(
+            extra.content.hasValue ? .extra(
                 path: .topLevel(fieldIndex: index),
                 name: extra.name,
-                isSensitive: isSensitive
-            )
+                isSensitive: extra.content.isSensitive
+            ) : nil
         }
     }
 
@@ -160,24 +147,11 @@ nonisolated enum DetailRowBuilder {
         var out: [FieldKey] = []
         for (sectionIndex, section) in custom.sections.enumerated() {
             let sectionFieldKeys = section.sectionFields.enumerated().compactMap { fieldIndex, extra -> FieldKey? in
-                let value: String
-                let isSensitive: Bool
-                switch extra.content {
-                case .text(let fieldValue):
-                    value = fieldValue
-                    isSensitive = false
-                case .hidden(let fieldValue):
-                    value = fieldValue
-                    isSensitive = true
-                case .totp(let fieldValue):
-                    value = fieldValue
-                    isSensitive = true
-                }
-                guard !value.isEmpty else { return nil }
+                guard extra.content.hasValue else { return nil }
                 return .extra(
                     path: .customSection(sectionIndex: sectionIndex, fieldIndex: fieldIndex),
                     name: extra.name,
-                    isSensitive: isSensitive
+                    isSensitive: extra.content.isSensitive
                 )
             }
             if sectionFieldKeys.isEmpty { continue }

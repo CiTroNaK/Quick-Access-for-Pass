@@ -105,22 +105,38 @@ nonisolated enum CLIExtraFieldContent: Codable, Sendable {
     case text(String)
     case hidden(String)
     case totp(String)
+    /// Date field: Unix seconds at the creator's local midnight, or `nil` when unset.
+    case timestamp(Int64?)
+    /// Field type or payload shape this app does not model. Keeps the item
+    /// decodable; the field is never shown or copied and re-encodes as `null`.
+    case unsupported(type: String)
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicCodingKey.self)
-        if let key = container.allKeys.first {
-            let value = try container.decode(String.self, forKey: key)
+        guard let key = container.allKeys.first else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing extra-field content type")
+            )
+        }
+        if key.stringValue == "Timestamp" {
+            if try container.decodeNil(forKey: key) {
+                self = .timestamp(nil)
+                return
+            }
+            if let seconds = try? container.decode(Int64.self, forKey: key) {
+                self = .timestamp(seconds)
+                return
+            }
+        } else if let value = try? container.decode(String.self, forKey: key) {
             switch key.stringValue {
             case "Text": self = .text(value)
             case "Hidden": self = .hidden(value)
             case "Totp": self = .totp(value)
             default: self = .text(value)
             }
-        } else {
-            throw DecodingError.dataCorrupted(
-                .init(codingPath: decoder.codingPath, debugDescription: "Missing extra-field content type")
-            )
+            return
         }
+        self = .unsupported(type: key.stringValue)
     }
 
     // short decoder container vars
@@ -131,9 +147,27 @@ nonisolated enum CLIExtraFieldContent: Codable, Sendable {
         case .text(let v): try container.encode(v, forKey: DynamicCodingKey(stringValue: "Text")!)
         case .hidden(let v): try container.encode(v, forKey: DynamicCodingKey(stringValue: "Hidden")!)
         case .totp(let v): try container.encode(v, forKey: DynamicCodingKey(stringValue: "Totp")!)
+        case .timestamp(let v): try container.encode(v, forKey: DynamicCodingKey(stringValue: "Timestamp")!)
+        case .unsupported(let type): try container.encodeNil(forKey: DynamicCodingKey(stringValue: type)!)
         }
     }
     // swiftlint:enable identifier_name
+
+    /// Presence only; never exposes the value.
+    var hasValue: Bool {
+        switch self {
+        case .text(let value), .hidden(let value), .totp(let value): !value.isEmpty
+        case .timestamp(let seconds): seconds != nil
+        case .unsupported: false
+        }
+    }
+
+    var isSensitive: Bool {
+        switch self {
+        case .text, .timestamp, .unsupported: false
+        case .hidden, .totp: true
+        }
+    }
 }
 
 // MARK: - Tagged Enum for Item Type Content

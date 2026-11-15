@@ -153,6 +153,29 @@ struct SyncCoordinatorOfflineTests {
         #expect(await harness.runner.viewRequests().isEmpty)
     }
 
+    @Test("a future whole-vault item with a date field is cached", arguments: ["2.4.2", "2.7.0", "2.8.0"])
+    func futureVaultItemWithDateFieldIsCached(cliVersion: String) async throws {
+        let harness = try await makeHarness(selectedItemIDs: ["item"], cliVersion: cliVersion)
+        try await harness.service.selectWholeVault(true, vaultID: "vault")
+        await harness.service.waitUntilIdle()
+        var raw = try #require(try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(incrementalSyncCLIItem(id: "new", password: "fake-password", title: "new"))) as? [String: Any])
+        var content = try #require(raw["content"] as? [String: Any])
+        content["extra_fields"] = [["name": "Expiry", "content": ["Timestamp": 1_822_341_600]]]
+        content["content"] = ["Login": ["email": "", "username": "", "password": "", "urls": [String](),
+                                        "totp_uri": "", "passkeys": [Any]()]]
+        raw["content"] = content
+        let dated = String(decoding: try JSONSerialization.data(withJSONObject: raw), as: UTF8.self)
+        await harness.runner.setSyncedItemIDs(["item", "new"])
+        await harness.runner.setMalformedListEntry(dated, replacing: "new")
+        harness.coordinator.refreshNow()
+        await harness.coordinator.currentSyncCompletion?.value
+        await harness.service.waitUntilIdle()
+        #expect(harness.viewModel.skippedSyncItems == nil)
+        #expect(try harness.database.allActiveItems().contains { $0.id == "new" })
+        #expect(try harness.database.offlineItemSelection(itemId: "new")?.cacheStatus == .cached)
+    }
+
     @Test("retry selected copies retries a failed cached refresh without changing selection origin")
     func retrySelectedCopiesRetriesFailedRefreshWithoutChangingOrigin() async throws {
         let harness = try await makeHarness(selectedItemIDs: ["item"])

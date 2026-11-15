@@ -289,6 +289,21 @@ struct DetailRowBuilderTests {
         ])
     }
 
+    @Test("date extra fields emit non-sensitive rows; unset dates and unsupported fields dropped")
+    func extraTimestamp() throws {
+        let extras = """
+        [
+          {"name": "Expiry Date", "content": {"Timestamp": 1822341600}},
+          {"name": "Unset Date",  "content": {"Timestamp": null}},
+          {"name": "Future",      "content": {"Mystery": 42}}
+        ]
+        """
+        let item = try decode(loginJSON(extraFields: extras))
+        #expect(DetailRowBuilder.fieldKeys(for: item) == [
+            .extra(path: .topLevel(fieldIndex: 0), name: "Expiry Date", isSensitive: false),
+        ])
+    }
+
     // MARK: - Custom sections
 
     @Test("custom item emits section header then its non-empty fields")
@@ -318,6 +333,37 @@ struct DetailRowBuilderTests {
         #expect(DetailRowBuilder.fieldKeys(for: item) == [
             .sectionHeader(name: "Bank"),
             .extra(path: .customSection(sectionIndex: 0, fieldIndex: 0), name: "Account", isSensitive: false),
+        ])
+    }
+
+    @Test("custom item section emits date fields; unset dates and unsupported fields dropped")
+    func customSectionTimestamps() throws {
+        let json = """
+        {
+          "id": "id-8", "share_id": "s1", "vault_id": "v1",
+          "state": "Active", "flags": [],
+          "create_time": "2026-01-01T00:00:00Z",
+          "modify_time": "2026-01-01T00:00:00Z",
+          "content": {
+            "title": "Custom", "note": "", "item_uuid": "uuid-8",
+            "content": { "Custom": { "sections": [
+              { "section_name": "Passport", "section_fields": [
+                {"name": "Expiry Date", "content": {"Timestamp": 1822341600}},
+                {"name": "Unset Date",  "content": {"Timestamp": null}},
+                {"name": "Future",      "content": {"Mystery": {"nested": true}}}
+              ]},
+              { "section_name": "Only Unsupported", "section_fields": [
+                {"name": "Future", "content": {"Mystery": 42}}
+              ]}
+            ]}},
+            "extra_fields": []
+          }
+        }
+        """
+        let item = try decode(json)
+        #expect(DetailRowBuilder.fieldKeys(for: item) == [
+            .sectionHeader(name: "Passport"),
+            .extra(path: .customSection(sectionIndex: 0, fieldIndex: 0), name: "Expiry Date", isSensitive: false),
         ])
     }
 

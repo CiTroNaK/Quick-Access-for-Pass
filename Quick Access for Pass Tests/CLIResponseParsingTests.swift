@@ -235,6 +235,79 @@ struct CLIResponseParsingTests {
         #expect(metadata.fieldKeys.isEmpty)
     }
 
+    @Test("parse and round-trip date extra fields with numeric timestamps")
+    func parseTimestampExtraField() throws {
+        let json = """
+        {
+          "items": [{
+            "id": "item5",
+            "share_id": "share1",
+            "vault_id": "vault1",
+            "content": {
+              "title": "Passport",
+              "note": "",
+              "item_uuid": "uuid5",
+              "content": {"Note": null},
+              "extra_fields": [
+                {"name": "Expiry Date", "content": {"Timestamp": 1822341600}},
+                {"name": "Unset Date", "content": {"Timestamp": null}}
+              ]
+            },
+            "state": "Active",
+            "flags": [],
+            "create_time": "2025-08-22T17:53:41",
+            "modify_time": "2025-08-22T17:53:41"
+          }]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(CLIItemListResponse.self, from: json)
+        let item = try #require(response.items.first)
+        let decoded = try JSONDecoder().decode(CLIItem.self, from: JSONEncoder().encode(item))
+        let fields = decoded.content.extraFields
+        try #require(fields.count == 2)
+        guard case .timestamp(let seconds) = fields[0].content else {
+            Issue.record("Expected timestamp content")
+            return
+        }
+        #expect(seconds == 1_822_341_600)
+        guard case .timestamp(nil) = fields[1].content else {
+            Issue.record("Expected empty timestamp content")
+            return
+        }
+        let rawItem = try #require(
+            (JSONSerialization.jsonObject(with: json) as? [String: Any])?["items"] as? [Any]
+        ).first
+        #expect(CLISnapshotContentProvenance.validatesShape(try #require(rawItem), of: item))
+    }
+
+    @Test("unsupported extra-field payloads keep the item decodable",
+          arguments: [
+            #"{"Mystery": 42}"#,
+            #"{"Mystery": {"nested": true}}"#,
+            #"{"Timestamp": "1822341600"}"#,
+            #"{"Timestamp": 1822341600.5}"#,
+          ])
+    func unsupportedExtraFieldContent(content: String) throws {
+        let json = """
+        {"id":"i","share_id":"s","vault_id":"v","state":"Active","flags":[],
+         "create_time":"2026-01-01T00:00:00Z","modify_time":"2026-01-01T00:00:00Z",
+         "content":{"title":"","note":"","item_uuid":"u",
+           "content":{"Note": null},
+           "extra_fields":[{"name":"Future","content":\(content)}]}}
+        """
+        let item = try JSONDecoder().decode(CLIItem.self, from: Data(json.utf8))
+        let field = try #require(item.content.extraFields.first)
+        guard case .unsupported = field.content else {
+            Issue.record("Expected unsupported content")
+            return
+        }
+        #expect(!field.content.hasValue)
+        // An unmodeled payload cannot round-trip, so the list is not certified complete for bulk reuse.
+        let rawItem = try JSONSerialization.jsonObject(with: Data(json.utf8))
+        #expect(!CLISnapshotContentProvenance.validatesShape(rawItem, of: item))
+    }
+
     @Test("nested alias email is not retained as alias content")
     func encodeAliasContent() throws {
         let nestedData = Data(#"{"Alias":{"email":"must-not-copy@example.com"}}"#.utf8)

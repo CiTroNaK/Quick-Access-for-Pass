@@ -75,7 +75,7 @@ nonisolated enum FieldKey: Sendable, Hashable {
     // lookup key for value extraction in `FieldExtractor`.
     //
     // `isSensitive` mirrors the `CLIExtraFieldContent` tag: `true` for
-    // `.hidden` and `.totp`, `false` for `.text`. It drives the lock-glyph
+    // `.hidden` and `.totp`, `false` for `.text` and `.timestamp`. It drives the lock-glyph
     // rendering in the detail view.
     case extra(path: ExtraFieldPath, name: String, isSensitive: Bool)
     case sectionHeader(name: String)

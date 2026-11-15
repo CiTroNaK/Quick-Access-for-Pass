@@ -59,6 +59,54 @@ struct FieldExtractorTests {
         #expect(FieldExtractor.value(for: .extra(path: .topLevel(fieldIndex: 2), name: "T", isSensitive: true), in: item) == "<<FAKE_TOTP_URI>>")
     }
 
+    @Test("extracts date extra field as the creator's calendar day, independent of the viewer's time zone",
+          arguments: [
+            Int64(1_822_341_600), // 2027-10-01 00:00 Europe/Prague (UTC+2)
+            Int64(1_822_348_800), // 2027-10-01 00:00 UTC
+            Int64(1_822_384_800), // 2027-10-01 00:00 Pacific/Honolulu (UTC-10)
+          ])
+    func timestampExtraField(seconds: Int64) throws {
+        let extras = """
+        [
+          {"name":"Expiry Date","content":{"Timestamp":\(seconds)}},
+          {"name":"Unset Date","content":{"Timestamp":null}},
+          {"name":"Future","content":{"Mystery":42}}
+        ]
+        """
+        let json = """
+        {"id":"i","share_id":"s","vault_id":"v","state":"Active","flags":[],
+         "create_time":"2026-01-01T00:00:00Z","modify_time":"2026-01-01T00:00:00Z",
+         "content":{"title":"","note":"","item_uuid":"u",
+           "content":{"Note": null},
+           "extra_fields":\(extras)}}
+        """
+        let item = try decode(json)
+        let expiry = FieldKey.extra(path: .topLevel(fieldIndex: 0), name: "Expiry Date", isSensitive: false)
+        #expect(FieldExtractor.value(for: expiry, in: item) == "2027-10-01")
+        let unset = FieldKey.extra(path: .topLevel(fieldIndex: 1), name: "Unset Date", isSensitive: false)
+        #expect(FieldExtractor.value(for: unset, in: item) == nil)
+        let unsupported = FieldKey.extra(path: .topLevel(fieldIndex: 2), name: "Future", isSensitive: false)
+        #expect(FieldExtractor.value(for: unsupported, in: item) == nil)
+    }
+
+    @Test("extracts date extra field from a custom item's section")
+    func customSectionTimestampField() throws {
+        let json = """
+        {"id":"i","share_id":"s","vault_id":"v","state":"Active","flags":[],
+         "create_time":"2026-01-01T00:00:00Z","modify_time":"2026-01-01T00:00:00Z",
+         "content":{"title":"","note":"","item_uuid":"u",
+           "content":{"Custom":{"sections":[
+             {"section_name":"Passport","section_fields":[
+                {"name":"Expiry Date","content":{"Timestamp":1822341600}}
+             ]}
+           ]}},
+           "extra_fields":[]}}
+        """
+        let item = try decode(json)
+        let key = FieldKey.extra(path: .customSection(sectionIndex: 0, fieldIndex: 0), name: "Expiry Date", isSensitive: false)
+        #expect(FieldExtractor.value(for: key, in: item) == "2027-10-01")
+    }
+
     @Test("extracts extra field from a custom item's section")
     func customSectionField() throws {
         let json = """

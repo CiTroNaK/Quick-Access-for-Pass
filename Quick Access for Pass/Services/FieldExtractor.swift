@@ -113,12 +113,23 @@ nonisolated enum FieldExtractor {
     }
 
     private static func valueAt(index: Int, in fields: [CLIExtraField]) -> String? {
-        guard fields.indices.contains(index) else { return nil }
-        let value: String
+        guard fields.indices.contains(index), fields[index].content.hasValue else { return nil }
         switch fields[index].content {
-        case .text(let fieldValue), .hidden(let fieldValue), .totp(let fieldValue):
-            value = fieldValue
+        case .text(let value), .hidden(let value), .totp(let value):
+            return value
+        case .timestamp(let seconds):
+            return seconds.map(calendarDate(fromLocalMidnight:))
+        case .unsupported:
+            return nil
         }
-        return value.isEmpty ? nil : value
+    }
+
+    /// Pass stores a date field as the creator's local midnight. Rounding to
+    /// the nearest UTC midnight recovers that calendar day for creators in
+    /// UTC-12...UTC+11 regardless of the viewer's time zone.
+    private static func calendarDate(fromLocalMidnight seconds: Int64) -> String {
+        let halfDay: TimeInterval = 12 * 60 * 60
+        let format = Date.ISO8601FormatStyle(timeZone: .gmt).year().month().day()
+        return Date(timeIntervalSince1970: TimeInterval(seconds) + halfDay).formatted(format)
     }
 }
