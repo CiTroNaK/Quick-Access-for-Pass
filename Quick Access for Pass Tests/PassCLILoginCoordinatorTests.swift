@@ -521,6 +521,8 @@ struct PassCLIBrowserSessionRepairTests {
 private nonisolated final class CompletionBox: @unchecked Sendable {
     private final class Storage: @unchecked Sendable {
         var continuation: CheckedContinuation<CLIStreamingResult, Never>?
+        // Latches a finish that arrives before the completion task has started.
+        var result: CLIStreamingResult?
     }
 
     private let storage = OSAllocatedUnfairLock(initialState: Storage())
@@ -531,18 +533,25 @@ private nonisolated final class CompletionBox: @unchecked Sendable {
         }
         let completion = Task<CLIStreamingResult, Error> {
             await withCheckedContinuation { continuation in
-                self.storage.withLock { $0.continuation = continuation }
+                let finished = self.storage.withLock { storage -> CLIStreamingResult? in
+                    if let result = storage.result { return result }
+                    storage.continuation = continuation
+                    return nil
+                }
+                if let finished { continuation.resume(returning: finished) }
             }
         }
         return CLIStreamingProcess(chunks: stream, completion: completion, terminate: {})
     }
 
     func finishSuccessfully() {
+        let result = CLIStreamingResult(terminationStatus: 0, stdout: "", stderr: "")
         let continuation = storage.withLock { storage in
             let continuation = storage.continuation
             storage.continuation = nil
+            if continuation == nil { storage.result = result }
             return continuation
         }
-        continuation?.resume(returning: CLIStreamingResult(terminationStatus: 0, stdout: "", stderr: ""))
+        continuation?.resume(returning: result)
     }
 }
