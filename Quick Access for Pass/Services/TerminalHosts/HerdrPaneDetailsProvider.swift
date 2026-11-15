@@ -142,20 +142,15 @@ nonisolated struct LiveHerdrPaneDetailsProvider: HerdrPaneDetailsProviding {
     }
 
     private func checkBudget(_ deadline: CLIExecutionDeadline) throws {
-        try Task.checkCancellation()
-        _ = try deadline.remainingSeconds(at: now())
+        try TerminalHostLookupChecks.checkBudget(deadline, now: now())
     }
 
     private func revalidate(_ match: TerminalHostMatch) -> Bool {
-        let nodes = match.requesterSideNodes + [match.host]
-        guard !match.requesterSideNodes.isEmpty, nodes.count <= 11, Set(nodes.map(\.pid)).count == nodes.count,
-              nodes.allSatisfy({ $0.pid > 1 && $0.startTimeMicroseconds > 0 && readProcess($0.pid) == $0 }) else { return false }
-        return zip(nodes, nodes.dropFirst()).allSatisfy { $0.parentPID == $1.pid }
+        TerminalHostLookupChecks.isChainIntact(match.requesterSideNodes, host: match.host, readProcess: readProcess)
     }
 
     private func validSocketPath(_ path: String) -> Bool {
-        path.hasPrefix("/") && path.utf8.count < MemoryLayout.size(ofValue: sockaddr_un().sun_path)
-            && !path.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+        TerminalHostLookupChecks.isValidSocketPath(path)
     }
 
     private func routingEnvironment(socketPath: String) -> [String: String] {

@@ -225,6 +225,8 @@ extension AppDelegate {
             passCLIStatusStore: passCLIStatusStore,
             terminalHostStore: terminalHostStore,
             paneDetailsProvider: herdrPaneDetailsProvider,
+            coreDetailsProvider: herdrCoreTerminalDetailsProvider,
+            coreSettings: herdrCoreSettings,
             authCallbacks: authCallbacks,
             notificationRouter: notificationRouter
         )
@@ -307,6 +309,8 @@ extension AppDelegate {
             keychainService: keychainService!,
             terminalHostStore: terminalHostStore,
             paneDetailsProvider: herdrPaneDetailsProvider,
+            coreDetailsProvider: herdrCoreTerminalDetailsProvider,
+            coreSettings: herdrCoreSettings,
             authCallbacks: authCallbacks
         )
         coordinator.setup()

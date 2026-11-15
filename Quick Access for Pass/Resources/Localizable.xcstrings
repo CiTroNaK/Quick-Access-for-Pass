@@ -5411,9 +5411,28 @@
         "cs" : { "stringUnit" : { "state" : "translated", "value" : "Rozpoznávat požadavky podporovaných terminálů a zobrazovat jejich kontext v dialozích SSH a Run." } }
       }
     },
-    "Context is best-effort and informational. It never changes permission scope. Herdr is the only pane-detail integration currently supported." : {
+    "Context is best-effort and informational. It never changes permission scope. Herdr and Herdr Core are the only pane-detail integrations currently supported." : {
+      "comment" : "Integrations settings footer. Herdr and Herdr Core are product names; do not translate.",
       "localizations" : {
-        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Kontext je pouze informativní a jeho získání není zaručeno. Nemění rozsah oprávnění. Herdr je jediná podporovaná integrace podrobností panelu." } }
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Kontext je pouze informativní a jeho získání není zaručeno. Nemění rozsah oprávnění. Herdr a Herdr Core jsou jediné podporované integrace podrobností panelu." } }
+      }
+    },
+    "Enable Herdr Core" : {
+      "comment" : "Accessibility label for the switch that turns Herdr Core context in SSH and Run prompts on or off. Herdr Core is a product name.",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Povolit Herdr Core" } }
+      }
+    },
+    "Not installed" : {
+      "comment" : "Integrations settings status shown next to Herdr Core when its command-line tool is not found.",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Není nainstalováno" } }
+      }
+    },
+    "Show Herdr Core terminal details" : {
+      "comment" : "Accessibility label for the Integrations switch that shows Herdr Core workspace, terminal title and folder in SSH and Run prompts. Herdr Core is a product name.",
+      "localizations" : {
+        "cs" : { "stringUnit" : { "state" : "translated", "value" : "Zobrazit podrobnosti terminálu Herdr Core" } }
       }
     },
     "Show workspace, pane title and directory" : {

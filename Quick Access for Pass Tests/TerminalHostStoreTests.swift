@@ -431,7 +431,7 @@ import Testing
             fixture.defaults.set(Data("invalid synthetic preferences".utf8), forKey: DefaultsKey.terminalHosts)
         }
         let displayedStore = invalidPreferences ? TerminalHostStore(defaults: fixture.defaults, discovery: fixture.discovery) : store
-        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: displayedStore).frame(width: 560))
+        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: displayedStore, coreSettings: HerdrCoreSettings(defaults: fixture.defaults)).frame(width: 560))
         view.frame = NSRect(x: 0, y: 0, width: 560, height: 500)
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width <= 560)

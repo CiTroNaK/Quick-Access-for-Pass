@@ -44,9 +44,8 @@ nonisolated enum PeerVerifier {
     }
 
     static func verify(fd: Int32) -> VerifiedConnection {
-        var token = audit_token_t()
-        var tokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &tokenSize) == 0 else {
+        // A partially filled token is rejected like a missing one.
+        guard let token = LocalPeerToken.read(fd: fd) else {
             AppLogger.sshProxy.warning("PeerVerifier: failed to get audit token from fd \(fd, privacy: .public)")
             return VerifiedConnection(fd: fd, identity: .unverified(pid: 0), pid: 0)
         }

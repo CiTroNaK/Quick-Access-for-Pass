@@ -48,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let terminalHostStore: TerminalHostStore
     @ObservationIgnored var activateSettingsApplication: () -> Void
     @ObservationIgnored let herdrPaneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider()
+    @ObservationIgnored let herdrCoreTerminalDetailsProvider: any HerdrCoreTerminalDetailsProviding = {
+        let verifier = LiveHerdrCodeSignatureVerifier()
+        return LiveHerdrCoreTerminalDetailsProvider(query: LiveHerdrCoreSocketClient(verifier: verifier), verifier: verifier)
+    }()
+    /// One shared instance for Settings and both proxy coordinators, like `terminalHostStore`.
+    let herdrCoreSettings: HerdrCoreSettings
 
     let healthStore = ProxyHealthStore()
     let passCLIStatusStore = PassCLIStatusStore()
@@ -150,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(terminalHostStore: TerminalHostStore, activateSettingsApplication: @escaping () -> Void = { NSApp.activate() }) {
         self.terminalHostStore = terminalHostStore
+        herdrCoreSettings = HerdrCoreSettings(defaults: .standard)
         self.activateSettingsApplication = activateSettingsApplication
         super.init()
     }

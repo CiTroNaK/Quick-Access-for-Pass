@@ -23,12 +23,26 @@ struct RequesterHeaderView: View {
             ?? NSImage(named: NSImage.applicationIconName)!
     }
 
+    @ViewBuilder private var icon: some View {
+        switch presentation.iconOverride {
+        case .symbol(let name):
+            Image(systemName: name)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+        case .bundle:
+            // Resolved once by the model when published, not on every render.
+            Image(nsImage: model?.overrideIconImage ?? appIcon).resizable()
+        case nil:
+            Image(nsImage: appIcon).resizable()
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Spacer(minLength: 0)
-                Image(nsImage: appIcon)
-                    .resizable()
+                icon
                     .frame(width: 48, height: 48)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {

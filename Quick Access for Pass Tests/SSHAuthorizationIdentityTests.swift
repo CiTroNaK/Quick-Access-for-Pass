@@ -64,4 +64,23 @@ struct SSHAuthorizationIdentityTests {
         #expect(identity.peerAppID == "unverified.456")
         #expect(identity.persistentCacheID == "com.mitchellh.ghostty:github.com:git fetch --all")
     }
+
+    @Test func herdrCoreIsABuiltInTerminalWithCommandScopedRules() {
+        #expect(ProcessIdentifier.showsCommand(bundleID: "dev.herdr.core", customApps: []))
+        #expect(!ProcessIdentifier.showsCommand(bundleID: "dev.herdr.app", customApps: []))
+        #expect(ProcessIdentifier.showsCommand(bundleID: "dev.herdr.app", customApps: ["dev.herdr.app"]))
+
+        let connection = VerifiedConnection(fd: -1, identity: .unverified(pid: 789), pid: 789)
+        let clientInfo = SSHClientInfo(
+            name: "Herdr Core", bundleIdentifier: "dev.herdr.core", bundleURL: nil,
+            command: "ssh git@github.com",
+            triggerCommand: "git pull",
+            showCommand: ProcessIdentifier.showsCommand(bundleID: "dev.herdr.core", customApps: []),
+            batchMode: false
+        )
+
+        let identity = SSHAuthorizationIdentity(connection: connection, clientInfo: clientInfo)
+
+        #expect(identity.persistentCacheID == "dev.herdr.core:github.com:git pull")
+    }
 }

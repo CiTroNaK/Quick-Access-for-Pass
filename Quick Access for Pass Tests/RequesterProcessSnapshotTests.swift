@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import Quick_Access_for_Pass
 
+private let coreSocket = "/Users/u/.local/state/herdr-core/default/default.sock"
+
 @Suite struct RequesterProcessSnapshotTests {
     private func args(_ fields: [String], argc: Int32 = 1) -> Data {
         var count = argc
@@ -12,20 +14,20 @@ import Testing
     }
     @Test func decoderCollectsOnlyNamedHints() {
         let data = args(["synthetic", "OTHER=ignored", "HERDR_SOCKET_PATH=/tmp/synthetic.sock", "HERDR_PANE_ID=pane", "UNRELATED=value", ""])
-        let hint = RequesterProcessCapture.decodeRoutingHint(data, pid: 10, startTimeMicroseconds: 20)
+        let hint = RequesterProcessCapture.decodeRoutingHints(data, pid: 10, startTimeMicroseconds: 20).herdr
         #expect(hint == .init(socketPath: "/tmp/synthetic.sock", paneID: "pane", originatingPID: 10, originatingStartTimeMicroseconds: 20))
-        #expect(RequesterProcessCapture.decodeRoutingHint(args(["synthetic", "HERDR_PANE_ID=pane", ""]), pid: 10, startTimeMicroseconds: 20) == nil)
+        #expect(RequesterProcessCapture.decodeRoutingHints(args(["synthetic", "HERDR_PANE_ID=pane", ""]), pid: 10, startTimeMicroseconds: 20).herdr == nil)
     }
     @Test func malformedTruncatedAndOversizedArgsFailClosed() {
         for data in [Data(), Data([1, 0, 0]), args(["synthetic"], argc: -1), args(["synthetic"], argc: 100),
                      Data(repeating: 1, count: 262145),
                      args(["synthetic", "HERDR_SOCKET_PATH=/tmp/a", "HERDR_SOCKET_PATH=/tmp/b", ""]),
                      args(["synthetic", "HERDR_SOCKET_PATH=relative", ""])] {
-            #expect(RequesterProcessCapture.decodeRoutingHint(data, pid: 10, startTimeMicroseconds: 20) == nil)
+            #expect(RequesterProcessCapture.decodeRoutingHints(data, pid: 10, startTimeMicroseconds: 20).herdr == nil)
         }
         var truncated = args(["synthetic", "HERDR_SOCKET_PATH=/tmp/socket"])
         truncated.removeLast()
-        #expect(RequesterProcessCapture.decodeRoutingHint(truncated, pid: 10, startTimeMicroseconds: 20) == nil)
+        #expect(RequesterProcessCapture.decodeRoutingHints(truncated, pid: 10, startTimeMicroseconds: 20).herdr == nil)
     }
     @Test func helperOnlyRoutingHintsReachMatchedHost() throws {
         let read: (Int32) -> RequesterProcessSnapshot.ProcessNode? = { pid in
@@ -91,5 +93,51 @@ import Testing
         #expect(helperSnapshot?.requester.pid == 9)
         #expect(helperSnapshot?.requester.parentPID == 10)
         #expect(helperSnapshot?.ancestors.count == 10)
+    }
+
+    @Test func coreHintDecodesTerminalAndSocket() {
+        let data = args(["synthetic", "HC_TERMINAL_ID=t5", "HC_TERMINAL_SOCKET=\(coreSocket)", "HC_SCOPE=x", "PATH=/bin", ""])
+        #expect(RequesterProcessCapture.decodeRoutingHints(data, pid: 7, startTimeMicroseconds: 9).core
+            == .init(terminalID: "t5", socketPath: coreSocket, originatingPID: 7, originatingStartTimeMicroseconds: 9))
+    }
+
+    @Test(arguments: [
+        ["HC_TERMINAL_SOCKET=\(coreSocket)"],
+        ["HC_TERMINAL_ID=t5"],
+        ["HC_TERMINAL_ID=t5", "HC_TERMINAL_SOCKET=relative.sock"],
+        ["HC_TERMINAL_ID=", "HC_TERMINAL_SOCKET=\(coreSocket)"],
+        ["HC_TERMINAL_ID=t5", "HC_TERMINAL_ID=t6", "HC_TERMINAL_SOCKET=\(coreSocket)"],
+        ["HC_TERMINAL_ID=t\u{1b}5", "HC_TERMINAL_SOCKET=\(coreSocket)"],
+        ["HC_TERMINAL_ID=" + String(repeating: "t", count: 4097), "HC_TERMINAL_SOCKET=\(coreSocket)"],
+    ])
+    func coreHintRejectsInvalidValues(fields: [String]) {
+        #expect(RequesterProcessCapture.decodeRoutingHints(args(["synthetic"] + fields + [""]), pid: 7, startTimeMicroseconds: 9).core == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func productsDecodeIndependently(invalidCore: Bool) {
+        let core = invalidCore ? ["HC_TERMINAL_ID=", "HC_TERMINAL_SOCKET=\(coreSocket)"]
+                               : ["HC_TERMINAL_ID=t5", "HC_TERMINAL_SOCKET=\(coreSocket)"]
+        let herdr = invalidCore ? ["HERDR_SOCKET_PATH=/tmp/herdr.sock"] : ["HERDR_SOCKET_PATH=relative"]
+        let data = args(["synthetic"] + core + herdr + [""])
+        let coreHint = RequesterProcessCapture.decodeRoutingHints(data, pid: 7, startTimeMicroseconds: 9).core
+        let herdrHint = RequesterProcessCapture.decodeRoutingHints(data, pid: 7, startTimeMicroseconds: 9).herdr
+        #expect((coreHint == nil) == invalidCore)
+        #expect((herdrHint == nil) == !invalidCore)
+    }
+
+    @Test func captureCollectsCoreHintsIndependentlyOfHerdr() throws {
+        let read: (Int32) -> RequesterProcessSnapshot.ProcessNode? = { pid in
+            guard pid >= 11, pid <= 13 else { return nil }
+            return .init(pid: pid, parentPID: pid == 13 ? 1 : pid + 1, startTimeMicroseconds: UInt64(pid),
+                         executablePath: "/bin/synthetic", canonicalExecutablePath: "/bin/synthetic")
+        }
+        let coreArgs = args(["synthetic", "HC_TERMINAL_ID=t5", "HC_TERMINAL_SOCKET=\(coreSocket)", ""])
+        let herdrArgs = args(["synthetic", "HERDR_SOCKET_PATH=/tmp/herdr.sock", ""])
+        let snapshot = try #require(RequesterProcessCapture.capture(pid: 11, readNode: read, readArguments: { pid in
+            pid == 12 ? coreArgs : pid == 13 ? herdrArgs : nil
+        }))
+        #expect(snapshot.coreRoutingHints.map(\.originatingPID) == [12])
+        #expect(snapshot.routingHints.map(\.originatingPID) == [13])
     }
 }

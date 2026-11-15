@@ -22,6 +22,7 @@ struct SettingsRoot: View {
             },
             autoFillAppAssociationsSettingsModel: autoFillAppAssociationsSettingsModel,
             terminalHostStore: appDelegate.terminalHostStore,
+            herdrCoreSettings: appDelegate.herdrCoreSettings,
             isSettingsWindowVisible: appDelegate.settingsWindowCoordinator.isSettingsWindowVisible
         )
             .onChange(of: appDelegate.databaseManager != nil) { _, databaseIsAvailable in

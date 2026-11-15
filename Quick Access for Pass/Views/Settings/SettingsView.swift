@@ -10,6 +10,7 @@ struct SettingsView: View {
     let onWindowAvailable: @MainActor (NSWindow) -> Void
     let autoFillAppAssociationsSettingsModel: AutoFillAppAssociationsSettingsModel?
     let terminalHostStore: TerminalHostStore
+    let herdrCoreSettings: HerdrCoreSettings
     var isSettingsWindowVisible = false
 
     @AppStorage(DefaultsKey.clipboardClearTimeout) var clipboardClearTimeout: Double = 30
@@ -96,7 +97,7 @@ struct SettingsView: View {
                 runProxyEnabled: $runProxyEnabled
             )
             Tab("Integrations", systemImage: "puzzlepiece.extension", value: SettingsTab.integrations) {
-                IntegrationsSettingsTab(store: terminalHostStore)
+                IntegrationsSettingsTab(store: terminalHostStore, coreSettings: herdrCoreSettings)
             }
             Tab("About", systemImage: "info.circle", value: SettingsTab.about) {
                 AboutSettingsTab()

@@ -12,6 +12,15 @@ nonisolated struct RequesterProcessSnapshot: Equatable, Sendable {
     let requester: ProcessNode
     let ancestors: [ProcessNode]
     let routingHints: [HerdrRoutingHint]
+    var coreRoutingHints: [HerdrCoreRoutingHint] = []
+}
+
+/// Herdr Core terminal selector inherited by a requester-side process; routing only, never ownership proof.
+nonisolated struct HerdrCoreRoutingHint: Equatable, Sendable {
+    let terminalID: String
+    let socketPath: String
+    let originatingPID: pid_t
+    let originatingStartTimeMicroseconds: UInt64
 }
 
 nonisolated struct HerdrRoutingHint: Equatable, Sendable {

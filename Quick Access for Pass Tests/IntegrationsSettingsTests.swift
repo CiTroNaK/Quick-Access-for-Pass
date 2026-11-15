@@ -79,11 +79,12 @@ import Testing
         for index in 0..<count {
             try fixture.store.addExecutable(at: fixture.executable("terminal-\(index)"))
         }
-        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: fixture.store).frame(width: 560))
+        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: fixture.store, coreSettings: HerdrCoreSettings(defaults: fixture.defaults)).frame(width: 560))
         view.frame = NSRect(x: 0, y: 0, width: 560, height: 800)
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width <= 560)
-        #expect(view.fittingSize.height <= 400)
+        // Budget includes the fixed Herdr and Herdr Core rows.
+        #expect(view.fittingSize.height <= 470)
     }
 
     @Test func longCustomListsStayWithinBoundedSettingsPaneHeight() throws {
@@ -91,11 +92,11 @@ import Testing
         for index in 0..<8 {
             try fixture.store.addExecutable(at: fixture.executable("long-terminal-\(index)"))
         }
-        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: fixture.store).frame(width: 560))
+        let view = NSHostingView(rootView: IntegrationsSettingsTab(store: fixture.store, coreSettings: HerdrCoreSettings(defaults: fixture.defaults)).frame(width: 560))
         view.frame = NSRect(x: 0, y: 0, width: 560, height: 800)
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width <= 560)
-        #expect(view.fittingSize.height <= 450,
+        #expect(view.fittingSize.height <= 520,
                 "Long custom-host lists must scroll instead of expanding the Settings pane")
     }
 

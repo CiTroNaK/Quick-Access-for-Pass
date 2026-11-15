@@ -35,21 +35,7 @@ nonisolated struct SSHClientInfo: Sendable {
 
 // MARK: - Process Identifier
 nonisolated enum ProcessIdentifier {
-    private static let terminalBundleIDs: Set<String> = [
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "net.kovidgoyal.kitty",
-        "com.mitchellh.ghostty",
-        "io.alacritty",
-        "org.alacritty",
-        "com.github.wez.wezterm",
-        "co.zeit.hyper",
-        "dev.warp.Warp-Stable",
-        "com.panic.Prompt",
-        "com.codinn.SecureCRT",
-    ]
-
-    private static let shellNames: Set<String> = [
+    static let shellNames: Set<String> = [
         "sh", "bash", "zsh", "fish", "dash", "tcsh", "csh", "login",
     ]
 }
@@ -71,7 +57,7 @@ nonisolated extension ProcessIdentifier {
                 command: command,
                 triggerCommand: triggerCommand,
                 showCommand: runningApp.flatMap {
-                    terminalBundleIDs.contains($0.bundleIdentifier ?? "")
+                    showsCommand(bundleID: $0.bundleIdentifier ?? "", customApps: [])
                 } ?? true,
                 batchMode: command.map { isBatchModeCommand($0) } ?? false,
                 requesterSnapshot: requesterSnapshot(pid: connection.pid)
@@ -197,10 +183,9 @@ nonisolated extension ProcessIdentifier {
     ) -> SSHClientInfo {
         let shouldShow: Bool = {
             guard let bundleID = info.bundleIdentifier else { return false }
-            if terminalBundleIDs.contains(bundleID) { return true }
             let json = UserDefaults.standard.string(forKey: DefaultsKey.sshShowCommandApps) ?? "[]"
             let custom = (try? JSONDecoder().decode([String].self, from: Data(json.utf8))) ?? []
-            return custom.contains(bundleID)
+            return showsCommand(bundleID: bundleID, customApps: custom)
         }()
 
         let isBatchMode = command.map { Self.isBatchModeCommand($0) } ?? false

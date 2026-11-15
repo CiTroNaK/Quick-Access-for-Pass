@@ -175,7 +175,8 @@ struct RunAuthWindowControllerTests {
             keychainService: FakeBiometricAuthorizer(outcome: .success(())), callbacks: .noop,
             identifyParent: { _ in parentCalls += 1; return appInfo },
             headerFactory: { info in RequesterHeaderModel(clientInfo: info, snapshot: info.requesterSnapshot,
-                store: fixture.store, detailsProvider: fixture.detailsProvider) },
+                store: fixture.store, detailsProvider: fixture.detailsProvider,
+                coreDetailsProvider: fixture.coreDetailsProvider) },
             dialogPresenter: { prompts.continuation.yield($0) })
         var iterator = prompts.stream.makeAsyncIterator()
         let request = RunProxyRequest(profile: "fixture", command: ["git", "fetch"], pid: 100)

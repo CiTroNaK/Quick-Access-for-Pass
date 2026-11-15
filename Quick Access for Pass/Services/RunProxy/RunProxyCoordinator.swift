@@ -13,6 +13,8 @@ final class RunProxyCoordinator {
     private let defaults: UserDefaults
     private let terminalHostStore: TerminalHostStore?
     private let paneDetailsProvider: any HerdrPaneDetailsProviding
+    private let coreDetailsProvider: any HerdrCoreTerminalDetailsProviding
+    private let coreSettings: HerdrCoreSettings?
     private let authCallbacks: AuthDialogHelper.Callbacks
     private let secretResolver: @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String]
     var isAppLocked: @MainActor @Sendable () -> Bool = { false }
@@ -39,6 +41,8 @@ final class RunProxyCoordinator {
         defaults: UserDefaults = .standard,
         terminalHostStore: TerminalHostStore? = nil,
         paneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider(),
+        coreDetailsProvider: (any HerdrCoreTerminalDetailsProviding)? = nil,
+        coreSettings: HerdrCoreSettings? = nil,
         authCallbacks: AuthDialogHelper.Callbacks = .noop,
         secretResolver: @escaping @Sendable ([RunProfileEnvMapping], String) async throws -> [String: String] = { mappings, cliPath in
             try await RunSecretResolver.resolve(mappings: mappings, cliPath: cliPath)
@@ -53,6 +57,8 @@ final class RunProxyCoordinator {
         self.defaults = defaults
         self.terminalHostStore = terminalHostStore
         self.paneDetailsProvider = paneDetailsProvider
+        self.coreDetailsProvider = coreDetailsProvider ?? UnavailableHerdrCoreDetailsProvider()
+        self.coreSettings = coreSettings
         self.authCallbacks = authCallbacks
         self.secretResolver = secretResolver
     }
@@ -64,10 +70,11 @@ final class RunProxyCoordinator {
 
         authWindowController = RunAuthWindowController(
             databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks,
-            headerFactory: { [terminalHostStore, paneDetailsProvider] clientInfo in
+            headerFactory: { [terminalHostStore, paneDetailsProvider, coreDetailsProvider, coreSettings] clientInfo in
                 guard let terminalHostStore else { return nil }
                 return RequesterHeaderModel(clientInfo: clientInfo, snapshot: clientInfo.requesterSnapshot,
-                                            store: terminalHostStore, detailsProvider: paneDetailsProvider)
+                                            store: terminalHostStore, detailsProvider: paneDetailsProvider,
+                                            coreDetailsProvider: coreDetailsProvider, coreSettings: coreSettings)
             }
         )
 

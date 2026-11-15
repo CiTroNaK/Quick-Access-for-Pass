@@ -18,6 +18,8 @@ nonisolated enum DefaultsKey {
     static let lastSyncTime = "lastSyncTime"
     static let cliPath = "cliPath"
     static let terminalHosts = "terminalHosts"
+    static let herdrCoreContextEnabled = "herdrCoreContextEnabled"
+    static let herdrCoreShowDetails = "herdrCoreShowDetails"
     static let passCLISelection = "passCLISelection"
     static let selectedSettingsTab = "selectedSettingsTab"
     static let sshProxyEnabled = "sshProxyEnabled"

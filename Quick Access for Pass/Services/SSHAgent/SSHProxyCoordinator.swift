@@ -21,6 +21,8 @@ final class SSHProxyCoordinator {
     let passCLIStatusStore: PassCLIStatusStore
     private let terminalHostStore: TerminalHostStore?
     private let paneDetailsProvider: any HerdrPaneDetailsProviding
+    private let coreDetailsProvider: any HerdrCoreTerminalDetailsProviding
+    private let coreSettings: HerdrCoreSettings?
     private let authCallbacks: AuthDialogHelper.Callbacks
     private weak var notificationRouter: UserNotificationRouter?
     let defaults: UserDefaults
@@ -50,6 +52,8 @@ final class SSHProxyCoordinator {
         defaults: UserDefaults = .standard,
         terminalHostStore: TerminalHostStore? = nil,
         paneDetailsProvider: any HerdrPaneDetailsProviding = LiveHerdrPaneDetailsProvider(),
+        coreDetailsProvider: (any HerdrCoreTerminalDetailsProviding)? = nil,
+        coreSettings: HerdrCoreSettings? = nil,
         authCallbacks: AuthDialogHelper.Callbacks = .noop,
         notificationRouter: UserNotificationRouter? = nil
     ) {
@@ -62,6 +66,8 @@ final class SSHProxyCoordinator {
         self.defaults = defaults
         self.terminalHostStore = terminalHostStore
         self.paneDetailsProvider = paneDetailsProvider
+        self.coreDetailsProvider = coreDetailsProvider ?? UnavailableHerdrCoreDetailsProvider()
+        self.coreSettings = coreSettings
         self.authCallbacks = authCallbacks
         self.notificationRouter = notificationRouter
     }
@@ -74,10 +80,11 @@ final class SSHProxyCoordinator {
 
         authWindowController = SSHAuthWindowController(
             databaseManager: databaseManager, keychainService: keychainService, callbacks: authCallbacks,
-            headerFactory: { [terminalHostStore, paneDetailsProvider] clientInfo in
+            headerFactory: { [terminalHostStore, paneDetailsProvider, coreDetailsProvider, coreSettings] clientInfo in
                 guard let terminalHostStore else { return nil }
                 return RequesterHeaderModel(clientInfo: clientInfo, snapshot: clientInfo.requesterSnapshot,
-                                            store: terminalHostStore, detailsProvider: paneDetailsProvider)
+                                            store: terminalHostStore, detailsProvider: paneDetailsProvider,
+                                            coreDetailsProvider: coreDetailsProvider, coreSettings: coreSettings)
             }
         )
 
